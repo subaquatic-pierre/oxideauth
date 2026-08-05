@@ -117,7 +117,7 @@ serial_test = "0.6"
 mockall = "0.13.0"
 
 [lints.rust]
-unused = "allow"
+# unused = "allow"
 # unsafe_code = "forbid"
 
 [features]

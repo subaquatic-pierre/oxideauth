@@ -18,25 +18,25 @@ RUN cargo install cargo-watch
 
 WORKDIR /app
 
-# Copy manifest files from the root and the app directory
+# Copy workspace manifest and member crate manifests
 COPY Cargo.toml Cargo.lock ./
-COPY oxideauth/ oxideauth/
-COPY oxideauth-macros/ oxideauth-macros/ 
+COPY api/ api/
+COPY macros/ macros/
 
-# Dummy build (will correctly find oxideauth-macros)
-RUN mkdir -p oxideauth/src/ # Need to create src for dummy build
-RUN echo "fn main() {}" > oxideauth/src/main.rs 
-RUN cargo build 
+# Dummy build for dependency caching (creates stub main.rs)
+RUN mkdir -p api/src/
+RUN echo "fn main() {}" > api/src/main.rs
+RUN cargo build
 # ---------------------------------------------------
 
 # Copy the rest of the source code
 COPY . .
 
-# Rename the environment file
-RUN mv .env.dev .env
+# Copy the dev environment file into place
+COPY api/.env.dev .env
 
 EXPOSE 8000
 
 # Use cargo-watch to rebuild and run the application when files change.
-# We explicitly set --bin oxideauth based on your CMD.
-CMD ["cargo", "watch", "-x", "run", "--bin", "oxideauth"]
+# The -x flag takes a single string argument for the cargo subcommand.
+CMD ["cargo", "watch", "-x", "run --bin oxideauth"]
