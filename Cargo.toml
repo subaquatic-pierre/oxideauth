@@ -110,7 +110,7 @@ derive_more = { version = "2.0.1", features = ["from", "display"] }
 # ──────────────────────────────────────────────────────────────────────────────
 # Macros
 # ──────────────────────────────────────────────────────────────────────────────
-oxideauth-macros = { path = "../oxideauth-macros" }
+oxideauth-macros = { path = "../macros" }
 
 [dev-dependencies]
 serial_test = "0.6"
