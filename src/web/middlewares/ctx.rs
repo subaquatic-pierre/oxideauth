@@ -1,0 +1,96 @@
+use axum::{
+    body::Body,
+    extract::{FromRequest, Request},
+    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+    RequestExt,
+};
+use axum_extra::{
+    headers::{authorization::Bearer, Authorization},
+    TypedHeader,
+};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use tower::{Layer, Service};
+
+use crate::{
+    app::{App, AppState},
+    cache::redis::RedisChx,
+    core::services::ctx::{CtxConfig, CtxService},
+    web::error::ErrorBody,
+};
+use crate::{core::services::token::TokenService, store::dbx::PgDbx}; // Use Axum's body type
+
+#[derive(Clone)]
+pub struct CtxLayer {
+    ctx_svc: Arc<CtxService<PgDbx, RedisChx>>,
+}
+
+impl CtxLayer {
+    pub fn new(app_state: &App) -> Self {
+        let config = CtxConfig {};
+        let ctx_svc = Arc::new(CtxService::new(app_state.svc_factory.clone(), config));
+        Self { ctx_svc }
+    }
+}
+
+impl<S> Layer<S> for CtxLayer {
+    type Service = CtxMw<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        CtxMw {
+            inner,
+            ctx_svc: self.ctx_svc.clone(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct CtxMw<S> {
+    inner: S,
+    ctx_svc: Arc<CtxService<PgDbx, RedisChx>>,
+}
+
+impl<S> Service<Request<Body>> for CtxMw<S>
+where
+    S: Service<Request, Response = Response> + Send + 'static + Clone,
+    S::Future: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, mut req: Request) -> Self::Future {
+        // Clone the state so we can move it into the async block
+        let ctx_svc = self.ctx_svc.clone();
+        let mut inner = self.inner.clone();
+
+        Box::pin(async move {
+            // Extract the Authorization header
+
+            // Call your auth service
+            match ctx_svc.resolve_ctx(req.headers()).await {
+                Ok(ctx) => {
+                    req.extensions_mut().insert(ctx);
+
+                    inner.call(req).await
+                }
+                Err(_e) => {
+                    let body = ErrorBody {
+                        success: false,
+                        status: StatusCode::UNAUTHORIZED.as_u16(),
+                        message: "unauthorized".to_string(),
+                    };
+
+                    Ok((StatusCode::UNAUTHORIZED, axum::Json(body)).into_response())
+                }
+            }
+        })
+    }
+}

@@ -1,0 +1,67 @@
+# ===================================================================
+# Example Cargo configuration for OxideAuth
+# Copy to `.cargo/config.toml` and fill in actual values as needed.
+# ===================================================================
+
+[env]
+
+# --- Database configuration
+DATABASE_URL=""        # main/prod database
+
+# --- AWS configuration
+AWS_REGION=""
+
+AWS_SES_HOST=""
+AWS_SES_FROM=""
+AWS_SES_ACCESS_KEY=""
+AWS_SES_SECRET_KEY=""
+
+AWS_S3_ACCESS_KEY=""
+AWS_S3_SECRET_KEY=""
+
+# --- Logging & server configuration
+APP_ENV="dev"
+RUST_LOG=""
+CLIENT_ORIGIN=""
+HOST=""
+PORT=""
+DROP_SCHEMA=""
+
+# --- JWT configuration
+JWT_SECRET=""
+TOKEN_MAXAGE=""
+
+# --- Owner bootstrap account
+OWNER_EMAIL=""
+OWNER_PASSWORD=""
+
+# --- OAuth2 credentials
+GOOGLE_OAUTH_REDIRECT_URL=""
+GOOGLE_OAUTH_CLIENT_ID=""
+GOOGLE_OAUTH_CLIENT_SECRET=""
+
+# ===================================================================
+# Cargo command aliases for sqlx migrations
+# Adjust database URLs and migration folders before use.
+# ===================================================================
+[alias]
+
+# ---------------- DEV ----------------
+db-dev-add    = ["sqlx", "migrate", "add", "--source", "sql/migrations/dev"]
+db-dev-run    = ["sqlx", "migrate", "run",   "--database-url", "postgres://oxideauth:password@localhost:5432/db_dev", "--source", "sql/migrations/dev"]
+db-dev-info   = ["sqlx", "migrate", "info",  "--database-url", "postgres://oxideauth:password@localhost:5432/db_dev", "--source", "sql/migrations/dev"]
+db-dev-reset  = ["sqlx", "database", "reset","-y", "--database-url", "postgres://oxideauth:password@localhost:5432/db_dev", "--source", "sql/migrations/dev"]
+db-dev-revert = ["sqlx", "migrate", "revert","--database-url", "postgres://oxideauth:password@localhost:5432/db_dev", "--source", "sql/migrations/dev"]
+
+# ---------------- TEST ----------------
+db-test-add    = ["sqlx", "migrate", "add", "--source", "sql/migrations/test"]
+db-test-run    = ["sqlx", "migrate", "run",   "--database-url", "postgres://oxideauth:password@localhost:5432/db_test", "--source", "sql/migrations/test"]
+db-test-info   = ["sqlx", "migrate", "info",  "--database-url", "postgres://oxideauth:password@localhost:5432/db_test", "--source", "sql/migrations/test"]
+db-test-reset  = ["sqlx", "database", "reset","-y", "--database-url", "postgres://oxideauth:password@localhost:5432/db_test", "--source", "sql/migrations/test"]
+db-test-revert = ["sqlx", "migrate", "revert","--database-url", "postgres://oxideauth:password@localhost:5432/db_test", "--source", "sql/migrations/test"]
+
+# ---------------- PROD ----------------
+db-prod-add    = ["sqlx", "migrate", "add", "-r", "--source", "sql/migrations/prod"]
+db-prod-run    = ["sqlx", "migrate", "run",   "--database-url", "postgres://oxideauth:password@localhost:5432/oxideauth", "--source", "sql/migrations/prod"]
+db-prod-info   = ["sqlx", "migrate", "info",  "--database-url", "postgres://oxideauth:password@localhost:5432/oxideauth", "--source", "sql/migrations/prod"]
+db-prod-revert = ["sqlx", "migrate", "revert","--database-url", "postgres://oxideauth:password@localhost:5432/oxideauth", "--source", "sql/migrations/prod"]

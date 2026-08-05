@@ -1,0 +1,9 @@
+/target
+.env*
+server.pid
+
+.sqlx
+test-results
+.cargo/config.toml
+data/
+target
