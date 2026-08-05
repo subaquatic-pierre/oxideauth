@@ -1,0 +1,42 @@
+# Use a current, stable Rust image. 
+# rust:slim-bullseye is often preferred as it's smaller, 
+# but using the default tag ensures all Rust tooling is present.
+FROM rust:latest
+
+# Install system dependencies necessary for Rust projects (like for 'tokio' or 'openssl' bindings).
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    pkg-config \
+    libssl-dev 
+    # The watch tool is called 'watchexec' or 'cargo-watch' 
+    # but since we install cargo-watch below, only system dependencies are needed here.
+    # Note: 'cargo watch' is not an apt package. We install it via cargo.
+    # Also, remove the unnecessary 'cargo watch' from apt-get.
+
+# Install cargo-watch globally for development
+RUN cargo install cargo-watch
+
+WORKDIR /app
+
+# Copy manifest files from the root and the app directory
+COPY Cargo.toml Cargo.lock ./
+COPY oxideauth/ oxideauth/
+COPY oxideauth-macros/ oxideauth-macros/ 
+
+# Dummy build (will correctly find oxideauth-macros)
+RUN mkdir -p oxideauth/src/ # Need to create src for dummy build
+RUN echo "fn main() {}" > oxideauth/src/main.rs 
+RUN cargo build 
+# ---------------------------------------------------
+
+# Copy the rest of the source code
+COPY . .
+
+# Rename the environment file
+RUN mv .env.dev .env
+
+EXPOSE 8000
+
+# Use cargo-watch to rebuild and run the application when files change.
+# We explicitly set --bin oxideauth based on your CMD.
+CMD ["cargo", "watch", "-x", "run", "--bin", "oxideauth"]
