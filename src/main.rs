@@ -1,11 +1,11 @@
-#![deny(unused_must_use)]
+#![allow(unused)]
 use std::{env, io, str::FromStr, sync::Arc};
 
 use dotenv::dotenv;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use axum::{routing::get, Router};
+use axum::{Router, routing::get};
 use std::net::SocketAddr;
 
 mod app;
