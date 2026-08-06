@@ -16,7 +16,7 @@ use crate::store::manager::StoreManager;
 use crate::store::traits::dbx::DbExecutor;
 use crate::{
     config::Config,
-    store::init::{new_db_pool, PgPool},
+    store::init::{PgPool, new_db_pool},
 };
 
 pub enum AppEnv {
@@ -67,7 +67,7 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
 
             debug!(
                 "{:<12} - new_app_data()",
-                "Application started in DEVELOPMENT mode"
+                "Application started in DEVELOPMENT mode",
             );
 
             init_dev(&dbx.pool()).await;
@@ -113,6 +113,8 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
     };
 
     let svc_factory = Arc::new(ServiceFactory::new(sm.clone(), cm.clone()));
+
+    debug!("App Config config: {:?}", config);
 
     AppState {
         dbx: dbx.clone(),

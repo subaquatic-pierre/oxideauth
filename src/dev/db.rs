@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use sqlx::{postgres::PgPoolOptions, Executor};
+use sqlx::{Executor, postgres::PgPoolOptions};
 use tokio::sync::OnceCell;
 use tracing::info;
 
@@ -90,6 +90,7 @@ pub fn get_sql_dir() -> PathBuf {
 //     (store_manager, mock_pool)
 // }
 
+#[cfg(feature = "db-self-test")]
 #[cfg(test)]
 mod tests {
     use crate::store::init::new_db_pool;

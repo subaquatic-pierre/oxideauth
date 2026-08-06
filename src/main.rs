@@ -1,4 +1,3 @@
-#![allow(unused)]
 use std::{env, io, str::FromStr, sync::Arc};
 
 use dotenv::dotenv;

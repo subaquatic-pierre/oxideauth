@@ -116,9 +116,20 @@ oxideauth-macros = { path = "../macros" }
 serial_test = "0.6"
 mockall = "0.13.0"
 
-[lints.rust]
-# unused = "allow"
-# unsafe_code = "forbid"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ["cfg(feature, values(\"db-self-test\"))"]
+
+[lints.rust.unused]
+level = "allow"
+
+# [lints.rust.unused_imports]
+# level = "warn"
+
+# [lints.rust.unused_variables]
+# level = "warn"
 
 [features]
-# default = ["sqlx/offline"] 
+default = []
+
