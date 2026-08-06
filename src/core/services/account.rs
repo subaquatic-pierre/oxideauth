@@ -362,7 +362,12 @@ mod tests {
                 mem::forget(acc);
                 Ok(result)
             },
-            fetch_optional: { Ok(None) },
+            fetch_optional: {
+                let ws = WorkspaceRow::default();
+                let result = unsafe { mem::transmute_copy::<WorkspaceRow, O>(&ws) };
+                mem::forget(ws);
+                Ok(Some(result))
+             },
             fetch_all: { Ok(vec![]) },
             execute: { Ok(1) }
         );
