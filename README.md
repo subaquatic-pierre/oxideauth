@@ -41,7 +41,34 @@ src/
 
 ## API Endpoints
 
-See [docs/api_philosophy.md](../docs/api_philosophy.md) for API design principles.
+All 39 endpoints use JSON POST with a standard `{ success, status, data }` response envelope.
+
+| Resource | Endpoints | Description |
+|----------|-----------|-------------|
+| Health | 2 | `GET /`, `GET /health-check` |
+| Workspaces | 5 | CRUD + List — multi-tenant containers |
+| Accounts | 5 | CRUD + List — user identity management |
+| Projects | 5 | CRUD + List — scoped work areas |
+| Roles | 5 | CRUD + List — permission bundles |
+| Permissions | 5 | CRUD + List — fine-grained access control |
+| Memberships | 5 | CRUD + List — account-to-workspace links |
+| Credentials | 4 | Describe, List, Update, Delete |
+| Tokens | 3 | Describe, List, Delete — token blacklist |
+
+## Documentation
+
+Full API reference, concept guides, and architecture docs are in the [project docs](../docs/).
+
+## Postman Collection
+
+Import-ready collection with all 39 endpoints, example payloads, auto-populated variables, and test scripts:
+
+[`references/OxideAuth.postman_collection.json`](references/OxideAuth.postman_collection.json)
+
+1. Import into Postman
+2. Set the `host` variable (default: `http://127.0.0.1:8000`)
+3. Set the `token` variable to a valid Bearer JWT
+4. Run **Workspace → Create Workspace** first to populate the `{{workspace_id}}` variable
 
 ## Testing
 
