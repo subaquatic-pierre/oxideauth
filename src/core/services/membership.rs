@@ -560,12 +560,11 @@ mod tests {
 
         // --- 4. List ---
         ctx.extend_perms(&["membership:list"])?;
-        let filter: MembershipFilter = json!({ "tags": {"$contains": "veteran"} }).try_into()?;
         let list_params = MembershipListParams {
             workspace_id,
             filter: Some(RequestFilterParams {
-                fields: Some(filter),
-                tags: None,
+                fields: None,
+                tags: Some(vec!["veteran".to_string()]),
             }),
             ..Default::default()
         };

@@ -245,6 +245,13 @@ pub async fn list_one_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: Tab
         .column((meta.single_table, Asterisk))
         .expr_as(join_agg, meta.agg_alias);
 
+    // apply workspace scope
+    if let Some(ws_id) = ctx.workspace_scope() {
+        let enforced_condition =
+            Condition::all().add(Expr::col(Alias::new("workspace_id")).eq(ws_id));
+        main_query.cond_where(enforced_condition);
+    }
+
     // apply filter BEFORE join/group_by so it generates WHERE, not HAVING
     if let Some(filter) = filter {
         let filters: FilterGroups = filter.into();

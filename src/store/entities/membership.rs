@@ -178,9 +178,9 @@ pub struct MembershipFilter {
     pub project_id: Option<OpValsString>,
     pub status: Option<OpValsString>,
 
-    // NOTE: Filtering on JSONB and TEXT[] fields would require custom modql logic.
-    // pub tags: Option<OpValsValue>,
-    // pub meta: Option<OpValsValue>,
+    // NOTE: Filtering on JSONB and TEXT[] fields requires custom modql logic.
+    pub tags: Option<OpValsValue>,
+    pub meta: Option<OpValsValue>,
     #[modql(cast_as = "uuid")]
     pub created_by: Option<OpValsString>,
     #[modql(to_sea_value_fn = "time_to_sea_value")]
