@@ -243,22 +243,22 @@ pub async fn list_one_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: Tab
     main_query
         .from(meta.single_table)
         .column((meta.single_table, Asterisk))
-        .expr_as(join_agg, meta.agg_alias)
+        .expr_as(join_agg, meta.agg_alias);
+
+    // apply filter BEFORE join/group_by so it generates WHERE, not HAVING
+    if let Some(filter) = filter {
+        let filters: FilterGroups = filter.into();
+        let cond: Condition = filters.try_into()?;
+        main_query.cond_where(cond);
+    }
+
+    main_query
         .join(
             JoinType::LeftJoin,
             ManyCte, // Join to the CTE, not the original table
             Expr::col((meta.single_table, meta.single_pk)).equals((ManyCte, meta.many_fk)),
         )
         .group_by_col((meta.single_table, meta.single_pk));
-
-    // TODO: ensure joined list row count does not exceed list limits
-    // apply filter to query
-
-    if let Some(filter) = filter {
-        let filters: FilterGroups = filter.into();
-        let cond: Condition = filters.try_into()?;
-        main_query.cond_where(cond);
-    }
 
     // validate list options
     let list_options = ListOptionsValidator::validate_list_opts(opts, meta.has_audit)?;
