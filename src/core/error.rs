@@ -4,7 +4,7 @@ use derive_more::From;
 use hex::FromHexError;
 use serde::{Deserialize, Serialize};
 use serde_json::Error as JsonError;
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use time::error::{Format, Parse};
 
 pub type CoreResult<T> = core::result::Result<T, CoreError>;
@@ -39,7 +39,8 @@ pub enum CoreError {
 
 impl Display for CoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
+        write!(f, "{self:?}");
+        Ok(())
     }
 }
 

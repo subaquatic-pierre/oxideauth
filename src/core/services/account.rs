@@ -91,13 +91,13 @@ impl<D: DbExecutor> AccountService<D> {
                     return Err(CoreError::StoreError(StoreError::EntityNotFound {
                         entity: "account".to_string(),
                         id: email.to_string(),
-                    }))
+                    }));
                 }
             },
             (None, None) => {
                 return Err(CoreError::InvalidParams(
                     "Account ID or email required".to_string(),
-                ))
+                ));
             }
         };
 
@@ -283,7 +283,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        app::{new_app_data, AppEnv},
+        app::{AppEnv, new_app_data},
         cache::{manager::CacheManager, redis::RedisChx},
         config::Config,
         core::services::factory::ServiceFactory,
@@ -297,6 +297,7 @@ mod tests {
             entities::{
                 account::AccountRow,
                 credential::{CredentialForCreate, CredentialProvider},
+                workspace::WorkspaceRow,
             },
             error::StoreError,
             meta::StoreId,
@@ -305,9 +306,11 @@ mod tests {
         },
     };
     use anyhow::Result;
+    use log::debug;
     use modql::filter::{ListOptions, OpValsString};
     use serde_json::json;
     use serial_test::serial;
+    use std::any::TypeId;
     use uuid::Uuid;
 
     #[tokio::test]
@@ -397,12 +400,19 @@ mod tests {
         create_dbx_mock_unsafe!(
             MockDbxAccountRegister,
             fetch_one: {
-                let acc = AccountRow::default();
-                let result = unsafe { mem::transmute_copy::<AccountRow, O>(&acc) };
-                mem::forget(acc);
+                // workspace lookup via fetch_one
+                let ws = WorkspaceRow::default();
+                let result = unsafe { mem::transmute_copy::<WorkspaceRow, O>(&ws) };
+                mem::forget(ws);
                 Ok(result)
             },
-            fetch_optional: { Ok(None) },
+            fetch_optional: {
+                // workspace lookup via fetch_one
+                let ws = WorkspaceRow::default();
+                let result = unsafe { mem::transmute_copy::<WorkspaceRow, O>(&ws) };
+                mem::forget(ws);
+                Ok(Some(result))
+             },
             fetch_all: {
                 let mut acc = AccountRow::default();
                 acc.email = "user@user.com".to_string();
@@ -410,8 +420,9 @@ mod tests {
                 mem::forget(acc);
                 Ok(vec![result])
             },
-            execute: { Ok(1) }
+            execute: { Err(StoreError::MockReturn) }
         );
+
         let config = Config::test_config();
 
         // build store manager
@@ -429,6 +440,8 @@ mod tests {
 
         let params = AccountCreateParams::default();
         let new_acc = svc.create(&mut ctx, params).await;
+
+        // println!("new_acc: {:?}", new_acc);
 
         assert!(
             matches!(new_acc, Err(CoreError::AlreadyExists(..))),

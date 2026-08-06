@@ -1,9 +1,9 @@
-use oxideauth_macros::HasId;
 use modql::field::Fields;
 use modql::filter::{FilterNodes, OpValsString, OpValsValue};
-use sea_query::{sea_value_to_json_value, Iden, Nullable, Value as SeaValue};
+use oxideauth_macros::HasId;
+use sea_query::{Iden, Nullable, Value as SeaValue, sea_value_to_json_value};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use sqlx::prelude::FromRow;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -29,7 +29,7 @@ pub enum WorkspaceIden {
 
 // --- Row (DB-facing) ---
 /// Maps to the `workspace` SQL table.
-#[derive(Debug, FromRow, Deserialize, HasId)]
+#[derive(Debug, FromRow, Deserialize, HasId, Default)]
 pub struct WorkspaceRow {
     pub id: DbId,
 
