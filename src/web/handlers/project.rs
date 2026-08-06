@@ -1,19 +1,15 @@
 use axum::{
-    extract::{rejection::JsonRejection, Extension, State},
-    response::IntoResponse,
-    routing::{delete, get, patch, post},
+    extract::Extension,
+    routing::post,
     Json, Router,
 };
-use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::{
     app::App,
     core::{
         ctx::CoreCtx,
-        error::CoreError,
         models::{
-            list::{ListResponse, ListResponseMeta, RequestFilterParams, RequestListOptions},
             project::{
                 Project, ProjectCreateParams, ProjectDeleteParams, ProjectDescribeParams,
                 ProjectListParams, ProjectUpdateParams,
@@ -24,20 +20,15 @@ use crate::{
             CoreModelListService, CoreModelUpdateService,
         },
     },
-    store::entities::project::ProjectFilter,
     web::{
         dtos::project::{
             ProjectCreateReq, ProjectDeleteReq, ProjectDeleteRes, ProjectDescribeReq,
             ProjectDescribeRes, ProjectListReq, ProjectListRes, ProjectUpdateReq,
         },
         error::{JsonReqResult, JsonResResult},
-        middlewares::cors::build_cors,
         response::WebResponse,
     },
 };
-
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 // --- Describe Project ---
 #[axum::debug_handler]
@@ -55,13 +46,13 @@ pub async fn describe_project(
 
     let project_res: ProjectDescribeRes = project.into();
 
-    info!("describe_workspace - CTX: {ctx:#?}");
+    info!("describe_project - CTX: {ctx:#?}");
     WebResponse::json(project_res)
 }
 
 // --- List Projects ---
 #[axum::debug_handler]
-pub async fn list_workspaces(
+pub async fn list_projects(
     mut ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<ProjectListReq>,
@@ -72,7 +63,6 @@ pub async fn list_workspaces(
     let params: ProjectListParams = body.into();
     let res = svc.list(&mut ctx, params).await?;
 
-    // Map the vector of Project entities to the vector of DTOs
     let projects: Vec<ProjectDescribeRes> =
         res.data.into_iter().map(ProjectDescribeRes::from).collect();
 
@@ -86,7 +76,7 @@ pub async fn list_workspaces(
 
 // --- Create Project ---
 #[axum::debug_handler]
-pub async fn create_workspace(
+pub async fn create_project(
     mut ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<ProjectCreateReq>,
@@ -100,13 +90,13 @@ pub async fn create_workspace(
 
     let project_res: ProjectDescribeRes = project.into();
 
-    info!("create_workspace - CTX: {ctx:#?}");
+    info!("create_project - CTX: {ctx:#?}");
     WebResponse::json(project_res)
 }
 
 // --- Update Project ---
 #[axum::debug_handler]
-pub async fn update_workspace(
+pub async fn update_project(
     mut ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<ProjectUpdateReq>,
@@ -120,13 +110,13 @@ pub async fn update_workspace(
 
     let project_res: ProjectDescribeRes = project.into();
 
-    info!("update_workspace - CTX: {ctx:#?}");
+    info!("update_project - CTX: {ctx:#?}");
     WebResponse::json(project_res)
 }
 
 // --- Delete Project ---
 #[axum::debug_handler]
-pub async fn delete_workspace(
+pub async fn delete_project(
     mut ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<ProjectDeleteReq>,
@@ -136,13 +126,11 @@ pub async fn delete_workspace(
 
     let params: ProjectDeleteParams = body.into();
 
-    // The service returns the deleted Project entity
     let project = svc.delete(&mut ctx, params).await?;
 
-    // Convert the deleted Project entity into the response DTO
     let res: ProjectDeleteRes = project.into();
 
-    info!("delete_workspace - CTX: {ctx:#?}");
+    info!("delete_project - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -153,9 +141,9 @@ impl ProjectRouter {
     pub fn routes() -> Router {
         Router::new()
             .route("/describe", post(describe_project))
-            .route("/create", post(create_workspace))
-            .route("/list", post(list_workspaces))
-            .route("/update", post(update_workspace))
-            .route("/delete", post(delete_workspace))
+            .route("/create", post(create_project))
+            .route("/list", post(list_projects))
+            .route("/update", post(update_project))
+            .route("/delete", post(delete_project))
     }
 }

@@ -2,19 +2,20 @@ use axum::{
     error_handling::HandleErrorLayer,
     extract::Extension,
     middleware::{from_fn, map_response},
-    routing::get,
     Router,
 };
-use std::sync::Arc;
 use std::time::Duration;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 
 use crate::{
     app::App,
-    core::ctx::CoreCtx,
     web::{
-        handlers::{account::AccountRouter, root::RootRouter, workspace::WorkspaceRouter},
+        handlers::{
+            account::AccountRouter, credential::CredentialRouter, membership::MembershipRouter,
+            permission::PermissionRouter, project::ProjectRouter, role::RoleRouter,
+            root::RootRouter, token::TokenRouter, workspace::WorkspaceRouter,
+        },
         middlewares::{
             cors::build_cors,
             ctx::{CtxLayer, CtxMw},
@@ -41,6 +42,12 @@ impl AppRouter {
             .nest("/", RootRouter::routes())
             .nest("/accounts", AccountRouter::routes())
             .nest("/workspace", WorkspaceRouter::routes())
+            .nest("/projects", ProjectRouter::routes())
+            .nest("/roles", RoleRouter::routes())
+            .nest("/permissions", PermissionRouter::routes())
+            .nest("/memberships", MembershipRouter::routes())
+            .nest("/credentials", CredentialRouter::routes())
+            .nest("/tokens", TokenRouter::routes())
             // Define middleware
             .layer(global_error_layer)
             .layer(map_response(ResponseMw::response_map_handler))
