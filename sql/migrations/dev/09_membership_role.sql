@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS
   membership_role (
     membership_id UUID NOT NULL,
     role_id UUID NOT NULL,
+    workspace_id UUID,
     -- Composite PK ensures uniqueness
     PRIMARY KEY (membership_id, role_id),
     -- FKs

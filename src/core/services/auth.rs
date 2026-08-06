@@ -72,7 +72,14 @@ impl<'a> AuthValidator<'a> {
         if (all_required_match_granted) {
             Ok(())
         } else {
-            Err(CoreError::Auth("invalid permissions".to_string()))
+            Err(CoreError::Auth(format!(
+                "invalid permissions, required premissions: {}",
+                required
+                    .iter()
+                    .map(|el| el.to_string())
+                    .collect::<Vec<String>>()
+                    .join(",")
+            )))
         }
     }
 

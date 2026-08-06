@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS
     -- Composite key ensures uniqueness
     role_id UUID NOT NULL,
     permission_id UUID NOT NULL,
+    workspace_id UUID,
     PRIMARY KEY (role_id, permission_id),
     -- FKs
     CONSTRAINT rp_role_fk FOREIGN KEY (role_id) REFERENCES role (id) ON UPDATE CASCADE ON DELETE CASCADE,

@@ -129,6 +129,8 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
     ) -> CoreResult<Vec<Role>> {
         let mut data = vec![];
 
+        ctx.extend_perms(&["role:describe"]);
+
         // TODO: optimize query, use dedicated role service method
         // to list roles from list of ids
         for role in roles {
@@ -463,7 +465,12 @@ mod tests {
         app: &AppState<D, C>,
         ctx: &mut CoreCtx,
     ) -> CoreResult<(Uuid, Uuid)> {
-        ctx.extend_perms(&["workspace:create", "account:create", "membership:create"])?;
+        ctx.extend_perms(&[
+            "workspace:create",
+            "account:create",
+            // "account:delete",
+            "membership:create",
+        ])?;
 
         // 1. Create a Workspace
         let ws = app
@@ -506,6 +513,7 @@ mod tests {
 
         // Setup Workspace and Account
         let (workspace_id, account_id) = setup_membership_deps(app, &mut ctx).await?;
+        // let total_memberships = svc.list(&mut ctx,).await?.len();
 
         // --- 1. Create ---
         ctx.extend_perms(&["membership:create", "membership:describe"])?;
@@ -555,10 +563,15 @@ mod tests {
         let filter: MembershipFilter = json!({ "tags": {"$contains": "veteran"} }).try_into()?;
         let list_params = MembershipListParams {
             workspace_id,
-            filter: Some(RequestFilterParams { fields: Some(filter), tags: None }),
+            filter: Some(RequestFilterParams {
+                fields: Some(filter),
+                tags: None,
+            }),
             ..Default::default()
         };
         let list = svc.list(&mut ctx, list_params).await?;
+
+        println!("Membership List: {:#?}", list);
         assert_eq!(list.data.len(), 1);
 
         // --- 5. Delete ---

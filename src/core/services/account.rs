@@ -154,7 +154,7 @@ impl<D: DbExecutor> CoreModelDescribeService<D> for AccountService<D> {
         let store = self.store();
 
         let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
+            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let id = self

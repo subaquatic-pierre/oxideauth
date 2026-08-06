@@ -3,7 +3,7 @@ use std::{error::Error, fmt::Display};
 use derive_more::From;
 use redis::RedisError;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 
 pub type CacheResult<T> = Result<T, CacheError>;
 
@@ -21,7 +21,8 @@ pub enum CacheError {
 
 impl Display for CacheError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
+        write!(f, "{self:?}");
+        Ok(())
     }
 }
 

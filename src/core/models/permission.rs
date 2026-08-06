@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::{Display, write},
+};
 
 use modql::filter::OpValString;
 use serde::{Deserialize, Serialize};
@@ -215,6 +218,13 @@ impl PermissionCheck {
         }
 
         return false;
+    }
+}
+
+impl Display for PermissionCheck {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.resource, self.action);
+        Ok(())
     }
 }
 
