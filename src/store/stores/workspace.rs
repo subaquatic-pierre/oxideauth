@@ -242,23 +242,23 @@ mod tests {
 
         let ns_to_create = vec![
             WorkspaceForCreate {
-                name: "list-ns-a".to_string(),
+                name: "list-ns-XY".to_string(),
                 ..Default::default()
             },
             WorkspaceForCreate {
-                name: "list-ns-b".to_string(),
+                name: "list-ns-ZB".to_string(),
                 ..Default::default()
             },
         ];
         store.create_many(&ctx, ns_to_create).await?;
 
         // -- Execute
-        let filter: WorkspaceFilter = json!({ "name": "list-ns-b" }).try_into()?;
+        let filter: WorkspaceFilter = json!({ "name": "list-ns-XY" }).try_into()?;
         let workspaces = store.list(&ctx, Some(filter), None).await?;
 
         // -- Assert
         assert_eq!(workspaces.len(), 1);
-        assert_eq!(workspaces[0].name, "list-ns-b");
+        assert_eq!(workspaces[0].name, "list-ns-XY");
 
         Ok(())
     }
