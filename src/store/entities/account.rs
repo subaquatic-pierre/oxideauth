@@ -47,6 +47,7 @@ pub struct AccountRow {
 
     // Global Status
     pub enabled: bool,
+    pub token_version: i64,
     pub verified: bool,
 
     pub tags: Vec<String>,
@@ -113,6 +114,7 @@ pub struct AccountForUpdate {
     pub avatar_url: Option<String>,
 
     pub enabled: Option<bool>,
+    pub token_version: Option<i64>,
     pub verified: Option<bool>,
 
     pub tags: Option<Vec<String>>,
@@ -211,6 +213,7 @@ impl Default for AccountForUpdate {
             avatar_url: None,
             verified: None,
             enabled: None,
+            token_version: None,
 
             // Free-form meta; keep structure present but empty
             meta: None,

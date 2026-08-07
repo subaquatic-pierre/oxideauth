@@ -48,6 +48,7 @@ pub struct MembershipRow {
     pub scope: MembershipScope,
     pub status: MembershipStatus,
     pub project_id: Option<Uuid>,
+    pub token_version: i64,
     pub tags: Vec<String>,
     #[sqlx(json)]
     pub meta: MembershipMeta,
@@ -142,6 +143,7 @@ pub struct MembershipForUpdate {
     pub scope: Option<MembershipScope>,
     pub status: Option<MembershipStatus>,
     pub project_id: Option<Uuid>,
+    pub token_version: Option<i64>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<MembershipMeta>,
 }
@@ -225,6 +227,7 @@ impl Default for MembershipForUpdate {
             scope: None,
             project_id: None,
             status: None,
+            token_version: None,
             tags: None,
             meta: None,
         }

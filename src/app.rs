@@ -9,7 +9,6 @@ use crate::cache::redis::RedisChx;
 use crate::cache::traits::CacheExecutor;
 use crate::core::services::factory::ServiceFactory;
 use crate::core::services::token::TokenService;
-use crate::core::worker::WorkerManager;
 use crate::dev::init::init_dev;
 use crate::store::dbx::PgDbx;
 use crate::store::manager::StoreManager;
@@ -60,8 +59,6 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
             // TODO: add worker to app state, to manager all long running
             // background tasks, in the future may need to use
             // message bus, with dedicated worker services to handle scaling
-            WorkerManager::spawn_token_cleanup_worker(db.clone());
-
             let dbx = Arc::new(PgDbx::new(db.clone()));
             let sm = Arc::new(StoreManager::new(dbx.clone()));
 

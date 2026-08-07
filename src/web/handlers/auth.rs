@@ -34,14 +34,18 @@ pub async fn register(
 ) -> JsonResResult<WebResponse<AuthRegisterRes>> {
     let Json(body) = body?;
     let svc = app.svc_factory.auth();
-    let (account, token) = svc
+    let (account, access_token, refresh_token) = svc
         .register(
             &body.email,
             body.password.as_deref().unwrap_or(""),
             body.name.as_deref(),
         )
         .await?;
-    WebResponse::json(AuthRegisterRes { account, token })
+    WebResponse::json(AuthRegisterRes {
+        account,
+        access_token,
+        refresh_token,
+    })
 }
 
 // --- Login (request token) ---
@@ -53,19 +57,28 @@ pub async fn login(
 ) -> JsonResResult<WebResponse<AuthLoginRes>> {
     let Json(body) = body?;
     let svc = app.svc_factory.auth();
-    let (account, token) = svc.login(&body.email, &body.password).await?;
-    WebResponse::json(AuthLoginRes { account, token })
+    let (account, access_token, refresh_token) = svc.login(&body.email, &body.password).await?;
+    WebResponse::json(AuthLoginRes {
+        account,
+        access_token,
+        refresh_token,
+    })
 }
 
 // --- Refresh Token ---
 #[axum::debug_handler]
 pub async fn refresh(
-    ctx: Extension<CoreCtx>,
     app: Extension<App>,
+    headers: HeaderMap,
 ) -> JsonResResult<WebResponse<AuthRefreshRes>> {
+    let raw_token = TokenService::<PgDbx, RedisChx>::token_str_from_headers(&headers)
+        .ok_or(WebError::Unauthorized)?;
     let svc = app.svc_factory.auth();
-    let token = svc.refresh_token(&ctx).await?;
-    WebResponse::json(AuthRefreshRes { token })
+    let (access_token, refresh_token) = svc.refresh_token(raw_token).await?;
+    WebResponse::json(AuthRefreshRes {
+        access_token,
+        refresh_token,
+    })
 }
 
 // --- Reset Password (request reset email) ---
@@ -178,10 +191,13 @@ pub async fn oauth_google_callback(
     Query(query): Query<GoogleOAuthCallbackQuery>,
 ) -> Result<Redirect, WebError> {
     let svc = app.svc_factory.auth();
-    let (_account, token, redirect_url) = svc
+    let (_account, access_token, refresh_token, redirect_url) = svc
         .process_google_callback(&query.code, &query.state)
         .await?;
-    let redirect = format!("{}?token={}", redirect_url, token);
+    let redirect = format!(
+        "{}?token={}&refresh_token={}",
+        redirect_url, access_token, refresh_token
+    );
     Ok(Redirect::to(&redirect))
 }
 

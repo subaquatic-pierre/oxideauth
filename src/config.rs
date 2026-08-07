@@ -1,6 +1,6 @@
 use std::{env::var, sync::Arc};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub host: String,
     pub port: usize,
@@ -10,7 +10,8 @@ pub struct Config {
     pub database_url: String,
     pub redis_url: String,
     pub jwt_secret: String,
-    pub jwt_max_age: u64,
+    pub access_token_max_age: u64,
+    pub refresh_token_max_age: u64,
 
     pub google_oauth_client_id: String,
     pub google_oauth_client_secret: String,
@@ -41,7 +42,14 @@ impl Config {
 
         let client_origin = var("CLIENT_ORIGIN").expect("CLIENT_ORIGIN must be set");
         let jwt_secret = var("JWT_SECRET").expect("JWT_SECRET must be set");
-        let jwt_max_age = var("TOKEN_MAXAGE").expect("TOKEN_MAXAGE must be set");
+        let access_token_max_age = var("ACCESS_TOKEN_MAXAGE")
+            .unwrap_or("900".to_string())  // 15 minutes default
+            .parse::<u64>()
+            .unwrap();
+        let refresh_token_max_age = var("REFRESH_TOKEN_MAXAGE")
+            .unwrap_or("604800".to_string())  // 7 days default
+            .parse::<u64>()
+            .unwrap();
 
         let google_oauth_client_id =
             var("GOOGLE_OAUTH_CLIENT_ID").expect("GOOGLE_OAUTH_CLIENT_ID must be set");
@@ -72,7 +80,8 @@ impl Config {
             redis_url,
             jwt_secret,
             client_origin,
-            jwt_max_age: jwt_max_age.parse::<u64>().unwrap(),
+            access_token_max_age,
+            refresh_token_max_age,
             google_oauth_client_id,
             google_oauth_client_secret,
             google_oauth_redirect_url,
@@ -99,7 +108,8 @@ impl Config {
             database_url: "postgres://user:password@localhost/test_db".to_string(),
             redis_url: "redis://127.0.0.1:6379".to_string(),
             jwt_secret: "supersecretkey".to_string(),
-            jwt_max_age: 3600,
+            access_token_max_age: 900,
+            refresh_token_max_age: 604800,
             google_oauth_client_id: "mock-client-id".to_string(),
             google_oauth_client_secret: "mock-client-secret".to_string(),
             google_oauth_redirect_url: "http://localhost:3000/oauth2callback".to_string(),
@@ -123,7 +133,8 @@ impl Config {
             database_url: "postgres://test_user:password@localhost:5432/test_db".to_string(),
             redis_url: "redis://127.0.0.1:6379".to_string(),
             jwt_secret: "supersecretkey".to_string(),
-            jwt_max_age: 3600,
+            access_token_max_age: 900,
+            refresh_token_max_age: 604800,
             google_oauth_client_id: "mock-client-id".to_string(),
             google_oauth_client_secret: "mock-client-secret".to_string(),
             google_oauth_redirect_url: "http://localhost:3000/oauth2callback".to_string(),

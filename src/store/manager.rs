@@ -5,8 +5,7 @@ use crate::store::{
     init::PgPool,
     stores::{
         account::AccountStore, credential::CredentialStore, membership::MembershipStore,
-        permission::PermissionStore, project::ProjectStore, role::RoleStore,
-        token::TokenStore, workspace::WorkspaceStore,
+        permission::PermissionStore, project::ProjectStore, role::RoleStore, workspace::WorkspaceStore,
     },
     traits::dbx::DbExecutor,
 };
@@ -21,7 +20,6 @@ pub struct StoreManager<D: DbExecutor> {
     pub permission: PermissionStore<D>,
     pub project: ProjectStore<D>,
     pub role: RoleStore<D>,
-    pub token: TokenStore<D>,
 }
 
 impl<D: DbExecutor> StoreManager<D> {
@@ -33,7 +31,6 @@ impl<D: DbExecutor> StoreManager<D> {
         let permission = PermissionStore::new(dbx.clone());
         let project = ProjectStore::new(dbx.clone());
         let role = RoleStore::new(dbx.clone());
-        let token = TokenStore::new(dbx.clone());
 
         Self {
             dbx: dbx.clone(),
@@ -44,7 +41,6 @@ impl<D: DbExecutor> StoreManager<D> {
             permission,
             project,
             role,
-            token,
         }
     }
 

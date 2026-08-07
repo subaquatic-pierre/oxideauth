@@ -1,9 +1,8 @@
-use std::{collections::HashSet, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::{Digest, Sha256};
-use time::{Duration, OffsetDateTime};
+use time::Duration;
 use tracing::info;
 use uuid::Uuid;
 
@@ -23,15 +22,13 @@ use crate::{
     },
     store::{
         ctx::StoreCtx,
-        dbx::PgDbx,
         entities::{
             account::{AccountForCreate, AccountForUpdate, AccountMeta},
             credential::{
                 CredentialFilter, CredentialForCreate, CredentialForUpdate, CredentialKind,
                 CredentialMeta, CredentialProvider, CredentialStatus,
             },
-            hash::Sha256Hash,
-            token::{TokenForCreate, TokenKind, TokenMeta},
+            membership::MembershipFilter,
         },
         manager::StoreManager,
         traits::{crud::{Create, Get, List, Update}, dbx::DbExecutor},
@@ -98,14 +95,62 @@ where
         }
     }
 
+    /// Issues a fresh access + refresh token pair for a new session.
+    ///
+    /// Both tokens share the same session id (`sid`) and carry the current
+    /// membership/account version claims. Each gets a unique `jti`.
+    fn issue_token_pair(
+        &self,
+        account_id: Uuid,
+        ws_id: Uuid,
+        mem_id: Uuid,
+        mem_ver: u64,
+        acc_ver: u64,
+        sid: Uuid,
+    ) -> CoreResult<(String, String)> {
+        let now = now_utc();
+
+        let access_claims = TokenClaims::new(
+            account_id,
+            ws_id,
+            mem_id,
+            now + Duration::seconds(self.config.access_token_max_age as i64),
+            TokenType::Auth,
+            mem_ver,
+            acc_ver,
+            0, // sid_ver
+            Some(sid),
+            Some(Uuid::new_v4()),
+        );
+
+        let refresh_claims = TokenClaims::new(
+            account_id,
+            ws_id,
+            mem_id,
+            now + Duration::seconds(self.config.refresh_token_max_age as i64),
+            TokenType::Refresh,
+            mem_ver,
+            acc_ver,
+            0, // sid_ver
+            Some(sid),
+            Some(Uuid::new_v4()),
+        );
+
+        let access_token = self.token_svc.encode_token_claims(&access_claims)?;
+        let refresh_token = self.token_svc.encode_token_claims(&refresh_claims)?;
+
+        Ok((access_token, refresh_token))
+    }
+
     /// Registers a new account with a `Local` password credential and returns
-    /// the created account along with an auth token.
+    /// the created account along with a freshly issued token pair (access +
+    /// refresh).
     pub async fn register(
         &self,
         email: &str,
         password: &str,
         name: Option<&str>,
-    ) -> CoreResult<(Account, String)> {
+    ) -> CoreResult<(Account, String, String)> {
         // --- Validate inputs ---
         if password.is_empty() {
             return Err(CoreError::InvalidParams(
@@ -150,6 +195,7 @@ where
         };
 
         let account_row = store.create(&store_ctx, for_create).await?;
+        let acc_ver = account_row.token_version as u64;
         let account: Account = account_row.into();
 
         // --- Create Local password credential ---
@@ -173,15 +219,24 @@ where
             .create(&store_ctx, credential_for_create)
             .await?;
 
-        // --- Issue auth token ---
-        let claims = TokenClaims::new(
+        // --- Issue token pair (access + refresh) ---
+        let sid = Uuid::new_v4();
+        let chx = self.cm.executor();
+        chx.set_string(
+            &format!("oxauth:sv:{}", sid),
+            "0",
+            Some(self.config.refresh_token_max_age),
+        )
+        .await?;
+
+        let (access_token, refresh_token) = self.issue_token_pair(
             account.id,
-            Uuid::nil(), // default workspace, set up separately after registration
-            Uuid::nil(), // default membership, set up separately after registration
-            now_utc() + Duration::seconds(self.config.jwt_max_age as i64),
-            TokenType::Auth,
-        );
-        let token = self.token_svc.encode_token_claims(&claims)?;
+            Uuid::nil(), // workspace set up separately after registration
+            Uuid::nil(), // membership set up separately after registration
+            0,           // mem_ver: no membership yet
+            acc_ver,
+            sid,
+        )?;
 
         // TODO(T061): send the welcome/confirmation email fire-and-forget.
         //   Once EmailService is reachable from AuthService (it requires
@@ -194,7 +249,7 @@ where
         //         let mut ctx = tera::Context::new();
         //         ctx.insert("project_name", "OxideAuth");
         //         ctx.insert("name", &name);
-        //         ctx.insert("confirm_link", &format!("{}/confirm?token={token}", base_url));
+        //         ctx.insert("confirm_link", &format!("{}/confirm?token={access_token}", base_url));
         //         ctx.insert("year", "2026");
         //         let _ = email_svc
         //             .send_email(&email, "Confirm your email", "emails/confirm_email.html", ctx)
@@ -208,12 +263,13 @@ where
             "AUTH_REGISTER"
         );
 
-        Ok((account, token))
+        Ok((account, access_token, refresh_token))
     }
 
     /// Logs an account in via email/password and returns the account along
-    /// with an auth token. Failed attempts are rate limited (Redis-backed).
-    pub async fn login(&self, email: &str, password: &str) -> CoreResult<(Account, String)> {
+    /// with a token pair (access + refresh). Failed attempts are rate limited
+    /// (Redis-backed).
+    pub async fn login(&self, email: &str, password: &str) -> CoreResult<(Account, String, String)> {
         if email.trim().is_empty() || password.is_empty() {
             return Err(CoreError::InvalidParams(
                 "email and password required".to_string(),
@@ -247,6 +303,7 @@ where
                 return Err(CoreError::Auth("invalid credentials".to_string()));
             }
         };
+        let acc_ver = account_row.token_version as u64;
         let account: Account = account_row.into();
 
         // --- Check account status ---
@@ -304,15 +361,37 @@ where
         // --- Clear rate limit on success ---
         self.reset_rate_limit(&rl_key).await?;
 
-        // --- Issue auth token ---
-        let claims = TokenClaims::new(
+        // --- Resolve the account's membership (for its token version) ---
+        let membership_filter: MembershipFilter = json!({
+            "account_id": account.id.to_string(),
+        })
+        .try_into()?;
+        let memberships = self
+            .sm
+            .membership
+            .list(&store_ctx, Some(membership_filter), None)
+            .await?;
+        let membership = memberships.into_iter().next();
+        let mem_ver = membership.map(|m| m.token_version as u64).unwrap_or(0);
+
+        // --- Issue token pair (access + refresh) ---
+        let sid = Uuid::new_v4();
+        let chx = self.cm.executor();
+        chx.set_string(
+            &format!("oxauth:sv:{}", sid),
+            "0",
+            Some(self.config.refresh_token_max_age),
+        )
+        .await?;
+
+        let (access_token, refresh_token) = self.issue_token_pair(
             account.id,
-            Uuid::nil(), // default workspace, set up separately
-            Uuid::nil(), // default membership, set up separately
-            now_utc() + Duration::seconds(self.config.jwt_max_age as i64),
-            TokenType::Auth,
-        );
-        let token = self.token_svc.encode_token_claims(&claims)?;
+            Uuid::nil(), // workspace, set up separately
+            Uuid::nil(), // membership, set up separately
+            mem_ver,
+            acc_ver,
+            sid,
+        )?;
 
         info!(
             email = %email,
@@ -320,7 +399,7 @@ where
             "AUTH_LOGIN_SUCCESS"
         );
 
-        Ok((account, token))
+        Ok((account, access_token, refresh_token))
     }
 
     /// Enforces a sliding window rate limit for the given key.
@@ -378,58 +457,50 @@ where
         Ok(())
     }
 
-    /// Revokes the given bearer token.
+    /// Revokes the given bearer token (access or refresh).
     ///
-    /// The raw token string is decoded to recover its claims, then its SHA-256
-    /// hash is written to the Redis blacklist (`blacklist:{hex}`) with a TTL
-    /// matching the token's remaining lifetime. For durability a
-    /// [`TokenForCreate`] row with [`TokenKind::Blacklisted`] is persisted via
-    /// the `token` store. Returns `Ok(true)` once both writes succeed.
+    /// Decodes the token to recover its claims, then invalidates the entire
+    /// session: the session version counter is bumped and every auth-cache key
+    /// belonging to the membership/account is purged. No hash computation and
+    /// no database write are involved — revocation is purely version/cache
+    /// based.
     pub async fn revoke_token(&self, ctx: &CoreCtx, raw_token: &str) -> CoreResult<bool> {
-        // Decode the token to recover claims (exp, sub, ...). A token that fails
-        // signature validation or is already expired cannot be revoked.
+        // Decode the token to recover claims (sid, sub, mem, ...). A token that
+        // fails signature validation or is already expired cannot be revoked.
         let claims = self.token_svc.decode_token_str(raw_token)?;
 
-        // Compute the SHA-256 hash of the raw token string.
-        let digest = Sha256::digest(raw_token.as_bytes());
-        let hash_arr: [u8; 32] = digest
-            .as_slice()
-            .try_into()
-            .map_err(|_| CoreError::ParseError("unable to hash token".to_string()))?;
-        let hash = Sha256Hash::new(hash_arr);
+        let sid = claims
+            .sid()
+            .ok_or_else(|| CoreError::Auth("invalid token".to_string()))?;
+        let mem_id = Uuid::from_str(claims.mem())
+            .map_err(|_| CoreError::Auth("invalid token".to_string()))?;
+        let acc_id = Uuid::from_str(claims.sub())
+            .map_err(|_| CoreError::Auth("invalid token".to_string()))?;
 
-        // Persist the blacklist entry in Redis, TTL = remaining token lifetime.
-        let remaining_ttl = claims.exp.saturating_sub(now_utc().unix_timestamp() as usize);
+        // Authorization: only the token owner may revoke their own token.
+        // TODO: workspace admin (admin permission on the token's workspace) and
+        //   super admin (global permission) revocation checks.
+        if ctx.account_id() != acc_id {
+            return Err(CoreError::Auth(
+                "unauthorized: not the token owner".to_string(),
+            ));
+        }
+
+        // Invalidate the session: bump the session version so any outstanding
+        // access/refresh token for this session fails the sid_ver check.
         let chx = self.cm.executor();
-        let cache_key = format!("blacklist:{}", hex::encode(hash.bytes()));
-        let value = json!("1");
-        chx.set(&cache_key, None, &value, Some(remaining_ttl as u64))
-            .await?;
+        let sv_key = format!("oxauth:sv:{}", sid);
+        chx.incr(&sv_key).await?;
 
-        // Persist the blacklist entry in the DB for durability.
-        let expires_at = OffsetDateTime::from_unix_timestamp(claims.exp as i64).map_err(|_| {
-            CoreError::ParseError(format!(
-                "unable to parse token expiry timestamp {}",
-                claims.exp
-            ))
-        })?;
+        // Purge the cached auth data for the membership + account.
+        chx.del_key(&format!("oxauth:tv:{}", mem_id)).await?;
+        chx.del_key(&format!("oxauth:av:{}", acc_id)).await?;
+        chx.del_key(&format!("oxauth:sv:{}", sid)).await?;
+        chx.del_key(&format!("oxauth:ma:{}", mem_id)).await?;
+        chx.del_key(&format!("oxauth:ae:{}", acc_id)).await?;
+        chx.del_key(&format!("oxauth:as:{}", mem_id)).await?;
 
-        let store_ctx: StoreCtx = ctx.into();
-        let token_for_create = TokenForCreate {
-            hash,
-            kind: TokenKind::Blacklisted,
-            account_id: ctx.account_id(),
-            workspace_id: ctx.workspace_id(),
-            expires_at,
-            reason: Some("revoked".to_string()),
-            tags: vec![],
-            meta: TokenMeta {
-                schema_version: "1".to_string(),
-            },
-        };
-        self.sm.token.create(&store_ctx, token_for_create).await?;
-
-        info!(account_id = %ctx.account_id(), "AUTH_TOKEN_REVOKED");
+        info!(account_id = %ctx.account_id(), sid = %sid, "AUTH_TOKEN_REVOKED");
 
         Ok(true)
     }
@@ -438,8 +509,9 @@ where
     /// for the raw token itself.
     ///
     /// Requires the `token:revokeAny` permission. The hash is written to the
-    /// Redis blacklist with a long TTL (90 days) and mirrored to the `token`
-    /// store for durability. `reason` is persisted for auditing.
+    /// Redis blacklist with a long TTL (90 days). `reason` is logged for
+    /// auditing. No database write is performed (the token blacklist is
+    /// cache-only in this version-based revocation scheme).
     pub async fn blacklist_token(
         &self,
         ctx: &CoreCtx,
@@ -449,15 +521,9 @@ where
         // Validate admin permissions.
         AuthValidator::new(ctx).validate_ctx_perms(&["token:revokeAny"])?;
 
-        // Decode the hex-encoded SHA-256 hash.
-        let hash_bytes = hex::decode(token_hash)
+        // Validate the hex-encoded SHA-256 hash.
+        hex::decode(token_hash)
             .map_err(|_| CoreError::InvalidParams("invalid token hash".to_string()))?;
-        let hash_arr: [u8; 32] = hash_bytes.as_slice().try_into().map_err(|_| {
-            CoreError::InvalidParams(
-                "token hash must be the hex encoding of a 32-byte SHA-256 digest".to_string(),
-            )
-        })?;
-        let hash = Sha256Hash::new(hash_arr);
 
         // Persist the blacklist entry in Redis with a long TTL.
         let long_ttl = 90 * 24 * 60 * 60; // 90 days
@@ -466,50 +532,112 @@ where
         let value = json!("1");
         chx.set(&cache_key, None, &value, Some(long_ttl)).await?;
 
-        // Persist the blacklist entry in the DB for durability.
-        let expires_at = now_utc() + Duration::seconds(long_ttl as i64);
-        let store_ctx: StoreCtx = ctx.into();
-        let token_for_create = TokenForCreate {
-            hash,
-            kind: TokenKind::Blacklisted,
-            account_id: ctx.account_id(),
-            workspace_id: ctx.workspace_id(),
-            expires_at,
-            reason: reason.map(|r| r.to_string()),
-            tags: vec![],
-            meta: TokenMeta {
-                schema_version: "1".to_string(),
-            },
-        };
-        self.sm.token.create(&store_ctx, token_for_create).await?;
-
         info!(
             account_id = %ctx.account_id(),
             reason = %reason.unwrap_or("admin_blacklisted"),
-            "AUTH_TOKEN_REVOKED"
+            "AUTH_TOKEN_BLACKLISTED"
         );
 
         Ok(true)
     }
 
-    /// Issues a new auth token for the account resolved in `ctx`, renewing the
-    /// expiry while preserving the same `sub`/`ws`/`mem` claims.
+    /// Rotates a refresh token: verifies it has not already been used (replay
+    /// detection), consumes it, and issues a new access + refresh token pair
+    /// that continues the same session.
     ///
-    /// The original bearer token is validated (signature + blacklist) when the
-    /// `CoreCtx` is resolved by the request middleware, so no raw token string
-    /// is available here. Claims are rebuilt from the resolved context instead.
-    pub async fn refresh_token(&self, ctx: &CoreCtx) -> CoreResult<String> {
-        let claims = TokenClaims::new(
-            ctx.account_id(),
-            ctx.workspace_id(),
-            ctx.membership_id(),
-            now_utc() + Duration::seconds(self.config.jwt_max_age as i64),
-            TokenType::Refresh,
+    /// # Replay detection
+    ///
+    /// Each refresh token's `jti` is recorded under `oxauth:crt:{jti}` for the
+    /// remainder of its lifetime. A second use of the same token means the
+    /// session is compromised: the session version is bumped (invalidating
+    /// every outstanding token for the session) and the cached auth data is
+    /// purged.
+    pub async fn refresh_token(&self, raw_token: &str) -> CoreResult<(String, String)> {
+        // Decode the refresh token.
+        let claims = self.token_svc.decode_token_str(raw_token)?;
+        if claims.token_type() != TokenType::Refresh {
+            return Err(CoreError::Auth("invalid token type".to_string()));
+        }
+
+        let sid = claims
+            .sid()
+            .ok_or_else(|| CoreError::Auth("invalid refresh token".to_string()))?;
+        let jti = claims
+            .jti()
+            .ok_or_else(|| CoreError::Auth("invalid refresh token".to_string()))?;
+
+        let mem_id = Uuid::from_str(claims.mem())
+            .map_err(|_| CoreError::Auth("invalid token".to_string()))?;
+        let acc_id = Uuid::from_str(claims.sub())
+            .map_err(|_| CoreError::Auth("invalid token".to_string()))?;
+        let ws_id = Uuid::from_str(claims.ws())
+            .map_err(|_| CoreError::Auth("invalid token".to_string()))?;
+
+        let chx = self.cm.executor();
+        let consumed_key = format!("oxauth:crt:{}", jti);
+
+        // --- Replay check ---
+        if let Some(_consumed_sid) = chx.get::<String>(&consumed_key, None).await? {
+            // REPLAY DETECTED: the refresh token was already used. Compromise
+            // the whole session so neither the old nor the (stolen) new tokens
+            // remain valid.
+            let sv_key = format!("oxauth:sv:{}", sid);
+            chx.incr(&sv_key).await?;
+
+            chx.del_key(&format!("oxauth:tv:{}", mem_id)).await?;
+            chx.del_key(&format!("oxauth:av:{}", acc_id)).await?;
+            chx.del_key(&format!("oxauth:sv:{}", sid)).await?;
+            chx.del_key(&format!("oxauth:ma:{}", mem_id)).await?;
+            chx.del_key(&format!("oxauth:ae:{}", acc_id)).await?;
+            chx.del_key(&format!("oxauth:as:{}", mem_id)).await?;
+
+            return Err(CoreError::Auth(
+                "session compromised, please re-authenticate".to_string(),
+            ));
+        }
+
+        // --- Consume this refresh token (single-use) ---
+        let remaining_ttl = claims.exp.saturating_sub(now_utc().unix_timestamp() as usize);
+        if remaining_ttl > 0 {
+            chx.set(&consumed_key, None, &sid.to_string(), Some(remaining_ttl as u64))
+                .await?;
+        }
+
+        // --- Issue the next token pair (same session, new jtis) ---
+        let now = now_utc();
+
+        let access_claims = TokenClaims::new(
+            acc_id,
+            ws_id,
+            mem_id,
+            now + Duration::seconds(self.config.access_token_max_age as i64),
+            TokenType::Auth,
+            claims.mem_ver,
+            claims.acc_ver,
+            claims.sid_ver,
+            Some(sid),
+            Some(Uuid::new_v4()),
         );
 
-        let token = self.token_svc.encode_token_claims(&claims)?;
+        let refresh_claims = TokenClaims::new(
+            acc_id,
+            ws_id,
+            mem_id,
+            now + Duration::seconds(self.config.refresh_token_max_age as i64),
+            TokenType::Refresh,
+            claims.mem_ver,
+            claims.acc_ver,
+            claims.sid_ver,
+            Some(sid),
+            Some(Uuid::new_v4()),
+        );
 
-        Ok(token)
+        let access_token = self.token_svc.encode_token_claims(&access_claims)?;
+        let refresh_token = self.token_svc.encode_token_claims(&refresh_claims)?;
+
+        info!(account_id = %acc_id, sid = %sid, "AUTH_TOKEN_REFRESHED");
+
+        Ok((access_token, refresh_token))
     }
 
     /// Requests a password reset for the given email.
@@ -543,6 +671,11 @@ where
             Uuid::nil(),
             now_utc() + Duration::hours(24),
             TokenType::PasswordReset,
+            0, // mem_ver
+            0, // acc_ver
+            0, // sid_ver
+            None,
+            Some(Uuid::new_v4()),
         );
         let token = self.token_svc.encode_token_claims(&claims)?;
 
@@ -680,6 +813,7 @@ where
             verified: Some(true),
             tags: None,
             meta: None,
+            token_version: None,
         };
         store
             .update(&store_ctx, &account_id.into(), update_data)
@@ -721,6 +855,11 @@ where
             Uuid::nil(),
             now_utc() + Duration::hours(24),
             TokenType::AccountConfirm,
+            0, // mem_ver
+            0, // acc_ver
+            0, // sid_ver
+            None,
+            Some(Uuid::new_v4()),
         );
         let token = self.token_svc.encode_token_claims(&claims)?;
 
@@ -792,7 +931,7 @@ where
         &self,
         code: &str,
         state: &str,
-    ) -> CoreResult<(Account, String, String)> {
+    ) -> CoreResult<(Account, String, String, String)> {
         // 1. Validate the CSRF state persisted during initiation.
         let chx = self.cm.executor();
         let cache_key = format!("oauth:state:{}", state);
@@ -864,15 +1003,32 @@ where
             account
         };
 
-        // 7. Issue the auth JWT.
-        let claims = TokenClaims::new(
+        // 7. Issue a token pair (access + refresh) for the session.
+        let store_ctx = StoreCtx::new_root();
+        let acc_ver = self
+            .sm
+            .account
+            .get(&store_ctx, &account.id.into())
+            .await?
+            .token_version as u64;
+
+        let sid = Uuid::new_v4();
+        let chx = self.cm.executor();
+        chx.set_string(
+            &format!("oxauth:sv:{}", sid),
+            "0",
+            Some(self.config.refresh_token_max_age),
+        )
+        .await?;
+
+        let (access_token, refresh_token) = self.issue_token_pair(
             account.id,
-            Uuid::nil(), // default workspace, set up separately after sign-in
-            Uuid::nil(), // default membership, set up separately after sign-in
-            now_utc() + Duration::seconds(self.config.jwt_max_age as i64),
-            TokenType::Auth,
-        );
-        let token = self.token_svc.encode_token_claims(&claims)?;
+            Uuid::nil(), // workspace, set up separately after sign-in
+            Uuid::nil(), // membership, set up separately after sign-in
+            0,           // mem_ver: no membership on first sign-in
+            acc_ver,
+            sid,
+        )?;
 
         info!(
             email = %account.email,
@@ -881,7 +1037,7 @@ where
             "AUTH_LOGIN_SUCCESS"
         );
 
-        Ok((account, token, oauth_state.redirect_url))
+        Ok((account, access_token, refresh_token, oauth_state.redirect_url))
     }
 }
 

@@ -93,8 +93,13 @@ where
         // the reason for holding config in storage is to allow
         // dynamic config retrieval at runtime, this allows
         // multi tenant configs, also allows for config edit from client
-        let config = TokenServiceConfig::default();
-        let svc = TokenService::new(self.sm.clone(), self.cm.clone(), self.workspace(), config);
+        let config = Config::from_env(); // TODO: hold Config in ServiceFactory instead of re-reading from env
+        let token_config = TokenServiceConfig::new(
+            config.jwt_secret.clone(),
+            config.access_token_max_age,
+            config.refresh_token_max_age,
+        );
+        let svc = TokenService::new(self.cm.clone(), self.workspace(), token_config);
         svc
     }
 }

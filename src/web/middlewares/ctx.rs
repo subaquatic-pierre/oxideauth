@@ -18,7 +18,7 @@ use tower::{Layer, Service};
 use crate::{
     app::{App, AppState},
     cache::redis::RedisChx,
-    core::services::ctx::{CtxConfig, CtxService},
+    core::services::ctx::CtxService,
     web::error::ErrorBody,
 };
 use crate::{core::services::token::TokenService, store::dbx::PgDbx}; // Use Axum's body type
@@ -30,8 +30,12 @@ pub struct CtxLayer {
 
 impl CtxLayer {
     pub fn new(app_state: &App) -> Self {
-        let config = CtxConfig {};
-        let ctx_svc = Arc::new(CtxService::new(app_state.svc_factory.clone(), config));
+        let ctx_svc = Arc::new(CtxService::new(
+            app_state.sm.clone(),
+            app_state.cm.clone(),
+            app_state.svc_factory.clone(),
+            app_state.config.clone(),
+        ));
         Self { ctx_svc }
     }
 }

@@ -17,7 +17,8 @@ pub struct AuthRegisterReq {
 #[serde(rename_all = "camelCase")]
 pub struct AuthRegisterRes {
     pub account: Account,
-    pub token: String,
+    pub access_token: String,
+    pub refresh_token: String,
 }
 
 // --- AuthLoginReq ---
@@ -33,14 +34,16 @@ pub struct AuthLoginReq {
 #[serde(rename_all = "camelCase")]
 pub struct AuthLoginRes {
     pub account: Account,
-    pub token: String,
+    pub access_token: String,
+    pub refresh_token: String,
 }
 
 // --- AuthRefreshRes ---
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthRefreshRes {
-    pub token: String,
+    pub access_token: String,
+    pub refresh_token: String,
 }
 
 // --- AuthResetPasswordReq ---

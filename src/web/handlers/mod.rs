@@ -6,5 +6,4 @@ pub mod permission;
 pub mod project;
 pub mod role;
 pub mod root;
-pub mod token;
 pub mod workspace;

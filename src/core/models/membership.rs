@@ -108,6 +108,7 @@ impl From<MembershipUpdateParams> for MembershipForUpdate {
             status: value.status,
             scope: value.scope,
             project_id: value.project_id,
+            token_version: None,
             tags: value.tags,
             meta: value.meta,
         }

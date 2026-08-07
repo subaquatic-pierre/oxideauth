@@ -1,152 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::{
-    core::models::membership::Membership,
-    store::entities::token::{TokenForCreate, TokenKind, TokenMeta},
-    utils::time::{format_time, now_utc},
-};
-
-use modql::filter::OpValString;
-
-use crate::{
-    core::{
-        error::CoreResult,
-        models::{
-            account::Account,
-            audit::CoreAuditFields,
-            list::{RequestFilterParams, RequestListOptions},
-            workspace::Workspace,
-        },
-        traits::{
-            filter::{OpValAccountId, OpValWorkspaceId},
-            list::RequestListParams,
-        },
-    },
-    store::entities::hash::Sha256Hash,
-    store::entities::token::{TokenFilter as StoreTokenFilter, TokenRow},
-};
-
-pub type TokenFilter = StoreTokenFilter;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Token {
-    pub id: Uuid,
-    pub hash: Sha256Hash,
-
-    pub kind: TokenKind,
-
-    // Relations are optional in the blacklist context
-    pub account_id: Uuid,
-    pub workspace_id: Uuid,
-
-    pub expires_at: OffsetDateTime,
-    pub reason: Option<String>,
-
-    pub audit: CoreAuditFields,
-}
-
-impl From<TokenRow> for Token {
-    fn from(value: TokenRow) -> Self {
-        Self {
-            id: value.id.into(),
-            hash: value.hash,
-            kind: value.kind,
-            account_id: value.account_id,
-            workspace_id: value.workspace_id,
-            expires_at: value.expires_at,
-            reason: value.reason,
-            audit: value.audit.into(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TokenDescribeParams {
-    pub id: Uuid,
-    pub workspace_id: Uuid,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TokenDeleteParams {
-    pub id: Uuid,
-    pub workspace_id: Uuid,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TokenCreateParams {
-    pub hash: Sha256Hash,
-    pub kind: TokenKind,
-    pub account_id: Uuid,
-    pub workspace_id: Uuid,
-    pub expires_at: OffsetDateTime,
-    pub reason: Option<String>,
-}
-
-impl From<TokenCreateParams> for TokenForCreate {
-    fn from(params: TokenCreateParams) -> Self {
-        Self {
-            hash: params.hash,
-            kind: params.kind,
-            account_id: params.account_id,
-            workspace_id: params.workspace_id,
-            expires_at: params.expires_at,
-            reason: params.reason,
-            // Defaulting system/store fields not present in simple CreateParams
-            tags: Vec::new(),
-            meta: TokenMeta::default(),
-        }
-    }
-}
-
-pub struct TokenListParams {
-    pub workspace_id: Uuid,
-    pub filter: Option<RequestFilterParams<TokenFilter>>,
-    pub options: Option<RequestListOptions>,
-}
-
-impl RequestListParams<TokenFilter> for TokenListParams {
-    fn filter(&self) -> Option<RequestFilterParams<TokenFilter>> {
-        self.filter.clone()
-    }
-
-    fn options(&self) -> Option<RequestListOptions> {
-        self.options.clone()
-    }
-}
-
-impl OpValWorkspaceId for TokenFilter {
-    fn get_workspace_id_opval(&self) -> Option<&OpValString> {
-        self.workspace_id
-            .as_ref()
-            .and_then(|op_vals| op_vals.0.first())
-    }
-}
-
-impl OpValAccountId for TokenFilter {
-    fn get_account_id_opval(&self) -> Option<&OpValString> {
-        self.account_id
-            .as_ref()
-            .and_then(|op_vals| op_vals.0.first())
-    }
-}
-
-impl Default for Token {
-    fn default() -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            hash: Sha256Hash::default(),
-            kind: TokenKind::Auth,
-            account_id: Uuid::default(),
-            workspace_id: Uuid::default(),
-            expires_at: OffsetDateTime::now_utc(),
-            reason: None,
-            audit: CoreAuditFields::default(),
-        }
-    }
-}
+use crate::utils::time::now_utc;
 
 #[derive(Debug, Serialize, Clone, Deserialize, PartialEq, Eq)]
 pub struct TokenClaims {
@@ -158,6 +14,11 @@ pub struct TokenClaims {
     pub exp: usize,
     pub iat: usize,
     ty: TokenType,
+    pub mem_ver: u64,      // Membership token version
+    pub acc_ver: u64,      // Account token version
+    pub sid_ver: u64,      // Session version (default 0)
+    pub sid: Option<Uuid>, // Session ID (None for single-use tokens)
+    pub jti: Option<Uuid>, // JWT ID — unique per token
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy, Deserialize)]
@@ -169,7 +30,18 @@ pub enum TokenType {
 }
 
 impl TokenClaims {
-    pub fn new(sub: Uuid, ws: Uuid, mem: Uuid, exp: OffsetDateTime, ty: TokenType) -> Self {
+    pub fn new(
+        sub: Uuid,
+        ws: Uuid,
+        mem: Uuid,
+        exp: OffsetDateTime,
+        ty: TokenType,
+        mem_ver: u64,
+        acc_ver: u64,
+        sid_ver: u64,
+        sid: Option<Uuid>,
+        jti: Option<Uuid>,
+    ) -> Self {
         Self {
             sub: sub.to_string(),
             ws: ws.to_string(),
@@ -179,6 +51,11 @@ impl TokenClaims {
             iat: now_utc().unix_timestamp() as usize,
             exp: exp.unix_timestamp() as usize,
             ty,
+            mem_ver,
+            acc_ver,
+            sid_ver,
+            sid,
+            jti,
         }
     }
 
@@ -209,5 +86,15 @@ impl TokenClaims {
     /// The token type (`Auth`, `PasswordReset`, `Refresh`, `AccountConfirm`).
     pub fn token_type(&self) -> TokenType {
         self.ty
+    }
+
+    /// The session id encoded in the `sid` claim, if present.
+    pub fn sid(&self) -> Option<Uuid> {
+        self.sid
+    }
+
+    /// The unique JWT id (`jti`) claim, if present.
+    pub fn jti(&self) -> Option<Uuid> {
+        self.jti
     }
 }

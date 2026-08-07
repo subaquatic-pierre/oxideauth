@@ -127,4 +127,45 @@ impl CacheExecutor for RedisChx {
     fn default_ttl(&self) -> u64 {
         self.default_ttl
     }
+
+    /// Fetches the raw string values for multiple keys in a single round trip.
+    async fn pipeline_get(&self, keys: &[&str]) -> CacheResult<Vec<Option<String>>> {
+        let mut pipe = redis::pipe();
+        for key in keys {
+            pipe.get(key);
+        }
+        let res = pipe
+            .query_async::<Vec<Option<String>>>(&mut self.conn.clone())
+            .await?;
+        Ok(res)
+    }
+
+    /// Stores a plain (non-JSON) string value with an optional TTL.
+    ///
+    /// Uses the core `SET key value EX ttl` command so the value can be read
+    /// back with `pipeline_get` (plain `GET`) instead of the JSON module.
+    async fn set_string(&self, key: &str, val: &str, ttl: Option<u64>) -> CacheResult<()> {
+        let mut conn = self.conn.clone();
+        let ttl = ttl.unwrap_or(self.default_ttl());
+
+        let mut cmd = redis::cmd("SET");
+        cmd.arg(key).arg(val).arg("EX").arg(ttl);
+        cmd.query_async::<String>(&mut conn).await?;
+
+        Ok(())
+    }
+
+    /// Atomically increments the plain string value at `key` by one.
+    async fn incr(&self, key: &str) -> CacheResult<i64> {
+        let mut conn = self.conn.clone();
+        let n = conn.incr(key, 1).await?;
+        Ok(n)
+    }
+
+    /// Deletes a plain (non-JSON) string key.
+    async fn del_key(&self, key: &str) -> CacheResult<()> {
+        let mut conn = self.conn.clone();
+        conn.del::<_, i64>(key).await?;
+        Ok(())
+    }
 }

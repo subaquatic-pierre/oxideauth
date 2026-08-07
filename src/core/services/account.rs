@@ -244,6 +244,7 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for AccountService<D> {
             description: params.description,
             avatar_url: params.avatar_url,
             enabled: params.enabled,
+            token_version: None,
             verified: params.verified,
             tags: params.tags,
             meta: params.meta,
