@@ -38,9 +38,13 @@ impl AppRouter {
             .layer(HandleErrorLayer::new(FallbackMw::global_error_handler))
             .timeout(Duration::from_secs(30));
 
-        Router::new()
-            // Define main routes
+        // ── Public routes (no auth required) ──
+        let public = Router::new()
             .nest("/", RootRouter::routes())
+            .nest("/auth", AuthRouter::public_routes());
+
+        // ── Protected routes (auth required via CtxLayer) ──
+        let protected = Router::new()
             .nest("/accounts", AccountRouter::routes())
             .nest("/workspace", WorkspaceRouter::routes())
             .nest("/projects", ProjectRouter::routes())
@@ -49,12 +53,16 @@ impl AppRouter {
             .nest("/permissions", PermissionRouter::routes())
             .nest("/memberships", MembershipRouter::routes())
             .nest("/credentials", CredentialRouter::routes())
-            .nest("/auth", AuthRouter::routes())
-            // Define middleware
+            .nest("/auth", AuthRouter::protected_routes())
+            .layer(ctx);
+
+        Router::new()
+            .merge(public)
+            .merge(protected)
+            // Global middleware (applied to ALL routes)
             .layer(global_error_layer)
             .layer(map_response(ResponseMw::response_map_handler))
             .layer(cors)
-            .layer(ctx)
             .layer(Extension(state))
             .layer(from_fn(RequestMw::request_map_handler))
             .layer(TraceLayer::new_for_http())

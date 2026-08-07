@@ -1,30 +1,22 @@
 use axum::{
-    extract::{Extension, State},
+    extract::Extension,
     routing::get,
     Router,
 };
-use std::sync::Arc;
 use tracing::info;
 
 use crate::{
-    app::{App, AppState},
-    core::{ctx::CoreCtx, error::CoreError},
-    web::{error::JsonResResult, middlewares::cors::build_cors, response::WebResponse},
+    app::App,
+    web::{error::JsonResResult, response::WebResponse},
 };
 
-pub async fn index_handler(
-    ctx: Extension<CoreCtx>,
-    app: Extension<App>,
-) -> JsonResResult<WebResponse<String>> {
-    info!("root_handler - CTX: {ctx:#?}");
+pub async fn index_handler() -> JsonResResult<WebResponse<String>> {
+    info!("index_handler");
     WebResponse::json("Hello, World".to_string())
 }
 
-pub async fn health_check_handler(
-    ctx: Extension<CoreCtx>,
-    app: Extension<App>,
-) -> JsonResResult<WebResponse<String>> {
-    info!("health_check_handler - CTX: {ctx:#?}");
+pub async fn health_check_handler() -> JsonResResult<WebResponse<String>> {
+    info!("health_check_handler");
     WebResponse::json("Healthy".to_string())
 }
 

@@ -28,7 +28,6 @@ use crate::{
 // --- Register Account ---
 #[axum::debug_handler]
 pub async fn register(
-    ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<AuthRegisterReq>,
 ) -> JsonResResult<WebResponse<AuthRegisterRes>> {
@@ -51,7 +50,6 @@ pub async fn register(
 // --- Login (request token) ---
 #[axum::debug_handler]
 pub async fn login(
-    ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<AuthLoginReq>,
 ) -> JsonResResult<WebResponse<AuthLoginRes>> {
@@ -84,7 +82,6 @@ pub async fn refresh(
 // --- Reset Password (request reset email) ---
 #[axum::debug_handler]
 pub async fn reset_password(
-    ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<AuthResetPasswordReq>,
 ) -> JsonResResult<WebResponse<AuthResetPasswordRes>> {
@@ -99,7 +96,6 @@ pub async fn reset_password(
 // --- Update Password (confirm password reset) ---
 #[axum::debug_handler]
 pub async fn update_password(
-    ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<AuthUpdatePasswordReq>,
 ) -> JsonResResult<WebResponse<AuthUpdatePasswordRes>> {
@@ -112,7 +108,6 @@ pub async fn update_password(
 // --- Confirm Account ---
 #[axum::debug_handler]
 pub async fn confirm_account(
-    ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<AuthConfirmAccountReq>,
 ) -> JsonResResult<WebResponse<AuthConfirmAccountRes>> {
@@ -125,7 +120,6 @@ pub async fn confirm_account(
 // --- Resend Confirmation ---
 #[axum::debug_handler]
 pub async fn resend_confirm(
-    ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<AuthResendConfirmReq>,
 ) -> JsonResResult<WebResponse<AuthResendConfirmRes>> {
@@ -168,7 +162,6 @@ pub async fn blacklist(
 // --- Google OAuth: initiate ---
 #[axum::debug_handler]
 pub async fn oauth_google_initiate(
-    ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<AuthOAuthInitiateReq>,
 ) -> JsonResResult<WebResponse<AuthOAuthInitiateRes>> {
@@ -205,7 +198,8 @@ pub async fn oauth_google_callback(
 pub struct AuthRouter;
 
 impl AuthRouter {
-    pub fn routes() -> Router {
+    /// Public auth endpoints — no authentication required.
+    pub fn public_routes() -> Router {
         Router::new()
             .route("/register", post(register))
             .route("/login", post(login))
@@ -214,9 +208,14 @@ impl AuthRouter {
             .route("/update-password", post(update_password))
             .route("/confirm", post(confirm_account))
             .route("/resend-confirm", post(resend_confirm))
-            .route("/revoke", post(revoke))
-            .route("/blacklist", post(blacklist))
             .route("/oauth/google/initiate", post(oauth_google_initiate))
             .route("/oauth/google/callback", get(oauth_google_callback))
+    }
+
+    /// Protected auth endpoints — require authentication via CtxLayer.
+    pub fn protected_routes() -> Router {
+        Router::new()
+            .route("/revoke", post(revoke))
+            .route("/blacklist", post(blacklist))
     }
 }

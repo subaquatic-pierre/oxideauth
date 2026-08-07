@@ -1,19 +1,20 @@
 use axum::{
+    RequestExt,
     body::Body,
     extract::{FromRequest, Request},
-    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     response::{IntoResponse, Response},
-    RequestExt,
 };
 use axum_extra::{
-    headers::{authorization::Bearer, Authorization},
     TypedHeader,
+    headers::{Authorization, authorization::Bearer},
 };
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tower::{Layer, Service};
+use tracing::debug;
 
 use crate::{
     app::{App, AppState},
@@ -85,12 +86,14 @@ where
 
                     inner.call(req).await
                 }
-                Err(_e) => {
+                Err(e) => {
                     let body = ErrorBody {
                         success: false,
                         status: StatusCode::UNAUTHORIZED.as_u16(),
                         message: "unauthorized".to_string(),
                     };
+
+                    debug!("{e}");
 
                     Ok((StatusCode::UNAUTHORIZED, axum::Json(body)).into_response())
                 }
