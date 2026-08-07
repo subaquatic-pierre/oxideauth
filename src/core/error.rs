@@ -16,6 +16,7 @@ pub enum CoreError {
     AlreadyExists(String),
     ParseError(String),
     Auth(String),
+    RateLimited(String),
     InvalidParams(String),
     NotFound(String),
 

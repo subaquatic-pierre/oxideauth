@@ -500,6 +500,17 @@ where
         chx.del_key(&format!("oxauth:ae:{}", acc_id)).await?;
         chx.del_key(&format!("oxauth:as:{}", mem_id)).await?;
 
+        // TODO(T033): Push notification trigger — notify the workspace's clients
+        // that a token was revoked. Requires wiring a `ClientService` dependency
+        // into `AuthService` (constructor + factory). Then call:
+        //     let ws_id = Uuid::from_str(claims.ws()).unwrap_or_default();
+        //     client_svc.push_to_workspace(
+        //         ws_id,
+        //         "token_revoked",
+        //         serde_json::json!({ "account_id": acc_id, "membership_id": mem_id }),
+        //         ctx, // note: needs &mut CoreCtx; revoke_token currently takes &CoreCtx
+        //     ).await;
+
         info!(account_id = %ctx.account_id(), sid = %sid, "AUTH_TOKEN_REVOKED");
 
         Ok(true)

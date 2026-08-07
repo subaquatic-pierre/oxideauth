@@ -1,5 +1,6 @@
 pub mod account;
 pub mod audit;
+pub mod client;
 pub mod credential;
 pub mod hash;
 pub mod id;

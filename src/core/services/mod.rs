@@ -1,5 +1,6 @@
 pub mod account;
 pub mod auth;
+pub mod client;
 pub mod credential;
 pub mod ctx;
 pub mod email;

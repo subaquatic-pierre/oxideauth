@@ -237,6 +237,16 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for PermissionService<D> {
             .update(&store_ctx, &params.id.into(), params.into())
             .await?;
 
+        // TODO(T031): Push notification trigger — notify all workspace clients
+        // that a permission changed. Requires wiring a `ClientService`
+        // dependency into `PermissionService` (constructor + factory). Then
+        // call:
+        //     client_svc.push_to_workspace(
+        //         params.workspace_id,
+        //         "permission_changed",
+        //         serde_json::json!({ "permission_id": updated.id }),
+        //         ctx,
+        //     ).await;
         self.describe(
             ctx,
             PermissionDescribeParams {
@@ -277,6 +287,15 @@ impl<D: DbExecutor> CoreModelDeleteService<D> for PermissionService<D> {
 
         let res = store.delete(&store_ctx, &to_delete.id.into()).await?;
 
+        // TODO(T031): Push notification trigger — notify all workspace clients
+        // that a permission was deleted. Requires wiring a `ClientService`
+        // dependency into `PermissionService`. Then call:
+        //     client_svc.push_to_workspace(
+        //         params.workspace_id,
+        //         "permission_changed",
+        //         serde_json::json!({ "permission_id": to_delete.id }),
+        //         ctx,
+        //     ).await;
         Ok(to_delete)
     }
 }

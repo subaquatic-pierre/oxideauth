@@ -380,6 +380,12 @@ pub const ALL_PERMISSIONS: &'static [&str] = &[
     "account:readAny",
     "account:updateAny",
     "account:deleteAny", // Added based on readAny/updateAny pattern
+    "client:create",
+    "client:delete",
+    "client:describe",
+    "client:list",
+    "client:regenerateSecret",
+    "client:update",
     "workspace:list",
     "workspace:create",
     "workspace:read",

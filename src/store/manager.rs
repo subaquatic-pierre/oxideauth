@@ -4,8 +4,9 @@ use crate::store::{
     dbx::PgDbx,
     init::PgPool,
     stores::{
-        account::AccountStore, credential::CredentialStore, membership::MembershipStore,
-        permission::PermissionStore, project::ProjectStore, role::RoleStore, workspace::WorkspaceStore,
+        account::AccountStore, client::ClientStore, credential::CredentialStore,
+        membership::MembershipStore, permission::PermissionStore, project::ProjectStore,
+        role::RoleStore, workspace::WorkspaceStore,
     },
     traits::dbx::DbExecutor,
 };
@@ -14,6 +15,7 @@ pub struct StoreManager<D: DbExecutor> {
     pub dbx: Arc<D>,
 
     pub account: AccountStore<D>,
+    pub client: ClientStore<D>,
     pub credential: CredentialStore<D>,
     pub membership: MembershipStore<D>,
     pub workspace: WorkspaceStore<D>,
@@ -25,6 +27,7 @@ pub struct StoreManager<D: DbExecutor> {
 impl<D: DbExecutor> StoreManager<D> {
     pub fn new(dbx: Arc<D>) -> Self {
         let account = AccountStore::new(dbx.clone());
+        let client = ClientStore::new(dbx.clone());
         let credential = CredentialStore::new(dbx.clone());
         let membership = MembershipStore::new(dbx.clone());
         let workspace = WorkspaceStore::new(dbx.clone());
@@ -35,6 +38,7 @@ impl<D: DbExecutor> StoreManager<D> {
         Self {
             dbx: dbx.clone(),
             account,
+            client,
             credential,
             membership,
             workspace,

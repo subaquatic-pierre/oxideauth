@@ -387,6 +387,16 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for MembershipSe
             .update(&store_ctx, &params.id.into(), params.into())
             .await?;
 
+        // TODO(T032): Push notification trigger — notify all workspace clients
+        // that a membership changed. Requires wiring a `ClientService`
+        // dependency into `MembershipService` (constructor + factory). Then
+        // call:
+        //     client_svc.push_to_workspace(
+        //         params.workspace_id,
+        //         "membership_changed",
+        //         serde_json::json!({ "membership_id": res.id, "account_id": ... }),
+        //         ctx,
+        //     ).await;
         self.describe(
             ctx,
             MembershipDescribeParams {
@@ -425,6 +435,15 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for MembershipSe
 
         let res = store.delete(&store_ctx, &params.id.into()).await?;
 
+        // TODO(T032): Push notification trigger — notify all workspace clients
+        // that a membership was deleted. Requires wiring a `ClientService`
+        // dependency into `MembershipService`. Then call:
+        //     client_svc.push_to_workspace(
+        //         params.workspace_id,
+        //         "membership_changed",
+        //         serde_json::json!({ "membership_id": to_delete.id, "account_id": ... }),
+        //         ctx,
+        //     ).await;
         Ok(to_delete)
     }
 }

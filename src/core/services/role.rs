@@ -265,6 +265,15 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for RoleService<D> {
             .update(&store_ctx, &params.id.into(), params.into())
             .await?;
 
+        // TODO(T030): Push notification trigger — notify all workspace clients
+        // that a role changed. Requires wiring a `ClientService` dependency
+        // into `RoleService` (constructor + factory). Then call:
+        //     client_svc.push_to_workspace(
+        //         params.workspace_id,
+        //         "role_changed",
+        //         serde_json::json!({ "role_id": res.id }),
+        //         ctx,
+        //     ).await;
         self.describe(
             ctx,
             RoleDescribeParams {
@@ -306,6 +315,15 @@ impl<D: DbExecutor> CoreModelDeleteService<D> for RoleService<D> {
 
         let _ = store.delete(&store_ctx, &to_delete.id.into()).await?;
 
+        // TODO(T030): Push notification trigger — notify all workspace clients
+        // that a role was deleted. Requires wiring a `ClientService` dependency
+        // into `RoleService`. Then call:
+        //     client_svc.push_to_workspace(
+        //         params.workspace_id,
+        //         "role_changed",
+        //         serde_json::json!({ "role_id": to_delete.id }),
+        //         ctx,
+        //     ).await;
         Ok(to_delete)
     }
 }
