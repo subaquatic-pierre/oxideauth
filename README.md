@@ -41,11 +41,12 @@ src/
 
 ## API Endpoints
 
-All 39 endpoints use JSON POST with a standard `{ success, status, data }` response envelope.
+All 50 endpoints use JSON POST with a standard `{ success, status, data }` response envelope (except 2 GET health endpoints and 1 GET OAuth callback).
 
 | Resource | Endpoints | Description |
 |----------|-----------|-------------|
 | Health | 2 | `GET /`, `GET /health-check` |
+| Auth | 11 | Register, Login, Refresh, OAuth2, password & token management |
 | Workspaces | 5 | CRUD + List — multi-tenant containers |
 | Accounts | 5 | CRUD + List — user identity management |
 | Projects | 5 | CRUD + List — scoped work areas |
@@ -61,7 +62,7 @@ Full API reference, concept guides, and architecture docs are in the [project do
 
 ## Postman Collection
 
-Import-ready collection with all 39 endpoints, example payloads, auto-populated variables, and test scripts:
+Import-ready collection with all 50 endpoints, example payloads, auto-populated variables, and test scripts:
 
 [`references/OxideAuth.postman_collection.json`](references/OxideAuth.postman_collection.json)
 
