@@ -50,6 +50,8 @@ pub enum TokenKind {
     Auth,
     #[serde(rename = "password_reset")]
     PasswordReset,
+    #[serde(rename = "blacklisted")]
+    Blacklisted,
 }
 
 impl From<TokenKind> for SeaValue {

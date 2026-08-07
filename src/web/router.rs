@@ -12,9 +12,9 @@ use crate::{
     app::App,
     web::{
         handlers::{
-            account::AccountRouter, credential::CredentialRouter, membership::MembershipRouter,
-            permission::PermissionRouter, project::ProjectRouter, role::RoleRouter,
-            root::RootRouter, token::TokenRouter, workspace::WorkspaceRouter,
+            account::AccountRouter, auth::AuthRouter, credential::CredentialRouter,
+            membership::MembershipRouter, permission::PermissionRouter, project::ProjectRouter,
+            role::RoleRouter, root::RootRouter, token::TokenRouter, workspace::WorkspaceRouter,
         },
         middlewares::{
             cors::build_cors,
@@ -48,6 +48,7 @@ impl AppRouter {
             .nest("/memberships", MembershipRouter::routes())
             .nest("/credentials", CredentialRouter::routes())
             .nest("/tokens", TokenRouter::routes())
+            .nest("/auth", AuthRouter::routes())
             // Define middleware
             .layer(global_error_layer)
             .layer(map_response(ResponseMw::response_map_handler))

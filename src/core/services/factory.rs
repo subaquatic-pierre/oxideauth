@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     app::AppState,
     cache::{manager::CacheManager, traits::CacheExecutor},
+    config::Config,
     core::services::{
         account::AccountService,
         auth::AuthService,
@@ -76,10 +77,14 @@ where
         svc
     }
 
-    pub fn auth(&self) -> AuthService<D> {
-        let acc_svc = self.account();
-        let svc = AuthService::new(acc_svc);
-        svc
+    pub fn auth(&self) -> AuthService<D, C> {
+        AuthService::new(
+            self.sm.clone(),
+            self.account(),
+            self.token(),
+            self.cm.clone(),
+            Config::from_env(), // TODO: hold Config in ServiceFactory instead of re-reading from env
+        )
     }
 
     pub fn token(&self) -> TokenService<D, C> {

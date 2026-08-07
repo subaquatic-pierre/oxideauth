@@ -190,4 +190,24 @@ impl TokenClaims {
             false
         }
     }
+
+    /// The account id encoded in the token subject (`sub`).
+    pub fn sub(&self) -> &str {
+        &self.sub
+    }
+
+    /// The workspace id encoded in the `ws` claim.
+    pub fn ws(&self) -> &str {
+        &self.ws
+    }
+
+    /// The membership id encoded in the `mem` claim.
+    pub fn mem(&self) -> &str {
+        &self.mem
+    }
+
+    /// The token type (`Auth`, `PasswordReset`, `Refresh`, `AccountConfirm`).
+    pub fn token_type(&self) -> TokenType {
+        self.ty
+    }
 }

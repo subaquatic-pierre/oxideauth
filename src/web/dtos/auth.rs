@@ -1,0 +1,138 @@
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::core::models::account::Account;
+
+// --- AuthRegisterReq ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthRegisterReq {
+    pub email: String,
+    pub password: Option<String>,
+    pub name: Option<String>,
+}
+
+// --- AuthRegisterRes ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthRegisterRes {
+    pub account: Account,
+    pub token: String,
+}
+
+// --- AuthLoginReq ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthLoginReq {
+    pub email: String,
+    pub password: String,
+}
+
+// --- AuthLoginRes ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthLoginRes {
+    pub account: Account,
+    pub token: String,
+}
+
+// --- AuthRefreshRes ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthRefreshRes {
+    pub token: String,
+}
+
+// --- AuthResetPasswordReq ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthResetPasswordReq {
+    pub email: String,
+}
+
+// --- AuthResetPasswordRes ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthResetPasswordRes {
+    pub message: String,
+}
+
+// --- AuthUpdatePasswordReq ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthUpdatePasswordReq {
+    pub token: String,
+    pub password: String,
+}
+
+// --- AuthUpdatePasswordRes ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthUpdatePasswordRes {
+    pub account_id: Uuid,
+}
+
+// --- AuthConfirmAccountReq ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthConfirmAccountReq {
+    pub token: String,
+}
+
+// --- AuthConfirmAccountRes ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthConfirmAccountRes {
+    pub account_id: Uuid,
+    pub verified: bool,
+}
+
+// --- AuthResendConfirmReq ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthResendConfirmReq {
+    pub email: String,
+}
+
+// --- AuthResendConfirmRes ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthResendConfirmRes {
+    pub message: String,
+}
+
+// --- AuthRevokeRes ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthRevokeRes {
+    pub revoked: bool,
+}
+
+// --- AuthBlacklistReq ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthBlacklistReq {
+    pub token_hash: String,
+    pub reason: Option<String>,
+}
+
+// --- AuthBlacklistRes ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthBlacklistRes {
+    pub blacklisted: bool,
+}
+
+// --- AuthOAuthInitiateReq ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthOAuthInitiateReq {
+    pub redirect_url: String,
+}
+
+// --- AuthOAuthInitiateRes ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthOAuthInitiateRes {
+    pub auth_url: String,
+}

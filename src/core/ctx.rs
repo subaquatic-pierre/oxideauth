@@ -73,8 +73,16 @@ impl CoreCtx {
         Ok(())
     }
 
+    pub fn account_id(&self) -> Uuid {
+        self.account.id
+    }
+
     pub fn workspace_id(&self) -> Uuid {
         self.cached_mem.workspace_id
+    }
+
+    pub fn membership_id(&self) -> Uuid {
+        self.cached_mem.id
     }
 
     pub fn set_workspace_id(&mut self, ws_id: Uuid) {
