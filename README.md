@@ -71,6 +71,37 @@ Import-ready collection with all 50 endpoints, example payloads, auto-populated 
 3. Set the `token` variable to a valid Bearer JWT
 4. Run **Workspace → Create Workspace** first to populate the `{{workspace_id}}` variable
 
+## Deployment
+
+The API uses **build-only** verification on tag push — it builds and verifies compilation but does not deploy to a production environment (no deployment target configured yet).
+
+### Option 1: Git Tag Push (CI Trigger)
+
+```sh
+# From the api/ directory, create and push a semantic version tag:
+git tag 1.0.0
+git push origin 1.0.0
+```
+
+Pushing a tag matching `*.*.*` triggers the GitHub Actions workflow at `.github/workflows/deploy.yml`, which runs `cargo build --release` to verify compilation. Unit tests are excluded (they require a database connection).
+
+### Option 2: Manual Deploy via Script
+
+```sh
+make deploy patch    # bump patch version (0.0.0 → 0.0.1)
+make deploy minor    # bump minor version (0.0.0 → 0.1.0)
+make deploy major    # bump major version (0.0.0 → 1.0.0)
+make deploy 1.2.3    # use explicit version
+```
+
+The `make deploy` command runs `scripts/deploy.sh`, which:
+1. Bumps the version in `Cargo.toml`
+2. Runs `cargo build --release`
+3. Creates and pushes an `X.Y.Z` tag
+4. Commits and pushes version bump changes
+
+All tags use semantic versioning (e.g., `1.2.3`). Deployments target the `main` branch.
+
 ## Testing
 
 ```sh
