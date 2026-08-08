@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
-use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
     cache::{
-        entities::auth::AuthCache,
         manager::CacheManager,
         traits::CacheExecutor,
     },
@@ -37,7 +35,6 @@ use crate::{
         entities::{
             account::{AccountFilter, AccountForCreate, AccountForUpdate, AccountMeta},
             id::DbId,
-            membership::MembershipFilter,
         },
         error::StoreError,
         manager::StoreManager,
@@ -236,7 +233,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for AccountServi
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
 
-        let email = params.email.clone();
         let id = self
             .get_account_id(&store_ctx, params.id, params.email)
             .await?;
@@ -248,14 +244,21 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for AccountServi
         // this email acts primarily as ID, if a user wants to update email
         // to login then can update credential used for that namespace instead
 
-        // Prepare the update struct for the store layer
+        let current = store.get(&store_ctx, &id).await?;
+
+        let security_change = params.enabled.map_or(false, |e| e != current.enabled);
+
         let update_data = AccountForUpdate {
             email: None, // NOTE: read above for decision
             name: params.name,
             description: params.description,
             avatar_url: params.avatar_url,
             enabled: params.enabled,
-            token_version: None,
+            token_version: if security_change {
+                Some(current.token_version + 1)
+            } else {
+                None
+            },
             verified: params.verified,
             tags: params.tags,
             meta: params.meta,
@@ -263,23 +266,11 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for AccountServi
 
         let updated_account = store.update(&store_ctx, &id, update_data).await?;
 
-        // Invalidate the auth cache for every membership belonging to this
-        // account. An account can have multiple memberships (one per
-        // workspace), and toggling `enabled`/token version invalidates all of
-        // their cached auth data.
-        let account_id: Uuid = updated_account.id.into();
-        let membership_filter: MembershipFilter = json!({
-            "account_id": account_id.to_string(),
-        })
-        .try_into()?;
-        let memberships = self
-            .sm
-            .membership
-            .list(&store_ctx, Some(membership_filter), None)
-            .await?;
-        for membership in memberships {
-            let keyed = AuthCache::new_keyed(membership.id.into(), account_id, None);
-            self.cm.auth.invalidate(&keyed).await?;
+        if security_change {
+            let account_id: Uuid = id.into();
+            self.cm.auth.invalidate_account(&account_id).await?;
+        } else {
+            tracing::debug!("non-security update, cache not invalidated");
         }
 
         Ok(updated_account.into())
@@ -303,21 +294,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for AccountServi
 
         let deleted = store.delete(&store_ctx, &id).await?.into();
 
-        // Invalidate the auth cache for every membership belonging to the
-        // deleted account so no stale cached auth data survives the deletion.
         let account_id: Uuid = id.into();
-        let membership_filter: MembershipFilter = json!({
-            "account_id": account_id.to_string(),
-        })
-        .try_into()?;
-        let memberships = self
-            .sm
-            .membership
-            .list(&store_ctx, Some(membership_filter), None)
-            .await?;
-        for membership in memberships {
-            let keyed = AuthCache::new_keyed(membership.id.into(), account_id, None);
-            self.cm.auth.invalidate(&keyed).await?;
+        if let Err(e) = self.cm.auth.invalidate_account(&account_id).await {
+            tracing::error!(account_id = %account_id, error = %e, "Cache invalidation failed on account delete");
         }
 
         Ok(deleted)
@@ -332,7 +311,7 @@ mod tests {
     use super::*;
     use crate::{
         app::{AppEnv, new_app_data},
-        cache::{manager::CacheManager, redis::RedisChx},
+        cache::{manager::CacheManager, mock::MockChx, redis::RedisChx},
         config::Config,
         core::services::factory::ServiceFactory,
         create_dbx_mock_unsafe,
@@ -425,9 +404,9 @@ mod tests {
         let dbx = Arc::new(MockDbxAccountRegister);
         let sm = Arc::new(StoreManager::new(dbx));
 
-        // build cache manager
-        let redis_cache = Arc::new(RedisChx::new(&config.redis_url).await);
-        let cm = Arc::new(CacheManager::new(redis_cache));
+        // build cache manager with mock (no real Redis connection needed)
+        let mock_cache = Arc::new(MockChx::default());
+        let cm = Arc::new(CacheManager::new(mock_cache));
         let svc_factory = ServiceFactory::new(sm, cm);
         let svc = svc_factory.account();
         let mut ctx = CoreCtx::new_test()?;
@@ -482,9 +461,9 @@ mod tests {
         let dbx = Arc::new(MockDbxAccountRegister);
         let sm = Arc::new(StoreManager::new(dbx));
 
-        // build cache manager
-        let redis_cache = Arc::new(RedisChx::new(&config.redis_url).await);
-        let cm = Arc::new(CacheManager::new(redis_cache));
+        // build cache manager with mock (no real Redis connection needed)
+        let mock_cache = Arc::new(MockChx::default());
+        let cm = Arc::new(CacheManager::new(mock_cache));
         let svc_factory = ServiceFactory::new(sm, cm);
         let svc = svc_factory.account();
 

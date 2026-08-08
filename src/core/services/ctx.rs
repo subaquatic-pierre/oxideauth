@@ -70,7 +70,7 @@ where
     /// 4. Validate version claims (membership/account/session) and status
     ///    flags, then reconstruct the `CoreCtx` from the cached auth scope.
     pub async fn resolve_ctx(&self, headers: &HeaderMap) -> CoreResult<CoreCtx> {
-        let token_str = TokenService::<D, C>::token_str_from_headers(headers)
+        let token_str = TokenService::<D>::token_str_from_headers(headers)
             .ok_or_else(|| CoreError::Auth("missing authorization header".into()))?;
 
         let token_svc = self.svc_factory.token();

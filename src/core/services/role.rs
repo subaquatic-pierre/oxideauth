@@ -81,12 +81,14 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
         }
     }
 
-    /// Invalidates the auth cache for every membership that carries the given
-    /// role. A role mutation (e.g. deletion) changes the cached auth scope of
-    /// all memberships holding that role, so each of them must be re-hydrated.
+    /// Invalidates the account-level auth cache for every membership that carries
+    /// the given role.
     ///
-    /// NOTE: naive reverse lookup — lists all memberships (with their roles)
-    /// and filters in memory. Matches the existing patterns in the codebase.
+    /// A role mutation (e.g. deletion) changes the cached auth scope of all
+    /// memberships holding that role. Each affected membership is invalidated
+    /// individually (membership-scoped). Other memberships under the same
+    /// account are unaffected — only the specific memberships holding the
+    /// changed role lose their cached auth data.
     async fn invalidate_memberships_for_role(
         &self,
         store_ctx: &StoreCtx,

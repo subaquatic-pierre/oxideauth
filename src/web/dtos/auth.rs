@@ -111,21 +111,6 @@ pub struct AuthRevokeRes {
     pub revoked: bool,
 }
 
-// --- AuthBlacklistReq ---
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuthBlacklistReq {
-    pub token_hash: String,
-    pub reason: Option<String>,
-}
-
-// --- AuthBlacklistRes ---
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuthBlacklistRes {
-    pub blacklisted: bool,
-}
-
 // --- AuthOAuthInitiateReq ---
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

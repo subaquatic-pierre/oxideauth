@@ -1,14 +1,12 @@
 use std::{str::FromStr, sync::Arc};
 
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
     cache::{
         manager::CacheManager,
-        stores::client::ClientRateLimitCache,
         traits::CacheExecutor,
     },
     config::Config,
@@ -43,24 +41,10 @@ use crate::{
     utils::time::{format_time, now_utc},
 };
 
-/// Cached auth scope payload (subset of what `CtxService` persists) needed to
-/// reconstruct a `PermissionChecker` without running the full auth pipeline.
-///
-/// Tokens do not carry permissions; they live in the auth scope cache
-/// (`oxauth:as:{membership_id}`) that `CtxService` populates on first context
-/// resolution.
-#[derive(Debug, Deserialize)]
-struct AuthScopeCache {
-    #[serde(default)]
-    permissions: Vec<String>,
-}
-
 pub struct ClientService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     ws_svc: WorkspaceService<D>,
     cm: Arc<CacheManager<C>>,
-    rate_limit: Option<Arc<ClientRateLimitCache<C>>>,
-    config: Config,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for ClientService<D, C> {
@@ -81,15 +65,11 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         sm: Arc<StoreManager<D>>,
         ws_svc: WorkspaceService<D>,
         cm: Arc<CacheManager<C>>,
-        rate_limit: Option<Arc<ClientRateLimitCache<C>>>,
-        config: Config,
     ) -> Self {
         Self {
             sm,
             ws_svc,
             cm,
-            rate_limit,
-            config,
         }
     }
 
@@ -99,8 +79,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     /// after all retries are logged (via `tracing::warn`).
     ///
     /// The delivery happens on a spawned tokio task so the caller is never
-    /// blocked by a slow (or unreachable) endpoint. Delivery counters (T029)
-    /// are incremented through the rate-limit cache when one is configured.
+    /// blocked by a slow (or unreachable) endpoint.
     pub async fn push_to_client(&self, client: &Client, payload: &serde_json::Value)
     where
         C: 'static,
@@ -112,7 +91,6 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
 
         let client_id = client.id.to_string();
         let payload = payload.clone();
-        let counters = self.rate_limit.clone();
 
         // Spawn async task so this doesn't block the caller
         tokio::spawn(async move {
@@ -139,10 +117,6 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
                 {
                     Ok(resp) if resp.status().is_success() => {
                         tracing::info!(client_id = %client_id, attempt = attempt + 1, "Push notification delivered");
-                        // Increment success counter (T029)
-                        if let Some(counters) = &counters {
-                            let _ = counters.increment_push_ok(&client_id).await;
-                        }
                         return;
                     }
                     Ok(resp) => {
@@ -159,10 +133,6 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
                 error = ?last_error,
                 "Push notification failed after 3 retries"
             );
-            // Increment failure counter (T029)
-            if let Some(counters) = &counters {
-                let _ = counters.increment_push_fail(&client_id).await;
-            }
         });
     }
 
@@ -227,35 +197,24 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     /// Validates a client credential + user token pair.
     ///
     /// Returns `Ok(true)` only when **all** of the following hold:
-    /// 1. A client with a matching secret hash exists in the workspace.
-    /// 2. The user token is a valid, non-expired `Auth` token bound to the same
+    /// 1. The calling Client (micro service, authenticated via `ctx`) has
+    ///    `client:validate` permission in the target workspace.
+    /// 2. A client with a matching secret hash exists in the workspace.
+    /// 3. The user token is a valid, non-expired `Auth` token bound to the same
     ///    workspace.
-    /// 3. The user's permissions (from the auth scope cache) satisfy every
+    /// 4. The user's permissions (from the auth scope cache) satisfy every
     ///    permission in `required_permissions`.
-    ///
-    /// # Anti-enumeration
-    ///
-    /// Every authentication failure returns `Ok(false)` rather than
-    /// distinguishing between "client not found", "bad secret", and "invalid
-    /// token". The single exception is rate limiting, which surfaces as
-    /// [`CoreError::RateLimited`].
-    ///
-    /// # Rate limiting
-    ///
-    /// When a [`ClientRateLimitCache`] is configured, attempts are rate limited
-    /// before any other work happens. The counter is keyed by the hashed client
-    /// secret (the only stable client identifier available before lookup) and is
-    /// cleared on a successful validation.
     ///
     /// # Simplifications
     ///
     /// - Client lookup filters by `workspace_id` and matches the secret hash in
     ///   memory (`secret_hash` is not part of `ClientFilter`).
-    /// - Token validation decodes the JWT directly against the configured
+    /// - Token validation decodes the user's JWT directly against the configured
     ///   secret and checks expiry/type/workspace; the full auth-cache
     ///   hydrate-on-miss pipeline is skipped.
     pub async fn validate(
         &self,
+        ctx: &mut CoreCtx,
         workspace_id: Uuid,
         client_secret: &str,
         user_token: &str,
@@ -269,17 +228,12 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
             format!("{:x}", hasher.finalize())
         };
 
-        // --- 2. Rate limiting (before any other checks) ---
-        if let Some(rl) = &self.rate_limit {
-            if !rl.check_rate_limit(&secret_hash).await? {
-                return Err(CoreError::RateLimited(
-                    "too many validation attempts, try again later".to_string(),
-                ));
-            }
-        }
+        // --- 2. Validate the calling Client has permission & scope the store ---
+        let (store_ctx, _workspace) = self
+            .scope_and_validate_ctx(ctx, workspace_id, &["client:validate"])
+            .await?;
 
         // --- 3. Look up the client by workspace_id + secret_hash ---
-        let store_ctx = StoreCtx::new_root();
         let filter: ClientFilter = json!({
             "workspace_id": workspace_id.to_string(),
         })
@@ -292,13 +246,10 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
             return Ok(false);
         }
 
-        // --- 4. Decode and validate the user token ---
-        // Simplified validation: decode directly with the JWT secret from
-        // config. `Validation::new` validates the `exp` claim by default, so
-        // expired tokens fail here.
+        // --- 4. Decode and validate the user token (end user, not the Client) ---
         let claims = match decode::<TokenClaims>(
             user_token,
-            &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()),
+            &DecodingKey::from_secret(Config::from_env().jwt_secret.as_bytes()),
             &Validation::new(Algorithm::HS256),
         ) {
             Ok(data) => data.claims,
@@ -316,29 +267,17 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
             return Ok(false);
         }
 
-        // --- 6. Build PermissionChecker from the cached auth scope ---
-        let as_key = format!("oxauth:as:{}", claims.mem());
-        let chx = self.cm.executor();
-        let as_val = chx
-            .pipeline_get(&[as_key.as_str()])
-            .await?
-            .into_iter()
-            .next()
-            .flatten();
-
-        let Some(as_val) = as_val else {
+        // --- 6. Build PermissionChecker from the user's cached auth scope ---
+        let mem_id = claims.mem_id().map_err(|_| CoreError::Auth("invalid token".into()))?;
+        let Some(scope) = self.cm.auth.fetch_auth_scope(&mem_id).await? else {
             return Ok(false);
-        };
-        let scope: AuthScopeCache = match serde_json::from_str(&as_val) {
-            Ok(scope) => scope,
-            Err(_) => return Ok(false),
         };
         let checker = match PermissionChecker::from_string_vec(scope.permissions) {
             Ok(checker) => checker,
             Err(_) => return Ok(false),
         };
 
-        // --- 7. Check required permissions ---
+        // --- 7. Check required permissions against the user's grants ---
         if !required_permissions.is_empty() {
             let required = match PermissionCheck::perms_from_string_slice(required_permissions) {
                 Ok(perms) => perms,
@@ -347,11 +286,6 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
             if !checker.has_subset(&required) {
                 return Ok(false);
             }
-        }
-
-        // --- 8. Clear the rate limit counter on success ---
-        if let Some(rl) = &self.rate_limit {
-            rl.reset_rate_limit(&secret_hash).await?;
         }
 
         Ok(true)

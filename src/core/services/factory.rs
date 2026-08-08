@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     app::AppState,
-    cache::{manager::CacheManager, stores::client::ClientRateLimitCache, traits::CacheExecutor},
+    cache::{manager::CacheManager, traits::CacheExecutor},
     config::Config,
     core::services::{
         account::AccountService,
@@ -94,24 +94,15 @@ where
     }
 
     pub fn client(&self) -> ClientService<D, C> {
-        // Client validation rate limiting: 5 attempts per 300s window, matching
-        // the login attempt policy. TODO: make these configurable.
-        let rate_limit = Arc::new(ClientRateLimitCache::new(
-            self.cm.executor(),
-            5,
-            300,
-        ));
         let svc = ClientService::new(
             self.sm.clone(),
             self.workspace(),
             self.cm.clone(),
-            Some(rate_limit),
-            Config::from_env(), // TODO: hold Config in ServiceFactory instead of re-reading from env
         );
         svc
     }
 
-    pub fn token(&self) -> TokenService<D, C> {
+    pub fn token(&self) -> TokenService<D> {
         // TODO: get config from storage, first check cache,
         // if not found then check database and update cache
         // the reason for holding config in storage is to allow
@@ -123,7 +114,7 @@ where
             config.access_token_max_age,
             config.refresh_token_max_age,
         );
-        let svc = TokenService::new(self.cm.clone(), self.workspace(), token_config);
+        let svc = TokenService::new(self.workspace(), token_config);
         svc
     }
 }

@@ -43,11 +43,11 @@ impl Config {
         let client_origin = var("CLIENT_ORIGIN").expect("CLIENT_ORIGIN must be set");
         let jwt_secret = var("JWT_SECRET").expect("JWT_SECRET must be set");
         let access_token_max_age = var("ACCESS_TOKEN_MAXAGE")
-            .unwrap_or("900".to_string())  // 15 minutes default
+            .unwrap_or("900".to_string()) // 15 minutes default
             .parse::<u64>()
             .unwrap();
         let refresh_token_max_age = var("REFRESH_TOKEN_MAXAGE")
-            .unwrap_or("604800".to_string())  // 7 days default
+            .unwrap_or("604800".to_string()) // 7 days default
             .parse::<u64>()
             .unwrap();
 
@@ -132,6 +132,7 @@ impl Config {
             client_origin: "http://localhost:5000".to_string(),
             database_url: "postgres://test_user:password@localhost:5432/test_db".to_string(),
             redis_url: "redis://127.0.0.1:6379".to_string(),
+            // redis_url: "redis://oxideauth-redis:6379".to_string(),
             jwt_secret: "supersecretkey".to_string(),
             access_token_max_age: 900,
             refresh_token_max_age: 604800,

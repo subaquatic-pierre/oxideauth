@@ -1,7 +1,6 @@
 use std::{convert::Infallible, fmt::Display, num::ParseIntError, str::ParseBoolError};
 
 use derive_more::From;
-use hex::FromHexError;
 use serde::{Deserialize, Serialize};
 use serde_json::Error as JsonError;
 use serde_with::{DisplayFromStr, serde_as};
@@ -16,7 +15,6 @@ pub enum CoreError {
     AlreadyExists(String),
     ParseError(String),
     Auth(String),
-    RateLimited(String),
     InvalidParams(String),
     NotFound(String),
 

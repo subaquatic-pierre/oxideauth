@@ -5,9 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     cache::{
-        entities::auth::AuthCache,
-        manager::CacheManager,
-        stores::membership::MembershipCacheStore,
+        entities::auth::AuthCache, manager::CacheManager, stores::membership::MembershipCacheStore,
         traits::CacheExecutor,
     },
     core::{
@@ -99,6 +97,10 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
 
         // TODO: implement get cached membership
         None
+    }
+
+    pub fn set_cm(&mut self, cm: Arc<CacheManager<C>>) {
+        self.cm = cm.clone()
     }
 
     fn cache(&self) -> &MembershipCacheStore<C> {
@@ -471,7 +473,7 @@ mod tests {
     use super::*;
     use crate::{
         app::AppState,
-        cache::redis::RedisChx,
+        cache::{mock::MockChx, redis::RedisChx},
         config::Config,
         core::services::factory::ServiceFactory,
         create_dbx_mock_unsafe,
@@ -542,7 +544,10 @@ mod tests {
     #[serial]
     async fn test_membership_crud_lifecycle() -> CoreResult<()> {
         let app = init_test().await;
-        let svc = app.svc_factory.membership();
+        let mock_cache = Arc::new(MockChx::default());
+        let cm = Arc::new(CacheManager::new(mock_cache));
+        let svc_factory = ServiceFactory::new(app.sm.clone(), cm);
+        let svc = svc_factory.membership();
         let mut ctx = CoreCtx::new_test()?;
 
         // Setup Workspace and Account
@@ -645,9 +650,9 @@ mod tests {
         let dbx = Arc::new(MockDbxAccountRegister);
         let sm = Arc::new(StoreManager::new(dbx));
 
-        // build cache manager
-        let redis_cache = Arc::new(RedisChx::new(&config.redis_url).await);
-        let cm = Arc::new(CacheManager::new(redis_cache));
+        // build cache manager with mock (no real Redis connection needed)
+        let mock_cache = Arc::new(MockChx::default());
+        let cm = Arc::new(CacheManager::new(mock_cache));
         let svc_factory = ServiceFactory::new(sm, cm);
         let svc = svc_factory.membership();
 

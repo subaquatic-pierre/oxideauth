@@ -80,6 +80,7 @@ pub async fn list_clients(
 // --- Validate Client ---
 #[axum::debug_handler]
 pub async fn validate_client(
+    mut ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<ClientValidateReq>,
 ) -> JsonResResult<WebResponse<ClientValidateRes>> {
@@ -87,6 +88,7 @@ pub async fn validate_client(
     let svc = app.svc_factory.client();
     let authorized = svc
         .validate(
+            &mut ctx,
             body.workspace_id,
             &body.client_secret,
             &body.user_token,

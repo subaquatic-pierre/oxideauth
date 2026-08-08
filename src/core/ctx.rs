@@ -60,6 +60,29 @@ impl CoreCtx {
         })
     }
 
+    /// Creates a minimal system-level context scoped to a specific workspace.
+    ///
+    /// Used by unauthenticated flows (registration, login, password reset, OAuth)
+    /// that need a properly scoped `StoreCtx` without a pre-existing user session.
+    /// The system account ID is `Uuid::nil()` and permissions start empty —
+    /// callers must use `extend_perms()` to grant operation-specific permissions.
+    pub fn system(workspace_id: Uuid) -> CoreResult<Self> {
+        let system_account_id = Uuid::nil();
+        let mut acc = Account::default();
+        acc.id = system_account_id;
+        let mut ws = Workspace::default();
+        ws.id = workspace_id;
+        let mut cm = MembershipCache::default();
+        cm.workspace_id = workspace_id;
+        let perm_checker = PermissionChecker::from_string_vec(vec![])?;
+        Ok(Self {
+            cached_mem: cm,
+            account: acc,
+            workspace: ws,
+            perm_checker,
+        })
+    }
+
     pub fn permission_checker(&self) -> &PermissionChecker {
         &self.perm_checker
     }

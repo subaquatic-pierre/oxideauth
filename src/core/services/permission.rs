@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::Arc,
 };
 
@@ -73,16 +73,13 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
         Self { sm, cm, ws_svc }
     }
 
-    /// Invalidates the auth cache for every membership whose roles include the
-    /// given permission.
+    /// Invalidates the account-level auth cache for every membership whose roles
+    /// include the given permission.
     ///
     /// Changing a permission (its code/name or its deletion) affects the cached
-    /// auth scope of every membership holding a role that grants it, so each of
-    /// those memberships must be re-hydrated.
-    ///
-    /// NOTE: naive reverse lookup — lists all roles and memberships (with their
-    /// relations) and filters in memory. Matches the existing patterns in the
-    /// codebase.
+    /// auth scope of every membership holding a role that grants it. Collecting
+    /// distinct account IDs and invalidating per-account avoids redundant
+    /// per-membership cache purge calls.
     async fn invalidate_memberships_for_permission(
         &self,
         store_ctx: &StoreCtx,
@@ -107,7 +104,10 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
             return Ok(());
         }
 
-        // Invalidate the auth cache for every membership holding any affected role.
+        // Invalidate the auth cache for each affected membership individually.
+        // This is membership-scoped: only memberships holding the changed
+        // permission are invalidated. Other memberships under the same account
+        // are unaffected, preserving acc_version across unrelated memberships.
         let memberships = self
             .sm
             .membership

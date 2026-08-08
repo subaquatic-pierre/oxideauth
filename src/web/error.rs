@@ -11,6 +11,8 @@ use axum::{
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
+use tracing::error;
+
 use crate::store::error::StoreError;
 use crate::{core::error::CoreError, web::response::WebResponse};
 
@@ -132,9 +134,18 @@ impl From<CoreError> for WebError {
                 // }
 
                 // 500 Internal Server Errors (System/DB access issues that can't be attributed to bad input)
-                StoreError::CantCreateDataStore(msg) => WebError::InternalServerError,
-                StoreError::WithTxnFalse | StoreError::NoTxn => WebError::InternalServerError,
-                StoreError::MockReturn => WebError::InternalServerError,
+                StoreError::CantCreateDataStore(msg) => {
+                    error!("Internal server error (store): {msg}");
+                    WebError::InternalServerError
+                },
+                StoreError::WithTxnFalse | StoreError::NoTxn => {
+                    error!("Internal server error (store): {store_err}");
+                    WebError::InternalServerError
+                },
+                StoreError::MockReturn => {
+                    error!("Internal server error (store): {store_err}");
+                    WebError::InternalServerError
+                },
                 _ => WebError::ValidationError(format!("{}", store_err)),
             },
 
@@ -143,7 +154,10 @@ impl From<CoreError> for WebError {
             CoreError::JsonWebTokenError(jwt_err) => WebError::Unauthorized,
 
             // 500 Internal Server Error (all other unexpected/critical errors)
-            _ => WebError::InternalServerError,
+            err => {
+                error!("Internal server error: {err}");
+                WebError::InternalServerError
+            },
         }
     }
 }

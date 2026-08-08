@@ -411,7 +411,6 @@ pub const ALL_PERMISSIONS: &'static [&str] = &[
     "credential:manageSelf",
     "credential:resetAny",
     "token:revokeSelf",
-    "token:revokeAny",
     "audit:read",
     "meta:update",
     "tags:update",

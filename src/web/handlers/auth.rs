@@ -9,12 +9,11 @@ use serde::Deserialize;
 
 use crate::{
     app::App,
-    cache::redis::RedisChx,
     core::{ctx::CoreCtx, services::token::TokenService},
     store::dbx::PgDbx,
     web::{
         dtos::auth::{
-            AuthBlacklistReq, AuthBlacklistRes, AuthConfirmAccountReq, AuthConfirmAccountRes,
+            AuthConfirmAccountReq, AuthConfirmAccountRes,
             AuthLoginReq, AuthLoginRes, AuthOAuthInitiateReq, AuthOAuthInitiateRes,
             AuthRefreshRes, AuthRegisterReq, AuthRegisterRes, AuthResetPasswordReq,
             AuthResetPasswordRes, AuthResendConfirmReq, AuthResendConfirmRes, AuthRevokeRes,
@@ -69,7 +68,7 @@ pub async fn refresh(
     app: Extension<App>,
     headers: HeaderMap,
 ) -> JsonResResult<WebResponse<AuthRefreshRes>> {
-    let raw_token = TokenService::<PgDbx, RedisChx>::token_str_from_headers(&headers)
+    let raw_token = TokenService::<PgDbx>::token_str_from_headers(&headers)
         .ok_or(WebError::Unauthorized)?;
     let svc = app.svc_factory.auth();
     let (access_token, refresh_token) = svc.refresh_token(raw_token).await?;
@@ -138,25 +137,11 @@ pub async fn revoke(
     app: Extension<App>,
     headers: HeaderMap,
 ) -> JsonResResult<WebResponse<AuthRevokeRes>> {
-    let raw_token = TokenService::<PgDbx, RedisChx>::token_str_from_headers(&headers)
+    let raw_token = TokenService::<PgDbx>::token_str_from_headers(&headers)
         .ok_or(WebError::Unauthorized)?;
     let svc = app.svc_factory.auth();
     svc.revoke_token(&ctx, raw_token).await?;
     WebResponse::json(AuthRevokeRes { revoked: true })
-}
-
-// --- Blacklist Token ---
-#[axum::debug_handler]
-pub async fn blacklist(
-    ctx: Extension<CoreCtx>,
-    app: Extension<App>,
-    body: JsonReqResult<AuthBlacklistReq>,
-) -> JsonResResult<WebResponse<AuthBlacklistRes>> {
-    let Json(body) = body?;
-    let svc = app.svc_factory.auth();
-    svc.blacklist_token(&ctx, &body.token_hash, body.reason.as_deref())
-        .await?;
-    WebResponse::json(AuthBlacklistRes { blacklisted: true })
 }
 
 // --- Google OAuth: initiate ---
@@ -216,6 +201,5 @@ impl AuthRouter {
     pub fn protected_routes() -> Router {
         Router::new()
             .route("/revoke", post(revoke))
-            .route("/blacklist", post(blacklist))
     }
 }

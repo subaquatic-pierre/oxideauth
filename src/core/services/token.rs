@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 use tracing::debug;
 
 use axum::http::{header::AUTHORIZATION, HeaderMap};
@@ -7,7 +7,6 @@ use jsonwebtoken::{
 };
 
 use crate::{
-    cache::{manager::CacheManager, traits::CacheExecutor},
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -52,23 +51,17 @@ impl TokenServiceConfig {
     }
 }
 
-pub struct TokenService<D: DbExecutor, C: CacheExecutor> {
-    cm: Arc<CacheManager<C>>,
+pub struct TokenService<D: DbExecutor> {
     ws_svc: WorkspaceService<D>,
     config: TokenServiceConfig,
 }
 
-impl<D, C> TokenService<D, C>
-where
-    D: DbExecutor,
-    C: CacheExecutor,
-{
+impl<D: DbExecutor> TokenService<D> {
     pub fn new(
-        cm: Arc<CacheManager<C>>,
         ws_svc: WorkspaceService<D>,
         config: TokenServiceConfig,
     ) -> Self {
-        Self { cm, config, ws_svc }
+        Self { config, ws_svc }
     }
 
     pub fn decode_token_str(&self, token_str: &str) -> CoreResult<TokenClaims> {

@@ -7,7 +7,11 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::{
-    cache::{manager::CacheManager, traits::CacheExecutor},
+    cache::{
+        entities::auth::AuthCache,
+        manager::CacheManager,
+        traits::CacheExecutor,
+    },
     config::Config,
     core::{
         ctx::CoreCtx,
@@ -20,6 +24,7 @@ use crate::{
         services::{account::AccountService, token::TokenService},
         traits::service::CoreModelService,
     },
+    dev::fixtures::global_ws_id,
     store::{
         ctx::StoreCtx,
         entities::{
@@ -40,18 +45,6 @@ use crate::{
     },
 };
 
-/// Maximum number of failed login attempts allowed per email within a window.
-const MAX_LOGIN_ATTEMPTS: u32 = 5;
-/// Duration (in seconds) of the login rate limiting window.
-const LOGIN_WINDOW_SECS: u64 = 300;
-
-/// Small state object persisted in Redis to track rate limiting counters.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RateLimitState {
-    pub count: u32,
-    pub window_start: i64,
-}
-
 /// OAuth state persisted in Redis while a Google OAuth handshake is in flight.
 ///
 /// Keyed by `oauth:state:{csrf_token}`, it lets the callback handler validate
@@ -69,7 +62,7 @@ where
 {
     sm: Arc<StoreManager<D>>,
     acc_svc: AccountService<D, C>,
-    token_svc: TokenService<D, C>,
+    token_svc: TokenService<D>,
     cm: Arc<CacheManager<C>>,
     config: Config,
 }
@@ -82,7 +75,7 @@ where
     pub fn new(
         sm: Arc<StoreManager<D>>,
         acc_svc: AccountService<D, C>,
-        token_svc: TokenService<D, C>,
+    token_svc: TokenService<D>,
         cm: Arc<CacheManager<C>>,
         config: Config,
     ) -> Self {
@@ -164,7 +157,9 @@ where
         }
 
         let store = self.acc_svc.store();
-        let store_ctx = StoreCtx::new_root();
+        let mut ctx = CoreCtx::system(global_ws_id())?;
+        ctx.extend_perms(&["account:create", "credential:create"])?;
+        let store_ctx = StoreCtx::from(&ctx);
 
         // --- Check email uniqueness ---
         if store.get_by_email(&store_ctx, &email).await?.is_some() {
@@ -267,8 +262,7 @@ where
     }
 
     /// Logs an account in via email/password and returns the account along
-    /// with a token pair (access + refresh). Failed attempts are rate limited
-    /// (Redis-backed).
+    /// with a token pair (access + refresh).
     pub async fn login(&self, email: &str, password: &str) -> CoreResult<(Account, String, String)> {
         if email.trim().is_empty() || password.is_empty() {
             return Err(CoreError::InvalidParams(
@@ -278,17 +272,9 @@ where
 
         let email = email.trim().to_lowercase();
 
-        // --- Rate limiting (Redis-backed) ---
-        let rl_key = format!("login:{}", email);
-        if let Err(e) = self
-            .check_rate_limit(&rl_key, MAX_LOGIN_ATTEMPTS, LOGIN_WINDOW_SECS)
-            .await
-        {
-            info!(email = %email, reason = "rate limited", "AUTH_LOGIN_FAILED");
-            return Err(e);
-        }
-
-        let store_ctx = StoreCtx::new_root();
+        let mut ctx = CoreCtx::system(global_ws_id())?;
+        ctx.extend_perms(&["account:describe"])?;
+        let store_ctx = StoreCtx::from(&ctx);
 
         // --- Find account by email ---
         let store = self.acc_svc.store();
@@ -358,9 +344,6 @@ where
             return Err(CoreError::Auth("invalid credentials".to_string()));
         }
 
-        // --- Clear rate limit on success ---
-        self.reset_rate_limit(&rl_key).await?;
-
         // --- Resolve the account's membership (for its token version) ---
         let membership_filter: MembershipFilter = json!({
             "account_id": account.id.to_string(),
@@ -400,57 +383,6 @@ where
         );
 
         Ok((account, access_token, refresh_token))
-    }
-
-    /// Enforces a sliding window rate limit for the given key.
-    ///
-    /// Allows `max_attempts` within a window of `window_secs` seconds. Once the
-    /// limit is exceeded a `CoreError::Auth` is returned. State is persisted in
-    /// Redis through the `CacheManager` executor.
-    pub async fn check_rate_limit(
-        &self,
-        key: &str,
-        max_attempts: u32,
-        window_secs: u64,
-    ) -> CoreResult<()> {
-        let chx = self.cm.executor();
-        let cache_key = format!("oxideauth:rate_limit:{}", key);
-        let now = now_utc().unix_timestamp();
-
-        let mut state = chx
-            .get::<RateLimitState>(&cache_key, None)
-            .await?
-            .unwrap_or(RateLimitState {
-                count: 0,
-                window_start: now,
-            });
-
-        // Reset the window if it has elapsed.
-        if now - state.window_start >= window_secs as i64 {
-            state = RateLimitState {
-                count: 0,
-                window_start: now,
-            };
-        }
-
-        if state.count >= max_attempts {
-            return Err(CoreError::Auth(
-                "too many attempts, try again later".to_string(),
-            ));
-        }
-
-        state.count += 1;
-        chx.set(&cache_key, None, &state, Some(window_secs)).await?;
-
-        Ok(())
-    }
-
-    /// Clears the rate limit counter for the given key (called on success).
-    pub async fn reset_rate_limit(&self, key: &str) -> CoreResult<()> {
-        let chx = self.cm.executor();
-        let cache_key = format!("oxideauth:rate_limit:{}", key);
-        chx.del::<RateLimitState>(&cache_key, None).await?;
-        Ok(())
     }
 
     pub async fn register_account(&self, ctx: &CoreCtx) -> CoreResult<()> {
@@ -493,12 +425,8 @@ where
         chx.incr(&sv_key).await?;
 
         // Purge the cached auth data for the membership + account.
-        chx.del_key(&format!("oxauth:tv:{}", mem_id)).await?;
-        chx.del_key(&format!("oxauth:av:{}", acc_id)).await?;
-        chx.del_key(&format!("oxauth:sv:{}", sid)).await?;
-        chx.del_key(&format!("oxauth:ma:{}", mem_id)).await?;
-        chx.del_key(&format!("oxauth:ae:{}", acc_id)).await?;
-        chx.del_key(&format!("oxauth:as:{}", mem_id)).await?;
+        let keyed = AuthCache::new_keyed(mem_id, acc_id, Some(sid));
+        self.cm.auth.invalidate(&keyed).await?;
 
         // TODO(T033): Push notification trigger — notify the workspace's clients
         // that a token was revoked. Requires wiring a `ClientService` dependency
@@ -516,41 +444,7 @@ where
         Ok(true)
     }
 
-    /// Blacklists a token by its SHA-256 hash (hex string), bypassing the need
-    /// for the raw token itself.
-    ///
-    /// Requires the `token:revokeAny` permission. The hash is written to the
-    /// Redis blacklist with a long TTL (90 days). `reason` is logged for
-    /// auditing. No database write is performed (the token blacklist is
-    /// cache-only in this version-based revocation scheme).
-    pub async fn blacklist_token(
-        &self,
-        ctx: &CoreCtx,
-        token_hash: &str,
-        reason: Option<&str>,
-    ) -> CoreResult<bool> {
-        // Validate admin permissions.
-        AuthValidator::new(ctx).validate_ctx_perms(&["token:revokeAny"])?;
 
-        // Validate the hex-encoded SHA-256 hash.
-        hex::decode(token_hash)
-            .map_err(|_| CoreError::InvalidParams("invalid token hash".to_string()))?;
-
-        // Persist the blacklist entry in Redis with a long TTL.
-        let long_ttl = 90 * 24 * 60 * 60; // 90 days
-        let chx = self.cm.executor();
-        let cache_key = format!("blacklist:{}", token_hash);
-        let value = json!("1");
-        chx.set(&cache_key, None, &value, Some(long_ttl)).await?;
-
-        info!(
-            account_id = %ctx.account_id(),
-            reason = %reason.unwrap_or("admin_blacklisted"),
-            "AUTH_TOKEN_BLACKLISTED"
-        );
-
-        Ok(true)
-    }
 
     /// Rotates a refresh token: verifies it has not already been used (replay
     /// detection), consumes it, and issues a new access + refresh token pair
@@ -595,12 +489,8 @@ where
             let sv_key = format!("oxauth:sv:{}", sid);
             chx.incr(&sv_key).await?;
 
-            chx.del_key(&format!("oxauth:tv:{}", mem_id)).await?;
-            chx.del_key(&format!("oxauth:av:{}", acc_id)).await?;
-            chx.del_key(&format!("oxauth:sv:{}", sid)).await?;
-            chx.del_key(&format!("oxauth:ma:{}", mem_id)).await?;
-            chx.del_key(&format!("oxauth:ae:{}", acc_id)).await?;
-            chx.del_key(&format!("oxauth:as:{}", mem_id)).await?;
+            let keyed = AuthCache::new_keyed(mem_id, acc_id, Some(sid));
+            self.cm.auth.invalidate(&keyed).await?;
 
             return Err(CoreError::Auth(
                 "session compromised, please re-authenticate".to_string(),
@@ -661,7 +551,9 @@ where
     pub async fn request_password_reset(&self, email: &str) -> CoreResult<()> {
         let email = email.trim().to_lowercase();
 
-        let store_ctx = StoreCtx::new_root();
+        let mut ctx = CoreCtx::system(global_ws_id())?;
+        ctx.extend_perms(&["account:describe"])?;
+        let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
         // Anti-enumeration: silently succeed if the account does not exist.
@@ -731,7 +623,9 @@ where
         let account_id = Uuid::from_str(claims.sub())
             .map_err(|_| CoreError::InvalidParams("invalid token".to_string()))?;
 
-        let store_ctx = StoreCtx::new_root();
+        let mut ctx = CoreCtx::system(global_ws_id())?;
+        ctx.extend_perms(&["account:describe", "credential:list", "credential:update"])?;
+        let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
         // Load the account and reject disabled accounts.
@@ -801,7 +695,9 @@ where
         let account_id = Uuid::from_str(claims.sub())
             .map_err(|_| CoreError::InvalidParams("invalid token".to_string()))?;
 
-        let store_ctx = StoreCtx::new_root();
+        let mut ctx = CoreCtx::system(global_ws_id())?;
+        ctx.extend_perms(&["account:describe", "account:update"])?;
+        let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
         let account_row = store.get(&store_ctx, &account_id.into()).await?;
@@ -843,7 +739,9 @@ where
     pub async fn resend_confirmation(&self, email: &str) -> CoreResult<()> {
         let email = email.trim().to_lowercase();
 
-        let store_ctx = StoreCtx::new_root();
+        let mut ctx = CoreCtx::system(global_ws_id())?;
+        ctx.extend_perms(&["account:describe"])?;
+        let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
         // Anti-enumeration: silently succeed if the account does not exist.
@@ -961,7 +859,9 @@ where
         let google_user = get_google_user(&token_response.access_token, &token_response.id_token)
             .await?;
 
-        let store_ctx = StoreCtx::new_root();
+        let mut ctx = CoreCtx::system(global_ws_id())?;
+        ctx.extend_perms(&["account:describe", "account:create", "credential:create"])?;
+        let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
         // 4. Resolve an existing account by email, or create a new one.
@@ -1015,7 +915,9 @@ where
         };
 
         // 7. Issue a token pair (access + refresh) for the session.
-        let store_ctx = StoreCtx::new_root();
+        let mut sys_ctx = CoreCtx::system(global_ws_id())?;
+        sys_ctx.extend_perms(&["account:describe"])?;
+        let store_ctx = StoreCtx::from(&sys_ctx);
         let acc_ver = self
             .sm
             .account

@@ -14,7 +14,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tower::{Layer, Service};
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::{
     app::{App, AppState},
@@ -93,7 +93,7 @@ where
                         message: "unauthorized".to_string(),
                     };
 
-                    debug!("{e}");
+                    error!("{e}");
 
                     Ok((StatusCode::UNAUTHORIZED, axum::Json(body)).into_response())
                 }
