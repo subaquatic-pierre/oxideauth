@@ -1,6 +1,7 @@
 use std::{str::FromStr, sync::Arc};
 
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -40,6 +41,20 @@ use crate::{
     },
     utils::time::{format_time, now_utc},
 };
+
+/// Return value for `ClientService::regenerate_secret()`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientSecret {
+    pub client: Client,
+    pub plaintext_secret: String,
+}
+
+/// Return value for `ClientService::generate_secret()` (private helper).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretHash {
+    pub plaintext: String,
+    pub sha256_hash: String,
+}
 
 pub struct ClientService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
@@ -179,7 +194,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     ///
     /// The plaintext secret is only ever exposed at creation time; only the SHA-256
     /// hash is persisted (in `client.secret_hash`).
-    fn generate_secret(&self) -> (String, String) {
+    fn generate_secret(&self) -> SecretHash {
         use rand::Rng;
         let plaintext: String = rand::thread_rng()
             .sample_iter(&rand::distributions::Alphanumeric)
@@ -191,7 +206,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         let mut hasher = Sha256::new();
         hasher.update(plaintext.as_bytes());
         let hash = format!("{:x}", hasher.finalize());
-        (plaintext, hash)
+        SecretHash { plaintext, sha256_hash: hash }
     }
 
     /// Validates a client credential + user token pair.
@@ -298,18 +313,18 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         ctx: &mut CoreCtx,
         id: Uuid,
         workspace_id: Uuid,
-    ) -> CoreResult<(Client, String)> {
+    ) -> CoreResult<ClientSecret> {
         // Validate permissions
         let (store_ctx, workspace) = self
             .scope_and_validate_ctx(ctx, workspace_id, &["client:regenerateSecret"])
             .await?;
 
         // Generate new secret
-        let (plaintext, hash) = self.generate_secret();
+        let sh = self.generate_secret();
 
         // Update the secret_hash
         let for_update = ClientForUpdate {
-            secret_hash: Some(hash),
+            secret_hash: Some(sh.sha256_hash),
             ..Default::default()
         };
         let row = self
@@ -318,7 +333,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
             .await?;
 
         let client = Client::from_row_with_workspace(row, workspace);
-        Ok((client, plaintext))
+        Ok(ClientSecret { client, plaintext_secret: sh.plaintext })
     }
 }
 
@@ -338,10 +353,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for ClientServic
         // Generate a random client secret (48-char alphanumeric string using rand)
         // and store only its SHA-256 hash. The plaintext secret is returned to the
         // caller exactly once, at creation time.
-        let (plaintext, hash) = self.generate_secret();
+        let sh = self.generate_secret();
 
         // Build store params from core params + secret_hash
-        let for_create = ClientForCreate::from((params, hash));
+        let for_create = ClientForCreate::from((params, sh.sha256_hash));
 
         let row = self.store().create(&store_ctx, for_create).await?;
         let client = Client::from_row_with_workspace(row, workspace);
@@ -351,7 +366,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for ClientServic
         // by either adding a `secret` field to `Client` (returned only on create) or
         // by returning a `ClientCreated` wrapper containing both the client and the
         // plaintext secret.
-        let _ = plaintext;
+        let _ = sh.plaintext;
 
         Ok(client)
     }

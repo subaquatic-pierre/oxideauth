@@ -67,7 +67,7 @@ Import-ready collection with all 50 endpoints, example payloads, auto-populated 
 [`references/OxideAuth.postman_collection.json`](references/OxideAuth.postman_collection.json)
 
 1. Import into Postman
-2. Set the `host` variable (default: `http://127.0.0.1:6000`)
+2. Set the `host` variable (default: `http://127.0.0.1:8000`)
 3. Set the `token` variable to a valid Bearer JWT
 4. Run **Workspace → Create Workspace** first to populate the `{{workspace_id}}` variable
 

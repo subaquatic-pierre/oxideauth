@@ -20,7 +20,7 @@ RUN cp ./target/release/$APP_NAME /bin/$APP_NAME
 
 RUN chmod +x /bin/$APP_NAME 
 
-EXPOSE 6000
+EXPOSE 8000
 CMD ["/bin/oxideauth"]
 
 

@@ -13,6 +13,7 @@ use crate::{
             ClientCreateParams, ClientDeleteParams, ClientDescribeParams, ClientListParams,
             ClientUpdateParams,
         },
+        services::client::ClientSecret,
         traits::service::{
             CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
             CoreModelListService, CoreModelUpdateService,
@@ -165,13 +166,13 @@ pub async fn regenerate_secret_client(
     let Json(body) = body?;
     let svc = app.svc_factory.client();
 
-    let (client, secret) = svc
+    let client_secret = svc
         .regenerate_secret(&mut ctx, body.id, body.workspace_id)
         .await?;
 
     let res = ClientRegenerateSecretRes {
-        id: client.id,
-        secret,
+        id: client_secret.client.id,
+        secret: client_secret.plaintext_secret,
     };
 
     info!("regenerate_secret_client - CTX: {ctx:#?}");

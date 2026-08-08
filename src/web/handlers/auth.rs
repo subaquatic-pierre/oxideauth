@@ -31,7 +31,7 @@ pub async fn register(
 ) -> JsonResResult<WebResponse<AuthRegisterRes>> {
     let Json(body) = body?;
     let svc = app.svc_factory.auth();
-    let (account, access_token, refresh_token) = svc
+    let result = svc
         .register(
             &body.email,
             body.password.as_deref().unwrap_or(""),
@@ -39,9 +39,9 @@ pub async fn register(
         )
         .await?;
     WebResponse::json(AuthRegisterRes {
-        account,
-        access_token,
-        refresh_token,
+        account: result.account,
+        access_token: result.access_token,
+        refresh_token: result.refresh_token,
     })
 }
 
@@ -53,11 +53,11 @@ pub async fn login(
 ) -> JsonResResult<WebResponse<AuthLoginRes>> {
     let Json(body) = body?;
     let svc = app.svc_factory.auth();
-    let (account, access_token, refresh_token) = svc.login(&body.email, &body.password).await?;
+    let result = svc.login(&body.email, &body.password).await?;
     WebResponse::json(AuthLoginRes {
-        account,
-        access_token,
-        refresh_token,
+        account: result.account,
+        access_token: result.access_token,
+        refresh_token: result.refresh_token,
     })
 }
 
@@ -70,10 +70,10 @@ pub async fn refresh(
     let raw_token =
         TokenService::<PgDbx>::token_str_from_headers(&headers).ok_or(WebError::Unauthorized)?;
     let svc = app.svc_factory.auth();
-    let (access_token, refresh_token) = svc.refresh_token(raw_token).await?;
+    let tp = svc.refresh_token(raw_token).await?;
     WebResponse::json(AuthRefreshRes {
-        access_token,
-        refresh_token,
+        access_token: tp.access_token,
+        refresh_token: tp.refresh_token,
     })
 }
 
@@ -111,10 +111,10 @@ pub async fn confirm_account(
 ) -> JsonResResult<WebResponse<AuthConfirmAccountRes>> {
     let Json(body) = body?;
     let svc = app.svc_factory.auth();
-    let (account_id, verified) = svc.confirm_account(&body.token).await?;
+    let result = svc.confirm_account(&body.token).await?;
     WebResponse::json(AuthConfirmAccountRes {
-        account_id,
-        verified,
+        account_id: result.account_id,
+        verified: result.was_already_verified,
     })
 }
 
@@ -171,12 +171,12 @@ pub async fn oauth_google_callback(
     Query(query): Query<GoogleOAuthCallbackQuery>,
 ) -> Result<Redirect, WebError> {
     let svc = app.svc_factory.auth();
-    let (_account, access_token, refresh_token, redirect_url) = svc
+    let result = svc
         .process_google_callback(&query.code, &query.state)
         .await?;
     let redirect = format!(
         "{}?token={}&refresh_token={}",
-        redirect_url, access_token, refresh_token
+        result.redirect_url, result.access_token, result.refresh_token
     );
     Ok(Redirect::to(&redirect))
 }

@@ -35,7 +35,7 @@ COPY . .
 # Copy the dev environment file into place
 COPY api/.env.dev .env
 
-EXPOSE 6000
+EXPOSE 8000
 
 # Use cargo-watch to rebuild and run the application when files change.
 # The -x flag takes a single string argument for the cargo subcommand.

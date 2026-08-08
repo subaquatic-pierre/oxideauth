@@ -111,7 +111,7 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
 
     let svc_factory = Arc::new(ServiceFactory::new(sm.clone(), cm.clone()));
 
-    debug!("App Config config: {:?}", config);
+    // debug!("App Config config: {:?}", config);
 
     AppState {
         dbx: dbx.clone(),

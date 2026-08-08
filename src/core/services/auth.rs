@@ -54,6 +54,37 @@ pub struct GoogleOAuthStateCache {
     pub created_at: i64,
 }
 
+/// Return value for `AuthService::register()` and `AuthService::login()`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthResult {
+    pub account: Account,
+    pub access_token: String,
+    pub refresh_token: String,
+}
+
+/// Return value for `AuthService::refresh_token()` and `AuthService::issue_token_pair()`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenPair {
+    pub access_token: String,
+    pub refresh_token: String,
+}
+
+/// Return value for `AuthService::confirm_account()`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountConfirmation {
+    pub account_id: Uuid,
+    pub was_already_verified: bool,
+}
+
+/// Return value for `AuthService::process_google_callback()`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthCallbackResult {
+    pub account: Account,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub redirect_url: String,
+}
+
 pub struct AuthService<D, C>
 where
     D: DbExecutor,
@@ -99,7 +130,7 @@ where
         mem_ver: u64,
         acc_ver: u64,
         sid: Uuid,
-    ) -> CoreResult<(String, String)> {
+    ) -> CoreResult<TokenPair> {
         let now = now_utc();
 
         let access_claims = TokenClaims::new(
@@ -131,7 +162,7 @@ where
         let access_token = self.token_svc.encode_token_claims(&access_claims)?;
         let refresh_token = self.token_svc.encode_token_claims(&refresh_claims)?;
 
-        Ok((access_token, refresh_token))
+        Ok(TokenPair { access_token, refresh_token })
     }
 
     /// Registers a new account with a `Local` password credential and returns
@@ -142,7 +173,7 @@ where
         email: &str,
         password: &str,
         name: Option<&str>,
-    ) -> CoreResult<(Account, String, String)> {
+    ) -> CoreResult<AuthResult> {
         // --- Validate inputs ---
         if password.is_empty() {
             return Err(CoreError::InvalidParams("password required".to_string()));
@@ -220,7 +251,7 @@ where
         )
         .await?;
 
-        let (access_token, refresh_token) = self.issue_token_pair(
+        let tp = self.issue_token_pair(
             account.id,
             Uuid::nil(), // workspace set up separately after registration
             Uuid::nil(), // membership set up separately after registration
@@ -254,7 +285,7 @@ where
             "AUTH_REGISTER"
         );
 
-        Ok((account, access_token, refresh_token))
+        Ok(AuthResult { account, access_token: tp.access_token, refresh_token: tp.refresh_token })
     }
 
     /// Logs an account in via email/password and returns the account along
@@ -263,7 +294,7 @@ where
         &self,
         email: &str,
         password: &str,
-    ) -> CoreResult<(Account, String, String)> {
+    ) -> CoreResult<AuthResult> {
         if email.trim().is_empty() || password.is_empty() {
             return Err(CoreError::InvalidParams(
                 "email and password required".to_string(),
@@ -364,7 +395,7 @@ where
         )
         .await?;
 
-        let (access_token, refresh_token) = self.issue_token_pair(
+        let tp = self.issue_token_pair(
             account.id,
             Uuid::nil(), // workspace, set up separately
             Uuid::nil(), // membership, set up separately
@@ -379,7 +410,7 @@ where
             "AUTH_LOGIN_SUCCESS"
         );
 
-        Ok((account, access_token, refresh_token))
+        Ok(AuthResult { account, access_token: tp.access_token, refresh_token: tp.refresh_token })
     }
 
     pub async fn register_account(&self, ctx: &CoreCtx) -> CoreResult<()> {
@@ -452,7 +483,7 @@ where
     /// session is compromised: the session version is bumped (invalidating
     /// every outstanding token for the session) and the cached auth data is
     /// purged.
-    pub async fn refresh_token(&self, raw_token: &str) -> CoreResult<(String, String)> {
+    pub async fn refresh_token(&self, raw_token: &str) -> CoreResult<TokenPair> {
         // Decode the refresh token.
         let claims = self.token_svc.decode_token_str(raw_token)?;
         if claims.token_type() != TokenType::Refresh {
@@ -540,16 +571,10 @@ where
 
         info!(account_id = %acc_id, sid = %sid, "AUTH_TOKEN_REFRESHED");
 
-        Ok((access_token, refresh_token))
+        Ok(TokenPair { access_token, refresh_token })
     }
 
     /// Requests a password reset for the given email.
-    ///
-    /// Anti-enumeration: always returns `Ok(())`, whether or not the account
-    /// exists or is disabled. When the account exists and is enabled a
-    /// `PasswordReset` token is generated (24h TTL per spec).
-    ///
-    /// Email delivery is stubbed for now: the token is only logged.
     pub async fn request_password_reset(&self, email: &str) -> CoreResult<()> {
         let email = email.trim().to_lowercase();
 
@@ -683,7 +708,7 @@ where
     /// `AccountConfirm` token.
     ///
     /// Returns the confirmed account id and its new verified state.
-    pub async fn confirm_account(&self, token: &str) -> CoreResult<(Uuid, bool)> {
+    pub async fn confirm_account(&self, token: &str) -> CoreResult<AccountConfirmation> {
         // Decode and validate the token.
         let claims = self.token_svc.decode_token_str(token)?;
         if claims.token_type() != TokenType::AccountConfirm {
@@ -730,7 +755,7 @@ where
 
         info!(account_id = %account.id, "AUTH_ACCOUNT_CONFIRMED");
 
-        Ok((account.id, true))
+        Ok(AccountConfirmation { account_id: account.id, was_already_verified: true })
     }
 
     /// Resends an account confirmation email for the given email.
@@ -840,7 +865,7 @@ where
         &self,
         code: &str,
         state: &str,
-    ) -> CoreResult<(Account, String, String, String)> {
+    ) -> CoreResult<OAuthCallbackResult> {
         // 1. Validate the CSRF state persisted during initiation.
         let chx = self.cm.executor();
         let cache_key = format!("oauth:state:{}", state);
@@ -932,7 +957,7 @@ where
         )
         .await?;
 
-        let (access_token, refresh_token) = self.issue_token_pair(
+        let tp = self.issue_token_pair(
             account.id,
             Uuid::nil(), // workspace, set up separately after sign-in
             Uuid::nil(), // membership, set up separately after sign-in
@@ -948,12 +973,12 @@ where
             "AUTH_LOGIN_SUCCESS"
         );
 
-        Ok((
+        Ok(OAuthCallbackResult {
             account,
-            access_token,
-            refresh_token,
-            oauth_state.redirect_url,
-        ))
+            access_token: tp.access_token,
+            refresh_token: tp.refresh_token,
+            redirect_url: oauth_state.redirect_url,
+        })
     }
 }
 

@@ -36,7 +36,7 @@ impl Config {
         let redis_url = var("REDIS_URL").expect("REDIS_URL must be set");
         let host = var("HOST").unwrap_or("http://localhost".to_string());
         let port = var("PORT")
-            .unwrap_or("6000".to_string())
+            .unwrap_or("8000".to_string())
             .parse::<usize>()
             .expect("Unable to parse PORT from .env, value must be valid number");
 
@@ -103,7 +103,7 @@ impl Config {
         Self {
             host: "127.0.0.1".to_string(),
             app_env: "mock".to_string(),
-            port: 6000,
+            port: 8000,
             client_origin: "http://localhost:5000".to_string(),
             database_url: "postgres://user:password@localhost/test_db".to_string(),
             redis_url: "redis://127.0.0.1:6379".to_string(),
@@ -112,7 +112,7 @@ impl Config {
             refresh_token_max_age: 604800,
             google_oauth_client_id: "mock-client-id".to_string(),
             google_oauth_client_secret: "mock-client-secret".to_string(),
-            google_oauth_redirect_url: "http://localhost:6000/oauth/google/callback".to_string(),
+            google_oauth_redirect_url: "http://localhost:8000/oauth/google/callback".to_string(),
             aws_region: "us-east-1".to_string(),
             aws_ses_from: "no-reply@example.com".to_string(),
             aws_ses_host: "email-smtp.us-east-1.amazonaws.com".to_string(),
@@ -128,7 +128,7 @@ impl Config {
         Self {
             host: "127.0.0.1".to_string(),
             app_env: "test".to_string(),
-            port: 6000,
+            port: 8000,
             client_origin: "http://localhost:5000".to_string(),
             database_url: "postgres://test_user:password@localhost:5432/test_db".to_string(),
             redis_url: "redis://127.0.0.1:6379".to_string(),
@@ -138,7 +138,7 @@ impl Config {
             refresh_token_max_age: 604800,
             google_oauth_client_id: "mock-client-id".to_string(),
             google_oauth_client_secret: "mock-client-secret".to_string(),
-            google_oauth_redirect_url: "http://localhost:6000/oauth/google/callback".to_string(),
+            google_oauth_redirect_url: "http://localhost:8000/oauth/google/callback".to_string(),
             aws_region: "us-east-1".to_string(),
             aws_ses_from: "no-reply@example.com".to_string(),
             aws_ses_host: "email-smtp.us-east-1.amazonaws.com".to_string(),
@@ -154,7 +154,7 @@ impl Config {
     //     Self {
     //         host: "127.0.0.1".to_string(),
     //         app_env: "dev".to_string(),
-    //         port: 6000,
+    //         port: 8000,
     //         client_origin: "http://localhost:5000".to_string(),
     //         database_url: "postgres://test_user:password@localhost:5432/dev_db".to_string(),
     //         // TODO: update redis url
@@ -163,7 +163,7 @@ impl Config {
     //         jwt_max_age: 3600,
     //         google_oauth_client_id: "mock-client-id".to_string(),
     //         google_oauth_client_secret: "mock-client-secret".to_string(),
-    //         google_oauth_redirect_url: "http://localhost:6000/oauth/google/callback".to_string(),
+    //         google_oauth_redirect_url: "http://localhost:8000/oauth/google/callback".to_string(),
     //         aws_region: "us-east-1".to_string(),
     //         aws_ses_from: "no-reply@example.com".to_string(),
     //         aws_ses_host: "email-smtp.us-east-1.amazonaws.com".to_string(),
