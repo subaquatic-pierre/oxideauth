@@ -7,11 +7,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::{
-    cache::{
-        entities::auth::AuthCache,
-        manager::CacheManager,
-        traits::CacheExecutor,
-    },
+    cache::{entities::auth::AuthCache, manager::CacheManager, traits::CacheExecutor},
     config::Config,
     core::{
         ctx::CoreCtx,
@@ -36,7 +32,10 @@ use crate::{
             membership::MembershipFilter,
         },
         manager::StoreManager,
-        traits::{crud::{Create, Get, List, Update}, dbx::DbExecutor},
+        traits::{
+            crud::{Create, Get, List, Update},
+            dbx::DbExecutor,
+        },
     },
     utils::{
         auth::{get_google_user, request_google_token},
@@ -75,7 +74,7 @@ where
     pub fn new(
         sm: Arc<StoreManager<D>>,
         acc_svc: AccountService<D, C>,
-    token_svc: TokenService<D>,
+        token_svc: TokenService<D>,
         cm: Arc<CacheManager<C>>,
         config: Config,
     ) -> Self {
@@ -146,9 +145,7 @@ where
     ) -> CoreResult<(Account, String, String)> {
         // --- Validate inputs ---
         if password.is_empty() {
-            return Err(CoreError::InvalidParams(
-                "password required".to_string(),
-            ));
+            return Err(CoreError::InvalidParams("password required".to_string()));
         }
 
         let email = email.trim().to_lowercase();
@@ -170,11 +167,10 @@ where
         }
 
         // --- Hash password ---
-        let password_hash = hash_password(password)?;
+        let secret = hash_password(password)?;
 
         // --- Create account ---
-        let default_avatar =
-            format!("https://www.gravatar.com/avatar/{}?d=identicon", "default");
+        let default_avatar = format!("https://www.gravatar.com/avatar/{}?d=identicon", "default");
 
         let for_create = AccountForCreate {
             email: email.clone(),
@@ -202,7 +198,7 @@ where
             workspace_id: store_ctx.ws_id,
             provider_id: None,
             email: Some(email),
-            secret: Some(password_hash),
+            secret: Some(secret),
             last_used_at: None,
             tags: vec![],
             meta: CredentialMeta {
@@ -263,7 +259,11 @@ where
 
     /// Logs an account in via email/password and returns the account along
     /// with a token pair (access + refresh).
-    pub async fn login(&self, email: &str, password: &str) -> CoreResult<(Account, String, String)> {
+    pub async fn login(
+        &self,
+        email: &str,
+        password: &str,
+    ) -> CoreResult<(Account, String, String)> {
         if email.trim().is_empty() || password.is_empty() {
             return Err(CoreError::InvalidParams(
                 "email and password required".to_string(),
@@ -322,20 +322,17 @@ where
                 CoreError::Auth("invalid credentials".to_string())
             })?;
 
-        let password_hash = credential
-            .secret
-            .as_deref()
-            .ok_or_else(|| {
-                info!(
-                    email = %email,
-                    reason = "invalid credentials",
-                    "AUTH_LOGIN_FAILED"
-                );
-                CoreError::Auth("invalid credentials".to_string())
-            })?;
+        let secret = credential.secret.as_deref().ok_or_else(|| {
+            info!(
+                email = %email,
+                reason = "invalid credentials",
+                "AUTH_LOGIN_FAILED"
+            );
+            CoreError::Auth("invalid credentials".to_string())
+        })?;
 
         // --- Verify password ---
-        if !verify_password(password_hash, password)? {
+        if !verify_password(secret, password)? {
             info!(
                 email = %email,
                 reason = "invalid credentials",
@@ -444,8 +441,6 @@ where
         Ok(true)
     }
 
-
-
     /// Rotates a refresh token: verifies it has not already been used (replay
     /// detection), consumes it, and issues a new access + refresh token pair
     /// that continues the same session.
@@ -498,10 +493,17 @@ where
         }
 
         // --- Consume this refresh token (single-use) ---
-        let remaining_ttl = claims.exp.saturating_sub(now_utc().unix_timestamp() as usize);
+        let remaining_ttl = claims
+            .exp
+            .saturating_sub(now_utc().unix_timestamp() as usize);
         if remaining_ttl > 0 {
-            chx.set(&consumed_key, None, &sid.to_string(), Some(remaining_ttl as u64))
-                .await?;
+            chx.set(
+                &consumed_key,
+                None,
+                &sid.to_string(),
+                Some(remaining_ttl as u64),
+            )
+            .await?;
         }
 
         // --- Issue the next token pair (same session, new jtis) ---
@@ -636,7 +638,7 @@ where
         }
 
         // Hash the new password.
-        let password_hash = hash_password(new_password)?;
+        let secret = hash_password(new_password)?;
 
         // Find the account's Local password credential.
         let filter: CredentialFilter = json!({
@@ -662,7 +664,7 @@ where
             status: None,
             provider_id: None,
             email: None,
-            secret: Some(password_hash),
+            secret: Some(secret),
             last_used_at: None,
             tags: None,
             meta: None,
@@ -820,9 +822,7 @@ where
         // Build the Google authorization URL.
         let auth_url = format!(
             "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid+email+profile&state={}",
-            self.config.google_oauth_client_id,
-            self.config.google_oauth_redirect_url,
-            csrf_token,
+            self.config.google_oauth_client_id, self.config.google_oauth_redirect_url, csrf_token,
         );
 
         Ok(auth_url)
@@ -856,8 +856,8 @@ where
         let token_response = request_google_token(code, &self.config).await?;
 
         // 3. Fetch the Google user profile.
-        let google_user = get_google_user(&token_response.access_token, &token_response.id_token)
-            .await?;
+        let google_user =
+            get_google_user(&token_response.access_token, &token_response.id_token).await?;
 
         let mut ctx = CoreCtx::system(global_ws_id())?;
         ctx.extend_perms(&["account:describe", "account:create", "credential:create"])?;
@@ -865,54 +865,52 @@ where
         let store = self.acc_svc.store();
 
         // 4. Resolve an existing account by email, or create a new one.
-        let account = if let Some(existing) = store
-            .get_by_email(&store_ctx, &google_user.email)
-            .await?
-        {
-            let account: Account = existing.into();
-            if !account.enabled {
-                return Err(CoreError::Auth("account disabled".to_string()));
-            }
-            account
-        } else {
-            // 5. Create the account from the Google profile.
-            let account_for_create = AccountForCreate {
-                email: google_user.email.clone(),
-                name: google_user.name,
-                description: None,
-                avatar_url: google_user.picture.clone(),
-                enabled: true,
-                verified: google_user.verified_email,
-                tags: vec![],
-                meta: AccountMeta {
-                    schema_version: "1".to_string(),
-                },
-            };
-            let account: Account = store.create(&store_ctx, account_for_create).await?.into();
+        let account =
+            if let Some(existing) = store.get_by_email(&store_ctx, &google_user.email).await? {
+                let account: Account = existing.into();
+                if !account.enabled {
+                    return Err(CoreError::Auth("account disabled".to_string()));
+                }
+                account
+            } else {
+                // 5. Create the account from the Google profile.
+                let account_for_create = AccountForCreate {
+                    email: google_user.email.clone(),
+                    name: google_user.name,
+                    description: None,
+                    avatar_url: google_user.picture.clone(),
+                    enabled: true,
+                    verified: google_user.verified_email,
+                    tags: vec![],
+                    meta: AccountMeta {
+                        schema_version: "1".to_string(),
+                    },
+                };
+                let account: Account = store.create(&store_ctx, account_for_create).await?.into();
 
-            // 6. Link the Google OAuth credential to the new account.
-            let credential_for_create = CredentialForCreate {
-                kind: CredentialKind::OAuth,
-                provider: CredentialProvider::Google,
-                status: CredentialStatus::Active,
-                account_id: account.id,
-                workspace_id: store_ctx.ws_id,
-                provider_id: Some(google_user.id),
-                email: Some(google_user.email),
-                secret: None,
-                last_used_at: Some(now_utc()),
-                tags: vec![],
-                meta: CredentialMeta {
-                    schema_version: "1".to_string(),
-                },
-            };
-            self.sm
-                .credential
-                .create(&store_ctx, credential_for_create)
-                .await?;
+                // 6. Link the Google OAuth credential to the new account.
+                let credential_for_create = CredentialForCreate {
+                    kind: CredentialKind::OAuth,
+                    provider: CredentialProvider::Google,
+                    status: CredentialStatus::Active,
+                    account_id: account.id,
+                    workspace_id: store_ctx.ws_id,
+                    provider_id: Some(google_user.id),
+                    email: Some(google_user.email),
+                    secret: None,
+                    last_used_at: Some(now_utc()),
+                    tags: vec![],
+                    meta: CredentialMeta {
+                        schema_version: "1".to_string(),
+                    },
+                };
+                self.sm
+                    .credential
+                    .create(&store_ctx, credential_for_create)
+                    .await?;
 
-            account
-        };
+                account
+            };
 
         // 7. Issue a token pair (access + refresh) for the session.
         let mut sys_ctx = CoreCtx::system(global_ws_id())?;
@@ -950,7 +948,12 @@ where
             "AUTH_LOGIN_SUCCESS"
         );
 
-        Ok((account, access_token, refresh_token, oauth_state.redirect_url))
+        Ok((
+            account,
+            access_token,
+            refresh_token,
+            oauth_state.redirect_url,
+        ))
     }
 }
 

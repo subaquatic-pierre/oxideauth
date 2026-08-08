@@ -20,7 +20,7 @@ VALUES
     '30000000-0000-0000-0000-000000000001',
     '00000000-0000-0000-0000-000000000001', -- root account
     'local',
-    '$argon2id$v=19$m=65536,t=3,p=1$ZmFrZXNhbHQ$ZmFrZXBhc3N3b3JkaGFzaA', -- placeholder hash for 'rootpass'
+    '$argon2i$v=19$m=4096,t=3,p=1$RIwCuJA8oMUaw3f4pfI9m5PjYtGtvV7c22SJNbbUCzQ$je/aEkDV6DIq7V70BWvk5JQJ2PMuf6x8xlxh9Rw7GIU', -- placeholder hash for 'rootpass'
     '00000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000001', -- global workspace,
     'password'

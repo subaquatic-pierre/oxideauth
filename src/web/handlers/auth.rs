@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Extension, Query},
     http::HeaderMap,
     response::Redirect,
     routing::{get, post},
-    Json, Router,
 };
 use serde::Deserialize;
 
@@ -13,11 +13,10 @@ use crate::{
     store::dbx::PgDbx,
     web::{
         dtos::auth::{
-            AuthConfirmAccountReq, AuthConfirmAccountRes,
-            AuthLoginReq, AuthLoginRes, AuthOAuthInitiateReq, AuthOAuthInitiateRes,
-            AuthRefreshRes, AuthRegisterReq, AuthRegisterRes, AuthResetPasswordReq,
-            AuthResetPasswordRes, AuthResendConfirmReq, AuthResendConfirmRes, AuthRevokeRes,
-            AuthUpdatePasswordReq, AuthUpdatePasswordRes,
+            AuthConfirmAccountReq, AuthConfirmAccountRes, AuthLoginReq, AuthLoginRes,
+            AuthOAuthInitiateReq, AuthOAuthInitiateRes, AuthRefreshRes, AuthRegisterReq,
+            AuthRegisterRes, AuthResendConfirmReq, AuthResendConfirmRes, AuthResetPasswordReq,
+            AuthResetPasswordRes, AuthRevokeRes, AuthUpdatePasswordReq, AuthUpdatePasswordRes,
         },
         error::{JsonReqResult, JsonResResult, WebError},
         response::WebResponse,
@@ -68,8 +67,8 @@ pub async fn refresh(
     app: Extension<App>,
     headers: HeaderMap,
 ) -> JsonResResult<WebResponse<AuthRefreshRes>> {
-    let raw_token = TokenService::<PgDbx>::token_str_from_headers(&headers)
-        .ok_or(WebError::Unauthorized)?;
+    let raw_token =
+        TokenService::<PgDbx>::token_str_from_headers(&headers).ok_or(WebError::Unauthorized)?;
     let svc = app.svc_factory.auth();
     let (access_token, refresh_token) = svc.refresh_token(raw_token).await?;
     WebResponse::json(AuthRefreshRes {
@@ -113,7 +112,10 @@ pub async fn confirm_account(
     let Json(body) = body?;
     let svc = app.svc_factory.auth();
     let (account_id, verified) = svc.confirm_account(&body.token).await?;
-    WebResponse::json(AuthConfirmAccountRes { account_id, verified })
+    WebResponse::json(AuthConfirmAccountRes {
+        account_id,
+        verified,
+    })
 }
 
 // --- Resend Confirmation ---
@@ -137,8 +139,8 @@ pub async fn revoke(
     app: Extension<App>,
     headers: HeaderMap,
 ) -> JsonResResult<WebResponse<AuthRevokeRes>> {
-    let raw_token = TokenService::<PgDbx>::token_str_from_headers(&headers)
-        .ok_or(WebError::Unauthorized)?;
+    let raw_token =
+        TokenService::<PgDbx>::token_str_from_headers(&headers).ok_or(WebError::Unauthorized)?;
     let svc = app.svc_factory.auth();
     svc.revoke_token(&ctx, raw_token).await?;
     WebResponse::json(AuthRevokeRes { revoked: true })
@@ -199,7 +201,6 @@ impl AuthRouter {
 
     /// Protected auth endpoints — require authentication via CtxLayer.
     pub fn protected_routes() -> Router {
-        Router::new()
-            .route("/revoke", post(revoke))
+        Router::new().route("/revoke", post(revoke))
     }
 }
