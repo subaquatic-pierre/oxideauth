@@ -4,9 +4,12 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::cache::{
-    error::{CacheError, CacheResult},
-    traits::{CacheEntity, CacheKey},
+use crate::{
+    cache::{
+        error::{CacheError, CacheResult},
+        traits::{CacheEntity, CacheKey},
+    },
+    dev::fixtures::global_ws_id,
 };
 
 /// The cached auth-scope payload persisted under `oxauth:auth_sc:{membership_id}`.
@@ -19,6 +22,17 @@ pub struct AuthScopeCache {
     pub project_id: Option<Uuid>,
     pub roles: Vec<Uuid>,
     pub permissions: Vec<String>,
+}
+
+impl AuthScopeCache {
+    pub fn root_scope() -> Self {
+        Self {
+            workspace_id: global_ws_id(),
+            project_id: None,
+            roles: vec![],
+            permissions: vec!["*:*".to_string()],
+        }
+    }
 }
 
 impl Default for AuthScopeCache {
@@ -63,6 +77,19 @@ impl AuthCache {
             mem_active: false,
             acc_enabled: false,
             auth_scope: AuthScopeCache::default(),
+        }
+    }
+
+    pub fn root_cache() -> Self {
+        Self {
+            mem_id: Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap(),
+            acc_id: Uuid::from_str("00000000-0000-0000-0000-000000000001").unwrap(),
+            sid: None,
+            mem_version: 0,
+            acc_version: 0,
+            mem_active: true,
+            acc_enabled: true,
+            auth_scope: AuthScopeCache::root_scope(),
         }
     }
 }

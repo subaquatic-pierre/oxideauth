@@ -21,10 +21,6 @@ pub trait CoreModelService<D: DbExecutor> {
     fn store(&self) -> &Self::ServiceStore;
     fn ws_svc(&self) -> &WorkspaceService<D>;
 
-    fn validator<'a>(&self, ctx: &'a CoreCtx) -> AuthValidator<'a> {
-        AuthValidator::new(ctx)
-    }
-
     async fn get_workspace(&self, ctx: &mut CoreCtx, workspace_id: Uuid) -> CoreResult<Workspace> {
         let params = WorkspaceDescribeParams {
             id: Some(workspace_id),
@@ -48,7 +44,7 @@ pub trait CoreModelService<D: DbExecutor> {
     ) -> CoreResult<(StoreCtx, Workspace)> {
         let workspace = self.get_workspace(ctx, workspace_id).await?;
 
-        let auth_validator = self.validator(&ctx);
+        let auth_validator = AuthValidator::new(ctx);
 
         // validate permissions
         auth_validator.validate_ctx_perms(required_perms)?;

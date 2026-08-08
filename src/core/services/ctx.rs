@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use axum::http::HeaderMap;
 use tracing::info;
@@ -15,8 +15,8 @@ use crate::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
         models::{
-            account::Account, membership::MembershipCache, token::TokenClaims,
-            workspace::Workspace,
+            account::Account, membership::MembershipCache, permission::ALL_PERMISSIONS,
+            token::TokenClaims, workspace::Workspace,
         },
         services::{factory::ServiceFactory, token::TokenService},
     },
@@ -82,7 +82,7 @@ where
 
         // Build the keyed template, then read the auth cache.
         let keyed = AuthCache::new_keyed(mem_id, acc_id, sid);
-        let entity = match self.cm.auth.fetch(&keyed).await? {
+        let auth_cache = match self.cm.auth.fetch(&keyed).await? {
             Some(entity) => entity,
             None => {
                 let hydrated = self.build_auth_cache_from_db(mem_id, acc_id, sid).await?;
@@ -96,12 +96,12 @@ where
 
         // Validate version/status claims against the cached state.
         let auth_resolver = AuthContextResolver::new(self.sm.clone(), &self.config);
-        auth_resolver.validate(&entity, &claims)?;
+        auth_resolver.validate(&auth_cache, &claims)?;
 
         // Reconstruct the CoreCtx from the cached auth scope.
-        let auth_scope = entity.auth_scope;
+        let auth_scope = auth_cache.auth_scope.clone();
 
-        let cached_mem = MembershipCache {
+        let mem_cache = MembershipCache {
             id: mem_id,
             account_id: acc_id,
             workspace_id: auth_scope.workspace_id,
@@ -120,7 +120,14 @@ where
             ..Default::default()
         };
 
-        let core_ctx = CoreCtx::new(cached_mem, account, workspace)?;
+        let mut core_ctx = CoreCtx::new(mem_cache, auth_cache, account, workspace)?;
+
+        // TODO: REMOVE THIS IN PRODUCTION
+        // CHECK IF ROOT ACCOUNT
+        // GRANT ALL PERMISSIONS
+        if (core_ctx.account_id() == Uuid::from_str("00000000-0000-0000-0000-000000000001")?) {
+            core_ctx.extend_perms(ALL_PERMISSIONS);
+        }
 
         info!(
             account_id = %acc_id,

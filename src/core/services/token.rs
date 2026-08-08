@@ -1,10 +1,8 @@
 use std::time::Duration;
 use tracing::debug;
 
-use axum::http::{header::AUTHORIZATION, HeaderMap};
-use jsonwebtoken::{
-    decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation,
-};
+use axum::http::{HeaderMap, header::AUTHORIZATION};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 
 use crate::{
     core::{
@@ -57,14 +55,16 @@ pub struct TokenService<D: DbExecutor> {
 }
 
 impl<D: DbExecutor> TokenService<D> {
-    pub fn new(
-        ws_svc: WorkspaceService<D>,
-        config: TokenServiceConfig,
-    ) -> Self {
+    pub fn new(ws_svc: WorkspaceService<D>, config: TokenServiceConfig) -> Self {
         Self { config, ws_svc }
     }
 
     pub fn decode_token_str(&self, token_str: &str) -> CoreResult<TokenClaims> {
+        debug!(
+            "token_str in TokenService.decode_token_str: {:?}",
+            token_str
+        );
+
         let data = decode::<TokenClaims>(&token_str, &self.config.decoding_key, &self.config.algo)?;
 
         debug!(

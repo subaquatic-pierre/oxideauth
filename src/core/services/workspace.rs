@@ -68,13 +68,13 @@ impl<D: DbExecutor> WorkspaceService<D> {
                     return Err(CoreError::StoreError(StoreError::EntityNotFound {
                         entity: "workspace".to_string(),
                         id: slug.to_string(),
-                    }))
+                    }));
                 }
             },
             (None, None) => {
                 return Err(CoreError::InvalidParams(
                     "Workspace ID or slug required".to_string(),
-                ))
+                ));
             }
         };
 
@@ -112,7 +112,7 @@ impl<D: DbExecutor> CoreModelCreateService<D> for WorkspaceService<D> {
     ) -> CoreResult<Workspace> {
         let store = self.store();
 
-        let auth_validator = self.validator(&ctx);
+        let auth_validator = AuthValidator::new(ctx);
 
         // validate permissions
         auth_validator.validate_ctx_perms(&[Self::CREATE_PERMISSION])?;
@@ -164,7 +164,7 @@ impl<D: DbExecutor> CoreModelDescribeService<D> for WorkspaceService<D> {
 
         let workspace_id = self.get_workspace_id(ctx, params.id, params.slug).await?;
 
-        let auth_validator = self.validator(&ctx);
+        let auth_validator = AuthValidator::new(ctx);
 
         // validate permissions
         auth_validator.validate_ctx_perms(&[Self::DESCRIBE_PERMISSION])?;
@@ -189,7 +189,7 @@ impl<D: DbExecutor> CoreModelListService<D> for WorkspaceService<D> {
         params: WorkspaceListParams,
     ) -> CoreResult<ListResponse<Workspace>> {
         let store = self.store();
-        let auth_validator = self.validator(&ctx);
+        let auth_validator = AuthValidator::new(ctx);
 
         // validate permissions
         auth_validator.validate_ctx_perms(&[Self::LIST_PERMISSION])?;
@@ -240,7 +240,7 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for WorkspaceService<D> {
     ) -> CoreResult<Workspace> {
         let store = self.store();
 
-        let auth_validator = self.validator(&ctx);
+        let auth_validator = AuthValidator::new(ctx);
 
         // validate permissions
         auth_validator.validate_ctx_perms(&[Self::UPDATE_PERMISSION])?;
@@ -282,7 +282,7 @@ impl<D: DbExecutor> CoreModelDeleteService<D> for WorkspaceService<D> {
         // Returns the ID of the deleted item
         let store = self.store();
 
-        let auth_validator = self.validator(&ctx);
+        let auth_validator = AuthValidator::new(ctx);
 
         // validate permissions
         auth_validator.validate_ctx_perms(&[Self::DELETE_PERMISSION])?;

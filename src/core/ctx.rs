@@ -4,6 +4,7 @@ use std::{collections::HashSet, ops::Deref};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::cache::entities::auth::AuthCache;
 use crate::dev::fixtures::{global_ws_id, root_user_id};
 use crate::{
     core::{
@@ -12,7 +13,7 @@ use crate::{
             account::Account,
             membership::MembershipCache,
             permission::{PermissionCheck, PermissionChecker},
-            workspace::{Workspace, GLOBAL_WS_ID},
+            workspace::{GLOBAL_WS_ID, Workspace},
         },
     },
     store::ctx::StoreCtx,
@@ -21,7 +22,8 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct CoreCtx {
-        cached_mem: MembershipCache,
+    cached_mem: MembershipCache,
+    auth_cache: AuthCache,
     account: Account,
     workspace: Workspace,
     perm_checker: PermissionChecker,
@@ -29,13 +31,15 @@ pub struct CoreCtx {
 
 impl CoreCtx {
     pub fn new(
-    cached_mem: MembershipCache,
+        cached_mem: MembershipCache,
+        auth_cache: AuthCache,
         account: Account,
         workspace: Workspace,
     ) -> CoreResult<Self> {
         let perm_checker = PermissionChecker::from_string_vec(cached_mem.permissions.clone())?;
         Ok(Self {
             cached_mem,
+            auth_cache,
             account,
             workspace,
             perm_checker,
@@ -48,12 +52,13 @@ impl CoreCtx {
         let mut ns = Workspace::default();
         ns.id = global_ws_id();
 
-        let mut cm = MembershipCache::default();
-        cm.workspace_id = global_ws_id();
+        let mut mem_cache = MembershipCache::default();
+        mem_cache.workspace_id = global_ws_id();
 
-        let perm_checker = PermissionChecker::from_string_vec(cm.permissions.clone())?;
+        let perm_checker = PermissionChecker::from_string_vec(mem_cache.permissions.clone())?;
         Ok(Self {
-            cached_mem: cm,
+            auth_cache: AuthCache::root_cache(),
+            cached_mem: mem_cache,
             account: acc,
             workspace: ns,
             perm_checker,
@@ -75,8 +80,10 @@ impl CoreCtx {
         let mut cm = MembershipCache::default();
         cm.workspace_id = workspace_id;
         let perm_checker = PermissionChecker::from_string_vec(vec![])?;
+        let auth_cache = AuthCache::root_cache();
         Ok(Self {
             cached_mem: cm,
+            auth_cache,
             account: acc,
             workspace: ws,
             perm_checker,

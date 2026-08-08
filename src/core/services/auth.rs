@@ -162,7 +162,10 @@ where
         let access_token = self.token_svc.encode_token_claims(&access_claims)?;
         let refresh_token = self.token_svc.encode_token_claims(&refresh_claims)?;
 
-        Ok(TokenPair { access_token, refresh_token })
+        Ok(TokenPair {
+            access_token,
+            refresh_token,
+        })
     }
 
     /// Registers a new account with a `Local` password credential and returns
@@ -285,16 +288,16 @@ where
             "AUTH_REGISTER"
         );
 
-        Ok(AuthResult { account, access_token: tp.access_token, refresh_token: tp.refresh_token })
+        Ok(AuthResult {
+            account,
+            access_token: tp.access_token,
+            refresh_token: tp.refresh_token,
+        })
     }
 
     /// Logs an account in via email/password and returns the account along
     /// with a token pair (access + refresh).
-    pub async fn login(
-        &self,
-        email: &str,
-        password: &str,
-    ) -> CoreResult<AuthResult> {
+    pub async fn login(&self, email: &str, password: &str) -> CoreResult<AuthResult> {
         if email.trim().is_empty() || password.is_empty() {
             return Err(CoreError::InvalidParams(
                 "email and password required".to_string(),
@@ -410,7 +413,11 @@ where
             "AUTH_LOGIN_SUCCESS"
         );
 
-        Ok(AuthResult { account, access_token: tp.access_token, refresh_token: tp.refresh_token })
+        Ok(AuthResult {
+            account,
+            access_token: tp.access_token,
+            refresh_token: tp.refresh_token,
+        })
     }
 
     pub async fn register_account(&self, ctx: &CoreCtx) -> CoreResult<()> {
@@ -571,7 +578,10 @@ where
 
         info!(account_id = %acc_id, sid = %sid, "AUTH_TOKEN_REFRESHED");
 
-        Ok(TokenPair { access_token, refresh_token })
+        Ok(TokenPair {
+            access_token,
+            refresh_token,
+        })
     }
 
     /// Requests a password reset for the given email.
@@ -755,7 +765,10 @@ where
 
         info!(account_id = %account.id, "AUTH_ACCOUNT_CONFIRMED");
 
-        Ok(AccountConfirmation { account_id: account.id, was_already_verified: true })
+        Ok(AccountConfirmation {
+            account_id: account.id,
+            was_already_verified: true,
+        })
     }
 
     /// Resends an account confirmation email for the given email.
@@ -1002,6 +1015,7 @@ impl<'a> AuthValidator<'a> {
     }
 
     pub fn validate_ctx_perms<'b>(&self, required: &[&str]) -> CoreResult<()> {
+        info!("CTX in validate_ctx_perms: {:#?}", self.ctx);
         let required = PermissionCheck::perms_from_str_slice(required)?;
         let granted = self.ctx.permission_checker();
 
