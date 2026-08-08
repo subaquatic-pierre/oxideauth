@@ -22,7 +22,6 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct CoreCtx {
-    cached_mem: MembershipCache,
     auth_cache: AuthCache,
     account: Account,
     workspace: Workspace,
@@ -30,15 +29,10 @@ pub struct CoreCtx {
 }
 
 impl CoreCtx {
-    pub fn new(
-        cached_mem: MembershipCache,
-        auth_cache: AuthCache,
-        account: Account,
-        workspace: Workspace,
-    ) -> CoreResult<Self> {
-        let perm_checker = PermissionChecker::from_string_vec(cached_mem.permissions.clone())?;
+    pub fn new(auth_cache: AuthCache, account: Account, workspace: Workspace) -> CoreResult<Self> {
+        let perm_checker =
+            PermissionChecker::from_string_vec(auth_cache.auth_scope.permissions.clone())?;
         Ok(Self {
-            cached_mem,
             auth_cache,
             account,
             workspace,
@@ -52,13 +46,12 @@ impl CoreCtx {
         let mut ns = Workspace::default();
         ns.id = global_ws_id();
 
-        let mut mem_cache = MembershipCache::default();
-        mem_cache.workspace_id = global_ws_id();
+        let auth_cache = AuthCache::root_cache();
 
-        let perm_checker = PermissionChecker::from_string_vec(mem_cache.permissions.clone())?;
+        let perm_checker =
+            PermissionChecker::from_string_vec(auth_cache.auth_scope.permissions.clone())?;
         Ok(Self {
-            auth_cache: AuthCache::root_cache(),
-            cached_mem: mem_cache,
+            auth_cache,
             account: acc,
             workspace: ns,
             perm_checker,
@@ -77,12 +70,9 @@ impl CoreCtx {
         acc.id = system_account_id;
         let mut ws = Workspace::default();
         ws.id = workspace_id;
-        let mut cm = MembershipCache::default();
-        cm.workspace_id = workspace_id;
         let perm_checker = PermissionChecker::from_string_vec(vec![])?;
         let auth_cache = AuthCache::root_cache();
         Ok(Self {
-            cached_mem: cm,
             auth_cache,
             account: acc,
             workspace: ws,
@@ -108,15 +98,14 @@ impl CoreCtx {
     }
 
     pub fn workspace_id(&self) -> Uuid {
-        self.cached_mem.workspace_id
+        self.auth_cache.auth_scope.workspace_id
     }
 
     pub fn membership_id(&self) -> Uuid {
-        self.cached_mem.id
+        self.auth_cache.mem_id
     }
 
     pub fn set_workspace_id(&mut self, ws_id: Uuid) {
-        self.cached_mem.workspace_id = ws_id;
         self.workspace.id = ws_id;
     }
 

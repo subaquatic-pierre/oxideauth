@@ -93,6 +93,10 @@ impl TokenClaims {
             .map_err(|_| CoreError::Auth("invalid token: subject claim".into()))
     }
 
+    pub fn ws_id(&self) -> Result<Uuid, CoreError> {
+        Uuid::from_str(&self.ws).map_err(|_| CoreError::Auth("invalid token: workspace id".into()))
+    }
+
     /// The token type (`Auth`, `PasswordReset`, `Refresh`, `AccountConfirm`).
     pub fn token_type(&self) -> TokenType {
         self.ty

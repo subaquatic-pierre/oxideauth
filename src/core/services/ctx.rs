@@ -78,6 +78,7 @@ where
 
         let mem_id = claims.mem_id()?;
         let acc_id = claims.acc_id()?;
+        let ws_id = claims.ws_id()?;
         let sid = claims.sid();
 
         // Build the keyed template, then read the auth cache.
@@ -120,7 +121,7 @@ where
             ..Default::default()
         };
 
-        let mut core_ctx = CoreCtx::new(mem_cache, auth_cache, account, workspace)?;
+        let mut core_ctx = CoreCtx::new(auth_cache, account, workspace)?;
 
         // TODO: REMOVE THIS IN PRODUCTION
         // CHECK IF ROOT ACCOUNT
