@@ -378,15 +378,19 @@ where
         // --- Resolve the account's membership (for its token version) ---
         let membership_filter: MembershipFilter = json!({
             "account_id": account.id.to_string(),
+            "workspace_id": credential.workspace_id.to_string()
         })
         .try_into()?;
+
         let memberships = self
             .sm
             .membership
             .list(&store_ctx, Some(membership_filter), None)
             .await?;
         let membership = memberships.into_iter().next();
-        let mem_ver = membership.map(|m| m.token_version as u64).unwrap_or(0);
+        let (mem_id, mem_ver) = membership
+            .map(|m| (m.id.into(), m.token_version as u64))
+            .unwrap_or((Uuid::nil(), 0));
 
         // --- Issue token pair (access + refresh) ---
         let sid = Uuid::new_v4();
@@ -400,8 +404,8 @@ where
 
         let tp = self.issue_token_pair(
             account.id,
-            Uuid::nil(), // workspace, set up separately
-            Uuid::nil(), // membership, set up separately
+            credential.workspace_id.into(), // workspace, set up separately
+            mem_id,                         // membership, set up separately
             mem_ver,
             acc_ver,
             sid,

@@ -29,7 +29,9 @@ impl TokenServiceConfig {
         let jwt_secret_bytes = jwt_secret.as_bytes();
         let encoding_key = EncodingKey::from_secret(&jwt_secret_bytes);
         let decoding_key = DecodingKey::from_secret(&jwt_secret_bytes);
-        let algo = Validation::new(Algorithm::HS256);
+        let mut algo = Validation::new(Algorithm::HS256);
+        algo.set_audience(&["oxideauth.api"]);
+        algo.set_issuer(&["oxideauth.app"]);
         Self {
             jwt_secret,
             access_token_max_age,

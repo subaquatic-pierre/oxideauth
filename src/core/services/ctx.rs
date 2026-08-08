@@ -20,6 +20,7 @@ use crate::{
         },
         services::{factory::ServiceFactory, token::TokenService},
     },
+    dev::fixtures::root_user_id,
     store::{
         ctx::StoreCtx,
         entities::membership::MembershipStatus,
@@ -102,15 +103,6 @@ where
         // Reconstruct the CoreCtx from the cached auth scope.
         let auth_scope = auth_cache.auth_scope.clone();
 
-        let mem_cache = MembershipCache {
-            id: mem_id,
-            account_id: acc_id,
-            workspace_id: auth_scope.workspace_id,
-            project_id: auth_scope.project_id,
-            role_ids: auth_scope.roles,
-            permissions: auth_scope.permissions,
-        };
-
         let account = Account {
             id: acc_id,
             ..Default::default()
@@ -121,14 +113,13 @@ where
             ..Default::default()
         };
 
-        let mut core_ctx = CoreCtx::new(auth_cache, account, workspace)?;
-
         // TODO: REMOVE THIS IN PRODUCTION
-        // CHECK IF ROOT ACCOUNT
-        // GRANT ALL PERMISSIONS
-        if (core_ctx.account_id() == Uuid::from_str("00000000-0000-0000-0000-000000000001")?) {
-            core_ctx.extend_perms(ALL_PERMISSIONS);
-        }
+        // GIVES ROOT USER FULL ACCESS
+        let mut core_ctx = if acc_id == root_user_id() {
+            CoreCtx::new(AuthCache::root_cache(), account, workspace)?
+        } else {
+            CoreCtx::new(auth_cache, account, workspace)?
+        };
 
         info!(
             account_id = %acc_id,

@@ -132,8 +132,8 @@ impl CacheExecutor for RedisChx {
     async fn pipeline_get(&self, keys: &[&str]) -> CacheResult<Vec<Option<String>>> {
         let mut pipe = redis::pipe();
         pipe.mget(keys);
-        let res = pipe
-            .query_async::<Vec<Option<String>>>(&mut self.conn.clone())
+        let (res,) = pipe
+            .query_async::<(Vec<Option<String>>,)>(&mut self.conn.clone())
             .await?;
         Ok(res)
     }
