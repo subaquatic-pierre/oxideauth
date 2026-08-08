@@ -14,7 +14,7 @@ pub struct ResponseMw;
 impl ResponseMw {
     pub async fn response_map_handler(
         stamp: Extension<ReqStamp>,
-        ctx: Extension<CoreCtx>,
+        // ctx: Extension<CoreCtx>,
         uri: Uri,
         method: Method,
         res: Response,
