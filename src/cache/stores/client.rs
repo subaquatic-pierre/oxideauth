@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-
 use crate::{
-    cache::{error::CacheResult, traits::CacheExecutor},
+    cache::{
+        entities::client::ClientRateLimitState,
+        error::CacheResult,
+        traits::CacheExecutor,
+    },
     utils::time::now_utc,
 };
 
@@ -15,14 +17,6 @@ const CLIENT_PUSH_OK_KEY_PREFIX: &str = "oxauth:cl:push:ok:";
 
 /// Key prefix for failed push notification counters.
 const CLIENT_PUSH_FAIL_KEY_PREFIX: &str = "oxauth:cl:push:fail:";
-
-/// Small state object persisted in Redis to track client validation rate
-/// limiting counters. Mirrors the `RateLimitState` used by `AuthService`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClientRateLimitState {
-    pub count: u32,
-    pub window_start: i64,
-}
 
 /// Sliding-window rate limiter for client validation attempts.
 ///
@@ -59,17 +53,11 @@ impl<C: CacheExecutor> ClientRateLimitCache<C> {
             .executor
             .get::<ClientRateLimitState>(&cache_key, None)
             .await?
-            .unwrap_or(ClientRateLimitState {
-                count: 0,
-                window_start: now,
-            });
+            .unwrap_or(ClientRateLimitState::new(0, now));
 
         // Reset the window if it has elapsed.
         if now - state.window_start >= self.window_secs as i64 {
-            state = ClientRateLimitState {
-                count: 0,
-                window_start: now,
-            };
+            state = ClientRateLimitState::new(0, now);
         }
 
         if state.count >= self.max_attempts {

@@ -4,6 +4,11 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
+    cache::{
+        entities::auth::AuthCache,
+        manager::CacheManager,
+        traits::CacheExecutor,
+    },
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -32,6 +37,7 @@ use crate::{
         entities::{
             account::{AccountFilter, AccountForCreate, AccountForUpdate, AccountMeta},
             id::DbId,
+            membership::MembershipFilter,
         },
         error::StoreError,
         manager::StoreManager,
@@ -42,12 +48,13 @@ use crate::{
     },
 };
 
-pub struct AccountService<D: DbExecutor> {
+pub struct AccountService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
+    cm: Arc<CacheManager<C>>,
     ws_svc: WorkspaceService<D>,
 }
 
-impl<D: DbExecutor> CoreModelService<D> for AccountService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for AccountService<D, C> {
     type CoreModel = Account;
     type ServiceStore = AccountStore<D>;
 
@@ -70,9 +77,13 @@ impl<D: DbExecutor> CoreModelService<D> for AccountService<D> {
 // against what accounts the requesting user is able to access
 // based on the 'membership' <-> 'account' many to many join table
 
-impl<D: DbExecutor> AccountService<D> {
-    pub fn new(sm: Arc<StoreManager<D>>, ws_svc: WorkspaceService<D>) -> Self {
-        Self { sm, ws_svc }
+impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
+    pub fn new(
+        sm: Arc<StoreManager<D>>,
+        cm: Arc<CacheManager<C>>,
+        ws_svc: WorkspaceService<D>,
+    ) -> Self {
+        Self { sm, cm, ws_svc }
     }
 
     async fn get_account_id(
@@ -105,7 +116,7 @@ impl<D: DbExecutor> AccountService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelCreateService<D> for AccountService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for AccountService<D, C> {
     type CreateParams = AccountCreateParams;
     const CREATE_PERMISSION: &'static str = "account:create";
 
@@ -142,7 +153,7 @@ impl<D: DbExecutor> CoreModelCreateService<D> for AccountService<D> {
         Ok(new_account.into())
     }
 }
-impl<D: DbExecutor> CoreModelDescribeService<D> for AccountService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for AccountService<D, C> {
     type DescribeParams = AccountDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = "account:describe";
 
@@ -167,7 +178,7 @@ impl<D: DbExecutor> CoreModelDescribeService<D> for AccountService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelListService<D> for AccountService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for AccountService<D, C> {
     type ListParams = AccountListParams;
     const LIST_PERMISSION: &'static str = "account:list";
 
@@ -215,7 +226,7 @@ impl<D: DbExecutor> CoreModelListService<D> for AccountService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelUpdateService<D> for AccountService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for AccountService<D, C> {
     type UpdateParams = AccountUpdateParams;
     const UPDATE_PERMISSION: &'static str = "account:update";
 
@@ -252,11 +263,30 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for AccountService<D> {
 
         let updated_account = store.update(&store_ctx, &id, update_data).await?;
 
+        // Invalidate the auth cache for every membership belonging to this
+        // account. An account can have multiple memberships (one per
+        // workspace), and toggling `enabled`/token version invalidates all of
+        // their cached auth data.
+        let account_id: Uuid = updated_account.id.into();
+        let membership_filter: MembershipFilter = json!({
+            "account_id": account_id.to_string(),
+        })
+        .try_into()?;
+        let memberships = self
+            .sm
+            .membership
+            .list(&store_ctx, Some(membership_filter), None)
+            .await?;
+        for membership in memberships {
+            let keyed = AuthCache::new_keyed(membership.id.into(), account_id, None);
+            self.cm.auth.invalidate(&keyed).await?;
+        }
+
         Ok(updated_account.into())
     }
 }
 
-impl<D: DbExecutor> CoreModelDeleteService<D> for AccountService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for AccountService<D, C> {
     type DeleteParams = AccountDeleteParams;
     const DELETE_PERMISSION: &'static str = "account:delete";
 
@@ -272,6 +302,23 @@ impl<D: DbExecutor> CoreModelDeleteService<D> for AccountService<D> {
             .await?;
 
         let deleted = store.delete(&store_ctx, &id).await?.into();
+
+        // Invalidate the auth cache for every membership belonging to the
+        // deleted account so no stale cached auth data survives the deletion.
+        let account_id: Uuid = id.into();
+        let membership_filter: MembershipFilter = json!({
+            "account_id": account_id.to_string(),
+        })
+        .try_into()?;
+        let memberships = self
+            .sm
+            .membership
+            .list(&store_ctx, Some(membership_filter), None)
+            .await?;
+        for membership in memberships {
+            let keyed = AuthCache::new_keyed(membership.id.into(), account_id, None);
+            self.cm.auth.invalidate(&keyed).await?;
+        }
 
         Ok(deleted)
     }

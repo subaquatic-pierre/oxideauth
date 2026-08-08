@@ -3,6 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
 use crate::{
+    cache::{
+        entities::auth::AuthCache,
+        manager::CacheManager,
+        traits::CacheExecutor,
+    },
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -41,13 +46,14 @@ use crate::{
     },
 };
 
-pub struct RoleService<D: DbExecutor> {
+pub struct RoleService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
+    cm: Arc<CacheManager<C>>,
     ws_svc: WorkspaceService<D>,
-    perm_svc: PermissionService<D>,
+    perm_svc: PermissionService<D, C>,
 }
 
-impl<D: DbExecutor> CoreModelService<D> for RoleService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for RoleService<D, C> {
     type CoreModel = Role;
     type ServiceStore = RoleStore<D>;
 
@@ -60,17 +66,52 @@ impl<D: DbExecutor> CoreModelService<D> for RoleService<D> {
     }
 }
 
-impl<D: DbExecutor> RoleService<D> {
+impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
         ws_svc: WorkspaceService<D>,
-        perm_svc: PermissionService<D>,
+        perm_svc: PermissionService<D, C>,
+        cm: Arc<CacheManager<C>>,
     ) -> Self {
         Self {
             sm,
+            cm,
             ws_svc,
             perm_svc,
         }
+    }
+
+    /// Invalidates the auth cache for every membership that carries the given
+    /// role. A role mutation (e.g. deletion) changes the cached auth scope of
+    /// all memberships holding that role, so each of them must be re-hydrated.
+    ///
+    /// NOTE: naive reverse lookup — lists all memberships (with their roles)
+    /// and filters in memory. Matches the existing patterns in the codebase.
+    async fn invalidate_memberships_for_role(
+        &self,
+        store_ctx: &StoreCtx,
+        role_id: Uuid,
+    ) -> CoreResult<()> {
+        let memberships = self
+            .sm
+            .membership
+            .list_many_to_many(store_ctx, None, None)
+            .await?;
+        for membership in memberships {
+            if membership
+                .roles
+                .iter()
+                .any(|r| Uuid::from(r.id) == role_id)
+            {
+                let keyed = AuthCache::new_keyed(
+                    membership.id.into(),
+                    membership.membership.account_id,
+                    None,
+                );
+                self.cm.auth.invalidate(&keyed).await?;
+            }
+        }
+        Ok(())
     }
 
     async fn role_to_ws_map(
@@ -124,7 +165,7 @@ impl<D: DbExecutor> RoleService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelCreateService<D> for RoleService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for RoleService<D, C> {
     type CreateParams = RoleCreateParams;
     const CREATE_PERMISSION: &'static str = "role:create";
 
@@ -163,7 +204,7 @@ impl<D: DbExecutor> CoreModelCreateService<D> for RoleService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelDescribeService<D> for RoleService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for RoleService<D, C> {
     type DescribeParams = RoleDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = "role:describe";
 
@@ -189,7 +230,7 @@ impl<D: DbExecutor> CoreModelDescribeService<D> for RoleService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelListService<D> for RoleService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for RoleService<D, C> {
     type ListParams = RoleListParams;
     const LIST_PERMISSION: &'static str = "role:list";
 
@@ -247,7 +288,7 @@ impl<D: DbExecutor> CoreModelListService<D> for RoleService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelUpdateService<D> for RoleService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for RoleService<D, C> {
     type UpdateParams = RoleUpdateParams;
     const UPDATE_PERMISSION: &'static str = "role:update";
 
@@ -285,7 +326,7 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for RoleService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelDeleteService<D> for RoleService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for RoleService<D, C> {
     type DeleteParams = RoleDeleteParams;
     const DELETE_PERMISSION: &'static str = "role:delete";
 
@@ -314,6 +355,11 @@ impl<D: DbExecutor> CoreModelDeleteService<D> for RoleService<D> {
             .await?;
 
         let _ = store.delete(&store_ctx, &to_delete.id.into()).await?;
+
+        // Invalidate the auth cache for all memberships that carried the
+        // deleted role, since their cached auth scope is now stale.
+        self.invalidate_memberships_for_role(&store_ctx, to_delete.id)
+            .await?;
 
         // TODO(T030): Push notification trigger — notify all workspace clients
         // that a role was deleted. Requires wiring a `ClientService` dependency

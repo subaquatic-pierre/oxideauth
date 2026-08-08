@@ -6,6 +6,11 @@ use std::{
 use uuid::Uuid;
 
 use crate::{
+    cache::{
+        entities::auth::AuthCache,
+        manager::CacheManager,
+        traits::CacheExecutor,
+    },
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -33,18 +38,20 @@ use crate::{
         crud::{Create, Delete, Get, GetCount, List, Update},
         ctx::StoreCtx,
         entities::permission::PermissionRow,
+        join::ListManyToMany,
         manager::StoreManager,
         stores::{permission::PermissionStore, role::RoleStore},
         traits::dbx::DbExecutor,
     },
 };
 
-pub struct PermissionService<D: DbExecutor> {
+pub struct PermissionService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
+    cm: Arc<CacheManager<C>>,
     ws_svc: WorkspaceService<D>,
 }
 
-impl<D: DbExecutor> CoreModelService<D> for PermissionService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for PermissionService<D, C> {
     type CoreModel = Permission;
     type ServiceStore = PermissionStore<D>;
 
@@ -57,9 +64,70 @@ impl<D: DbExecutor> CoreModelService<D> for PermissionService<D> {
     }
 }
 
-impl<D: DbExecutor> PermissionService<D> {
-    pub fn new(sm: Arc<StoreManager<D>>, ws_svc: WorkspaceService<D>) -> Self {
-        Self { sm, ws_svc }
+impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
+    pub fn new(
+        sm: Arc<StoreManager<D>>,
+        ws_svc: WorkspaceService<D>,
+        cm: Arc<CacheManager<C>>,
+    ) -> Self {
+        Self { sm, cm, ws_svc }
+    }
+
+    /// Invalidates the auth cache for every membership whose roles include the
+    /// given permission.
+    ///
+    /// Changing a permission (its code/name or its deletion) affects the cached
+    /// auth scope of every membership holding a role that grants it, so each of
+    /// those memberships must be re-hydrated.
+    ///
+    /// NOTE: naive reverse lookup — lists all roles and memberships (with their
+    /// relations) and filters in memory. Matches the existing patterns in the
+    /// codebase.
+    async fn invalidate_memberships_for_permission(
+        &self,
+        store_ctx: &StoreCtx,
+        permission_id: Uuid,
+    ) -> CoreResult<()> {
+        // Find the roles that include this permission.
+        let roles = self
+            .sm
+            .role
+            .list_many_to_many(store_ctx, None, None)
+            .await?;
+        let affected_role_ids: Vec<Uuid> = roles
+            .iter()
+            .filter(|r| {
+                r.permissions
+                    .iter()
+                    .any(|p| Uuid::from(p.id) == permission_id)
+            })
+            .map(|r| Uuid::from(r.role.id))
+            .collect();
+        if affected_role_ids.is_empty() {
+            return Ok(());
+        }
+
+        // Invalidate the auth cache for every membership holding any affected role.
+        let memberships = self
+            .sm
+            .membership
+            .list_many_to_many(store_ctx, None, None)
+            .await?;
+        for membership in memberships {
+            if membership
+                .roles
+                .iter()
+                .any(|r| affected_role_ids.contains(&Uuid::from(r.id)))
+            {
+                let keyed = AuthCache::new_keyed(
+                    membership.id.into(),
+                    membership.membership.account_id,
+                    None,
+                );
+                self.cm.auth.invalidate(&keyed).await?;
+            }
+        }
+        Ok(())
     }
 
     async fn hydrate_permissions(
@@ -92,7 +160,7 @@ impl<D: DbExecutor> PermissionService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelCreateService<D> for PermissionService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for PermissionService<D, C> {
     type CreateParams = PermissionCreateParams;
     const CREATE_PERMISSION: &'static str = "permission:create";
 
@@ -122,7 +190,7 @@ impl<D: DbExecutor> CoreModelCreateService<D> for PermissionService<D> {
         .await
     }
 }
-impl<D: DbExecutor> CoreModelDescribeService<D> for PermissionService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for PermissionService<D, C> {
     type DescribeParams = PermissionDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = "permission:describe";
 
@@ -170,7 +238,7 @@ impl<D: DbExecutor> CoreModelDescribeService<D> for PermissionService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelListService<D> for PermissionService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for PermissionService<D, C> {
     type ListParams = PermissionListParams;
     const LIST_PERMISSION: &'static str = "permission:list";
 
@@ -217,7 +285,7 @@ impl<D: DbExecutor> CoreModelListService<D> for PermissionService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelUpdateService<D> for PermissionService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for PermissionService<D, C> {
     type UpdateParams = PermissionUpdateParams;
     const UPDATE_PERMISSION: &'static str = "permission:update";
 
@@ -235,6 +303,11 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for PermissionService<D> {
         // check database constraints
         let updated = store
             .update(&store_ctx, &params.id.into(), params.into())
+            .await?;
+
+        // Invalidate the auth cache for all memberships whose roles grant the
+        // updated permission — its code/name may have changed.
+        self.invalidate_memberships_for_permission(&store_ctx, updated.id.into())
             .await?;
 
         // TODO(T031): Push notification trigger — notify all workspace clients
@@ -258,7 +331,7 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for PermissionService<D> {
         .await
     }
 }
-impl<D: DbExecutor> CoreModelDeleteService<D> for PermissionService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for PermissionService<D, C> {
     type DeleteParams = PermissionDeleteParams;
     const DELETE_PERMISSION: &'static str = "permission:delete";
 
@@ -286,6 +359,11 @@ impl<D: DbExecutor> CoreModelDeleteService<D> for PermissionService<D> {
             .await?;
 
         let res = store.delete(&store_ctx, &to_delete.id.into()).await?;
+
+        // Invalidate the auth cache for all memberships whose roles granted the
+        // deleted permission — their cached auth scopes are now stale.
+        self.invalidate_memberships_for_permission(&store_ctx, res.id.into())
+            .await?;
 
         // TODO(T031): Push notification trigger — notify all workspace clients
         // that a permission was deleted. Requires wiring a `ClientService`

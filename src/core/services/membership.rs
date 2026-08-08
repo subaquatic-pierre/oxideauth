@@ -4,7 +4,12 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    cache::{manager::CacheManager, stores::membership::MembershipCache, traits::CacheExecutor},
+    cache::{
+        entities::auth::AuthCache,
+        manager::CacheManager,
+        stores::membership::MembershipCacheStore,
+        traits::CacheExecutor,
+    },
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -12,7 +17,7 @@ use crate::{
             account::{Account, AccountDescribeParams},
             list::{ListResponse, RequestFilterParams},
             membership::{
-                CachedMembership, Membership, MembershipCreateParams, MembershipDeleteParams,
+                Membership, MembershipCache, MembershipCreateParams, MembershipDeleteParams,
                 MembershipDescribeParams, MembershipListParams, MembershipUpdateParams,
             },
             permission::PermissionCheck,
@@ -54,8 +59,8 @@ pub struct MembershipService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
     ws_svc: WorkspaceService<D>,
-    acc_svc: AccountService<D>,
-    role_svc: RoleService<D>,
+    acc_svc: AccountService<D, C>,
+    role_svc: RoleService<D, C>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for MembershipService<D, C> {
@@ -77,8 +82,8 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
         ws_svc: WorkspaceService<D>,
-        acc_svc: AccountService<D>,
-        role_svc: RoleService<D>,
+        acc_svc: AccountService<D, C>,
+        role_svc: RoleService<D, C>,
     ) -> Self {
         Self {
             sm,
@@ -89,14 +94,14 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         }
     }
 
-    pub fn get_cached(&self) -> Option<CachedMembership> {
+    pub fn get_cached(&self) -> Option<MembershipCache> {
         let cache = self.cache();
 
         // TODO: implement get cached membership
         None
     }
 
-    fn cache(&self) -> &MembershipCache<C> {
+    fn cache(&self) -> &MembershipCacheStore<C> {
         &self.cm.membership
     }
 
@@ -387,6 +392,11 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for MembershipSe
             .update(&store_ctx, &params.id.into(), params.into())
             .await?;
 
+        // Invalidate the auth cache for the mutated membership so the next
+        // request re-hydrates status/scope/version changes from the database.
+        let keyed = AuthCache::new_keyed(res.id.into(), res.account_id, None);
+        self.cm.auth.invalidate(&keyed).await?;
+
         // TODO(T032): Push notification trigger — notify all workspace clients
         // that a membership changed. Requires wiring a `ClientService`
         // dependency into `MembershipService` (constructor + factory). Then
@@ -434,6 +444,11 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for MembershipSe
             .await?;
 
         let res = store.delete(&store_ctx, &params.id.into()).await?;
+
+        // Invalidate the auth cache for the deleted membership so no stale
+        // cached auth data survives the deletion.
+        let keyed = AuthCache::new_keyed(to_delete.id, to_delete.account.id, None);
+        self.cm.auth.invalidate(&keyed).await?;
 
         // TODO(T032): Push notification trigger — notify all workspace clients
         // that a membership was deleted. Requires wiring a `ClientService`

@@ -171,26 +171,6 @@ impl Default for Membership {
     }
 }
 
-#[derive(Serialize, Debug, Clone, Deserialize)]
-pub struct CachedMembership {
-    pub id: Uuid,
-    pub account_id: Uuid,
-    pub workspace_id: Uuid,
-    pub project_id: Option<Uuid>,
-    pub role_ids: Vec<Uuid>,
-    pub permissions: Vec<String>,
-}
-
-impl Default for CachedMembership {
-    fn default() -> Self {
-        Self {
-            id: Uuid::nil(),
-            account_id: Uuid::nil(),
-            workspace_id: Uuid::nil(),
-            project_id: None,
-            role_ids: vec![],
-            // Usually defaults to empty to deny access unless explicitly populated
-            permissions: vec![],
-        }
-    }
-}
+// Re-export the cache entity (migrated to `cache::entities::membership`,
+// kept here for backward compatibility).
+pub use crate::cache::entities::membership::MembershipCache;

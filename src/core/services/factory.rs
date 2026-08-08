@@ -37,18 +37,23 @@ where
         Self { sm, cm }
     }
 
-    pub fn account(&self) -> AccountService<D> {
-        let svc = AccountService::new(self.sm.clone(), self.workspace());
+    pub fn account(&self) -> AccountService<D, C> {
+        let svc = AccountService::new(self.sm.clone(), self.cm.clone(), self.workspace());
         svc
     }
 
-    pub fn role(&self) -> RoleService<D> {
-        let svc = RoleService::new(self.sm.clone(), self.workspace(), self.permission());
+    pub fn role(&self) -> RoleService<D, C> {
+        let svc = RoleService::new(
+            self.sm.clone(),
+            self.workspace(),
+            self.permission(),
+            self.cm.clone(),
+        );
         svc
     }
 
-    pub fn permission(&self) -> PermissionService<D> {
-        let svc = PermissionService::new(self.sm.clone(), self.workspace());
+    pub fn permission(&self) -> PermissionService<D, C> {
+        let svc = PermissionService::new(self.sm.clone(), self.workspace(), self.cm.clone());
         svc
     }
 
@@ -73,7 +78,7 @@ where
         svc
     }
 
-    pub fn credential(&self) -> CredentialService<D> {
+    pub fn credential(&self) -> CredentialService<D, C> {
         let svc = CredentialService::new(self.sm.clone(), self.workspace(), self.account());
         svc
     }

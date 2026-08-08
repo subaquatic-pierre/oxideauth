@@ -13,6 +13,7 @@ pub enum CacheError {
     Init(String),
     NotFound(String),
     InvalidSetOperation(String),
+    ParseError(String),
     #[from]
     RedisError(#[serde_as(as = "DisplayFromStr")] redis::RedisError),
     #[from]

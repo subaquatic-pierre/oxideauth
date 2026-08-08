@@ -10,7 +10,7 @@ use crate::{
         error::CoreResult,
         models::{
             account::Account,
-            membership::CachedMembership,
+            membership::MembershipCache,
             permission::{PermissionCheck, PermissionChecker},
             workspace::{Workspace, GLOBAL_WS_ID},
         },
@@ -21,7 +21,7 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct CoreCtx {
-    cached_mem: CachedMembership,
+        cached_mem: MembershipCache,
     account: Account,
     workspace: Workspace,
     perm_checker: PermissionChecker,
@@ -29,7 +29,7 @@ pub struct CoreCtx {
 
 impl CoreCtx {
     pub fn new(
-        cached_mem: CachedMembership,
+    cached_mem: MembershipCache,
         account: Account,
         workspace: Workspace,
     ) -> CoreResult<Self> {
@@ -48,7 +48,7 @@ impl CoreCtx {
         let mut ns = Workspace::default();
         ns.id = global_ws_id();
 
-        let mut cm = CachedMembership::default();
+        let mut cm = MembershipCache::default();
         cm.workspace_id = global_ws_id();
 
         let perm_checker = PermissionChecker::from_string_vec(cm.permissions.clone())?;
