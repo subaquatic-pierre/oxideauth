@@ -1,4 +1,4 @@
-use std::{convert::Infallible, fmt::Display};
+use std::{convert::Infallible, fmt::Display, num::ParseIntError, str::ParseBoolError};
 
 use derive_more::From;
 use hex::FromHexError;
@@ -46,3 +46,15 @@ impl Display for CoreError {
 }
 
 impl std::error::Error for CoreError {}
+
+impl From<ParseBoolError> for CoreError {
+    fn from(value: ParseBoolError) -> Self {
+        CoreError::ParseError(format!("error parsing bool, {value}"))
+    }
+}
+
+impl From<ParseIntError> for CoreError {
+    fn from(value: ParseIntError) -> Self {
+        CoreError::ParseError(format!("error parsing int, {value}"))
+    }
+}

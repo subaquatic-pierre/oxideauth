@@ -1,8 +1,13 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::utils::time::now_utc;
+use crate::{
+    core::error::{CoreError, CoreResult},
+    utils::time::now_utc,
+};
 
 #[derive(Debug, Serialize, Clone, Deserialize, PartialEq, Eq)]
 pub struct TokenClaims {
@@ -61,11 +66,7 @@ impl TokenClaims {
 
     pub fn is_expired(&self) -> bool {
         let now = now_utc().unix_timestamp() as usize;
-        if self.exp < now {
-            true
-        } else {
-            false
-        }
+        if self.exp < now { true } else { false }
     }
 
     /// The account id encoded in the token subject (`sub`).
@@ -81,6 +82,15 @@ impl TokenClaims {
     /// The membership id encoded in the `mem` claim.
     pub fn mem(&self) -> &str {
         &self.mem
+    }
+
+    pub fn mem_id(&self) -> Result<Uuid, CoreError> {
+        Uuid::from_str(&self.mem)
+            .map_err(|_| CoreError::Auth("invalid token: membership claim".into()))
+    }
+    pub fn acc_id(&self) -> Result<Uuid, CoreError> {
+        Uuid::from_str(&self.sub)
+            .map_err(|_| CoreError::Auth("invalid token: subject claim".into()))
     }
 
     /// The token type (`Auth`, `PasswordReset`, `Refresh`, `AccountConfirm`).

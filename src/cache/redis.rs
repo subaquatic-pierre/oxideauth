@@ -1,9 +1,9 @@
 use axum::async_trait;
 use redis::{
-    aio::{ConnectionManager, ConnectionManagerConfig},
     AsyncCommands, Client, Commands, FromRedisValue, JsonAsyncCommands, SetOptions, ToRedisArgs,
+    aio::{ConnectionManager, ConnectionManagerConfig},
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::debug;
 
 use crate::{
@@ -131,9 +131,7 @@ impl CacheExecutor for RedisChx {
     /// Fetches the raw string values for multiple keys in a single round trip.
     async fn pipeline_get(&self, keys: &[&str]) -> CacheResult<Vec<Option<String>>> {
         let mut pipe = redis::pipe();
-        for key in keys {
-            pipe.get(key);
-        }
+        pipe.mget(keys);
         let res = pipe
             .query_async::<Vec<Option<String>>>(&mut self.conn.clone())
             .await?;
