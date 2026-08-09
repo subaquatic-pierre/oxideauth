@@ -82,12 +82,13 @@ pub trait ListManyToMany: ManyToManyStore {
     async fn list_many_to_many(
         &self,
         ctx: &StoreCtx,
+        tags: Option<Vec<String>>,
         filter: Option<Self::FilterStoreParams>,
         opts: Option<ListOptions>,
     ) -> StoreResult<Vec<Self::ManyToManyRow>> {
         let dbx = self.dbx();
         let meta = self.many_to_many_meta();
-        list_many_to_many(ctx, &dbx, filter, opts, &meta).await
+        list_many_to_many(ctx, &dbx, tags, filter, opts, &meta).await
     }
 }
 

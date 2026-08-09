@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::{Arc, OnceLock}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock},
+};
 
 use uuid::Uuid;
 
@@ -82,7 +85,7 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
         let roles = self
             .sm
             .role
-            .list_many_to_many(store_ctx, None, None)
+            .list_many_to_many(store_ctx, None, None, None)
             .await?;
         let affected_role_ids: Vec<Uuid> = roles
             .iter()
@@ -104,7 +107,7 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
         let memberships = self
             .sm
             .membership
-            .list_many_to_many(store_ctx, None, None)
+            .list_many_to_many(store_ctx, None, None, None)
             .await?;
         for membership in memberships {
             if membership

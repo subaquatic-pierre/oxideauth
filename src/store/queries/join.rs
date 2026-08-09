@@ -4,8 +4,9 @@ use sea_query::{
     PostgresQueryBuilder, Query, SelectStatement, SimpleExpr, Value,
 };
 use sea_query_binder::SqlxBinder;
+use serde_json::Value as JsonValue;
 use serde_json::json;
-use sqlx::{postgres::PgRow, FromRow};
+use sqlx::{FromRow, postgres::PgRow};
 
 use crate::store::{
     ctx::StoreCtx,
@@ -20,7 +21,7 @@ use crate::store::{
         dbx::DbExecutor,
         meta::{HasId, StoreId, StoreRow, TableIden},
     },
-    utils::{pg_type_of, ListOptionsValidator, LIST_LIMIT_MAX},
+    utils::{LIST_LIMIT_MAX, ListOptionsValidator, pg_type_of},
 };
 
 #[derive(Iden)]
@@ -248,7 +249,8 @@ pub async fn list_one_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: Tab
 
     // apply workspace scope
     if let Some(ws_id) = ctx.workspace_scope() {
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr =
+            Expr::col((meta.single_table, WorkspaceIden::WorkspaceId)).eq(ws_id);
         main_query.and_where(workspace_id_expr);
     }
 
@@ -451,6 +453,7 @@ pub async fn get_many_to_many<T: StoreRow, I: TableIden>(
 pub async fn list_many_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: TableIden>(
     ctx: &StoreCtx,
     dbx: &impl DbExecutor,
+    tags: Option<Vec<String>>,
     filter: Option<F>,
     opts: Option<ListOptions>,
     meta: &ManyToManyQueryMeta<I>,
@@ -513,6 +516,21 @@ pub async fn list_many_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: Ta
         let filters: FilterGroups = filter.into();
         let cond: Condition = filters.try_into()?;
         main_query.cond_where(cond);
+    }
+
+    // --- Tags containment (@>) ---
+    if let Some(tags) = tags.filter(|t| !t.is_empty()) {
+        let tags_values: Vec<JsonValue> = tags.into_iter().map(JsonValue::String).collect();
+        let expr =
+            Expr::cust_with_values(format!(r#""{}" @> $"#, "tags".to_string()), [tags_values]);
+        main_query.cond_where(expr);
+    }
+
+    // --- Workspace scoping ---
+    if let Some(ws_id) = ctx.workspace_scope() {
+        let workspace_id_expr =
+            Expr::col((meta.single_table, WorkspaceIden::WorkspaceId)).eq(ws_id);
+        main_query.and_where(workspace_id_expr);
     }
 
     // validate list options
@@ -1038,6 +1056,7 @@ mod tests {
         let filtered_roles = list_many_to_many::<RoleWithPermissions, RoleFilter, _>(
             &ctx,
             &dbx,
+            None,
             Some(role_filter),
             None,
             &meta,

@@ -3,10 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
 use crate::{
-    cache::{
-        manager::CacheManager,
-        traits::CacheExecutor,
-    },
+    cache::{manager::CacheManager, traits::CacheExecutor},
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -97,14 +94,10 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
         let memberships = self
             .sm
             .membership
-            .list_many_to_many(store_ctx, None, None)
+            .list_many_to_many(store_ctx, None, None, None)
             .await?;
         for membership in memberships {
-            if membership
-                .roles
-                .iter()
-                .any(|r| Uuid::from(r.id) == role_id)
-            {
+            if membership.roles.iter().any(|r| Uuid::from(r.id) == role_id) {
                 self.cm
                     .invalidation
                     .invalidate(membership.id.into(), membership.membership.account_id, None)
@@ -283,7 +276,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for RoleService<D,
         if let Some(filter) = tags_filter.filter() {
             let filter = Some(filter);
             let data = store
-                .list_many_to_many(&store_ctx, filter.clone(), Some(options.clone()))
+                .list_many_to_many(&store_ctx, None, filter.clone(), Some(options.clone()))
                 .await?;
             let total = store.count(&store_ctx, filter).await?;
 
@@ -294,7 +287,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for RoleService<D,
 
         // no filter provided, list all
         let data = store
-            .list_many_to_many(&store_ctx, None, Some(options.clone()))
+            .list_many_to_many(&store_ctx, None, None, Some(options.clone()))
             .await?;
         let total = store.count(&store_ctx, None).await?;
 
