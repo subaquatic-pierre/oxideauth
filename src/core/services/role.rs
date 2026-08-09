@@ -246,50 +246,21 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for RoleService<D,
             .await?;
 
         let options = params.list_options();
-
         let tags_filter = params.validate_filter_tags()?;
+        let tags = tags_filter.tags();
+        let filter = tags_filter.filter();
 
-        if let Some(tags) = tags_filter.tags() {
-            let data = store
-                .filter_by_tags_contain(&store_ctx, tags.clone(), Some(options.clone()))
-                .await?;
-            let total = store.count_by_tags_contain(&store_ctx, tags).await?;
-
-            // TODO: optimize filter Roles by tags with dedicated store SQL method
-            let mut roles = vec![];
-            for role in data {
-                let role = self
-                    .describe(
-                        ctx,
-                        RoleDescribeParams {
-                            id: role.id.into(),
-                            workspace_id: role.workspace_id.into(),
-                        },
-                    )
-                    .await?;
-                roles.push(role);
-            }
-
-            return Ok(ListResponse::new(roles, total, options));
-        }
-
-        if let Some(filter) = tags_filter.filter() {
-            let filter = Some(filter);
-            let data = store
-                .list_many_to_many(&store_ctx, None, filter.clone(), Some(options.clone()))
-                .await?;
-            let total = store.count(&store_ctx, filter).await?;
-
-            let data = self.hydrate_roles(ctx, data).await?;
-
-            return Ok(ListResponse::new(data, total, options));
-        }
-
-        // no filter provided, list all
         let data = store
-            .list_many_to_many(&store_ctx, None, None, Some(options.clone()))
+            .list_many_to_many(
+                &store_ctx,
+                tags.clone(),
+                filter.clone(),
+                Some(options.clone()),
+            )
             .await?;
-        let total = store.count(&store_ctx, None).await?;
+        let total = store
+            .count_with_tags_and_filter(&store_ctx, tags, filter)
+            .await?;
 
         let data = self.hydrate_roles(ctx, data).await?;
 

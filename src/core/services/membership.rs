@@ -350,27 +350,21 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for MembershipServ
             .await?;
 
         let options = params.list_options();
-
         let tags_filter = params.validate_filter_tags()?;
         let tags = tags_filter.tags();
         let filter = tags_filter.filter();
 
-        // let data = store
-        //     .list_with_tags_and_filter(
-        //         &store_ctx,
-        //         tags.clone(),
-        //         filter.clone(),
-        //         Some(options.clone()),
-        //     )
-        //     .await?;
-        // let total = store
-        //     .count_with_tags_and_filter(&store_ctx, tags, filter)
-        //     .await?;
-
         let data = store
-            .list_many_to_many(&store_ctx, tags, filter.clone(), Some(options.clone()))
+            .list_many_to_many(
+                &store_ctx,
+                tags.clone(),
+                filter.clone(),
+                Some(options.clone()),
+            )
             .await?;
-        let total = store.count(&store_ctx, filter).await?;
+        let total = store
+            .count_with_tags_and_filter(&store_ctx, tags, filter)
+            .await?;
 
         let data = self.hydrate_memberships(ctx, data).await?;
 
