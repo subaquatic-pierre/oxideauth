@@ -3,10 +3,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    cache::{
-        manager::CacheManager,
-        traits::CacheExecutor,
-    },
+    cache::{manager::CacheManager, traits::CacheExecutor},
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -19,7 +16,9 @@ use crate::{
             permission::PermissionCheck,
             workspace::{Workspace, WorkspaceDescribeParams},
         },
-        services::{auth::AuthValidator, workspace::WorkspaceService},
+        services::{
+            auth::AuthValidator, permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService,
+        },
         traits::{
             list::RequestListParams,
             service::{
@@ -115,7 +114,7 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for AccountService<D, C> {
     type CreateParams = AccountCreateParams;
-    const CREATE_PERMISSION: &'static str = "account:create";
+    const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.account.create;
 
     async fn create(&self, ctx: &mut CoreCtx, params: AccountCreateParams) -> CoreResult<Account> {
         let store = self.store();
@@ -152,7 +151,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for AccountServi
 }
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for AccountService<D, C> {
     type DescribeParams = AccountDescribeParams;
-    const DESCRIBE_PERMISSION: &'static str = "account:describe";
+    const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.account.describe;
 
     async fn describe(
         &self,
@@ -177,7 +176,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for AccountSer
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for AccountService<D, C> {
     type ListParams = AccountListParams;
-    const LIST_PERMISSION: &'static str = "account:list";
+    const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.account.list;
 
     async fn list(
         &self,
@@ -202,7 +201,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for AccountService
         let filter = tags_filter.filter();
 
         let data = store
-            .list_with_tags_and_filter(&store_ctx, tags.clone(), filter.clone(), Some(options.clone()))
+            .list_with_tags_and_filter(
+                &store_ctx,
+                tags.clone(),
+                filter.clone(),
+                Some(options.clone()),
+            )
             .await?;
         let total = store
             .count_with_tags_and_filter(&store_ctx, tags, filter)
@@ -215,7 +219,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for AccountService
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for AccountService<D, C> {
     type UpdateParams = AccountUpdateParams;
-    const UPDATE_PERMISSION: &'static str = "account:update";
+    const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.account.update;
 
     async fn update(&self, ctx: &mut CoreCtx, params: AccountUpdateParams) -> CoreResult<Account> {
         let store = self.store();
@@ -269,7 +273,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for AccountServi
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for AccountService<D, C> {
     type DeleteParams = AccountDeleteParams;
-    const DELETE_PERMISSION: &'static str = "account:delete";
+    const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.account.delete;
 
     async fn delete(&self, ctx: &mut CoreCtx, params: AccountDeleteParams) -> CoreResult<Account> {
         let store = self.store();

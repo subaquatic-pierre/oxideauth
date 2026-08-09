@@ -23,8 +23,8 @@ use crate::{
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{
-            account::AccountService, auth::AuthValidator, role::RoleService,
-            workspace::WorkspaceService,
+            account::AccountService, auth::AuthValidator, permission::CANONICAL_PERMISSIONS,
+            role::RoleService, workspace::WorkspaceService,
         },
         traits::{
             list::RequestListParams,
@@ -42,11 +42,11 @@ use crate::{
             account::{AccountFilter, AccountForCreate, AccountMeta},
             id::DbId,
             membership::{
-                JoinedRoleOnMembership, MembershipForCreate, MembershipForUpdate, MembershipRow,
-                MembershipWithRoles,
+                JoinedRoleOnMembership, MembershipFilter, MembershipForCreate,
+                MembershipForUpdate, MembershipRow, MembershipWithRoles,
             },
         },
-        join::{GetManyToMany, ListManyToMany},
+        join::{GetManyToMany, LinkManyToMany, ListManyToMany},
         manager::StoreManager,
         stores::membership::MembershipStore,
         traits::{crud::*, dbx::DbExecutor},
@@ -227,7 +227,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for MembershipService<D, C> {
     type CreateParams = MembershipCreateParams;
-    const CREATE_PERMISSION: &'static str = "membership:create";
+    const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.membership.create;
 
     /// Creates a membership and optionally associates it with roles
     async fn create(
@@ -251,13 +251,36 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for MembershipSe
             meta: params.meta,
         };
 
-        // TODO: Ensure membership doesn't already exist for given account_id and workspace_id
-        // check database constraints
+        // Guard: one membership per account per workspace
+        let membership_filter: MembershipFilter = json!({
+            "account_id": params.account_id.to_string(),
+            "workspace_id": params.workspace_id.to_string()
+        })
+        .try_into()?;
+
+        let existing = store
+            .list(&store_ctx, Some(membership_filter), None)
+            .await?;
+
+        if !existing.is_empty() {
+            return Err(CoreError::AlreadyExists(format!(
+                "membership already exists for account '{}' in workspace '{}'",
+                params.account_id, params.workspace_id
+            )));
+        }
 
         let membership_row = store.create(&store_ctx, m_create).await?;
 
-        // TODO: assign roles if present on params
-        if !params.role_ids.is_empty() {}
+        // Assign roles to the new membership
+        let role_db_ids: Vec<DbId> = params
+            .role_ids
+            .iter()
+            .map(|id| DbId::from(*id))
+            .collect();
+        self.sm
+            .membership
+            .set_many_to_many_links(&store_ctx, &membership_row.id, role_db_ids)
+            .await?;
 
         self.describe(
             ctx,
@@ -272,7 +295,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for MembershipSe
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for MembershipService<D, C> {
     type DescribeParams = MembershipDescribeParams;
-    const DESCRIBE_PERMISSION: &'static str = "membership:describe";
+    const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.membership.describe;
 
     async fn describe(
         &self,
@@ -316,7 +339,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for Membership
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for MembershipService<D, C> {
     type ListParams = MembershipListParams;
-    const LIST_PERMISSION: &'static str = "membership:list";
+    const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.membership.list;
 
     async fn list(
         &self,
@@ -385,7 +408,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for MembershipServ
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for MembershipService<D, C> {
     type UpdateParams = MembershipUpdateParams;
-    const UPDATE_PERMISSION: &'static str = "membership:update";
+    const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.membership.update;
 
     async fn update(
         &self,
@@ -432,7 +455,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for MembershipSe
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for MembershipService<D, C> {
     type DeleteParams = MembershipDeleteParams;
-    const DELETE_PERMISSION: &'static str = "membership:delete";
+    const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.membership.delete;
 
     async fn delete(
         &self,

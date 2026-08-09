@@ -23,7 +23,7 @@ use crate::{
             permission::{PermissionCheck, PermissionChecker},
             token::{TokenClaims, TokenType},
         },
-        services::workspace::WorkspaceService,
+        services::{permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService},
         traits::{
             list::RequestListParams,
             service::{
@@ -245,7 +245,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
 
         // --- 2. Validate the calling Client has permission & scope the store ---
         let (store_ctx, _workspace) = self
-            .scope_and_validate_ctx(ctx, workspace_id, &["client:validate"])
+            .scope_and_validate_ctx(ctx, workspace_id, &[CANONICAL_PERMISSIONS.client.validate])
             .await?;
 
         // --- 3. Look up the client by workspace_id + secret_hash ---
@@ -316,7 +316,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     ) -> CoreResult<ClientSecret> {
         // Validate permissions
         let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, workspace_id, &["client:regenerateSecret"])
+            .scope_and_validate_ctx(ctx, workspace_id, &[CANONICAL_PERMISSIONS.client.regenerate_secret])
             .await?;
 
         // Generate new secret
@@ -339,7 +339,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for ClientService<D, C> {
     type CreateParams = ClientCreateParams;
-    const CREATE_PERMISSION: &'static str = "client:create";
+    const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.client.create;
 
     async fn create(
         &self,
@@ -374,7 +374,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for ClientServic
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for ClientService<D, C> {
     type ListParams = ClientListParams;
-    const LIST_PERMISSION: &'static str = "client:list";
+    const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.client.list;
 
     async fn list(
         &self,
@@ -415,7 +415,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for ClientService<
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for ClientService<D, C> {
     type DescribeParams = ClientDescribeParams;
-    const DESCRIBE_PERMISSION: &'static str = "client:describe";
+    const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.client.describe;
 
     async fn describe(
         &self,
@@ -435,7 +435,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for ClientServ
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for ClientService<D, C> {
     type UpdateParams = ClientUpdateParams;
-    const UPDATE_PERMISSION: &'static str = "client:update";
+    const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.client.update;
 
     async fn update(
         &self,
@@ -457,7 +457,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for ClientServic
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for ClientService<D, C> {
     type DeleteParams = ClientDeleteParams;
-    const DELETE_PERMISSION: &'static str = "client:delete";
+    const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.client.delete;
 
     async fn delete(
         &self,

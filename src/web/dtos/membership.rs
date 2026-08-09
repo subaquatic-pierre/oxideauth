@@ -34,7 +34,6 @@ impl IntoParams<MembershipDescribeParams> for MembershipDescribeReq {
 pub struct MembershipDescribeRes {
     pub id: Uuid,
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
     pub project_id: Option<Uuid>,
     pub scope: MembershipScope,
     pub status: MembershipStatus,
@@ -52,7 +51,6 @@ impl From<Membership> for MembershipDescribeRes {
         Self {
             id: m.id,
             account_id: m.account.id,
-            workspace_id: m.workspace.id,
             project_id: m.project_id,
             scope: m.scope,
             status: m.status,

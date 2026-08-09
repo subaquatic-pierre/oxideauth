@@ -373,53 +373,6 @@ impl PermissionChecker {
     }
 }
 
-pub const ALL_PERMISSIONS: &'static [&str] = &[
-    "account:readSelf",
-    "account:updateSelf",
-    "account:deleteSelf",
-    "account:readAny",
-    "account:updateAny",
-    "account:deleteAny", // Added based on readAny/updateAny pattern
-    "client:create",
-    "client:delete",
-    "client:describe",
-    "client:list",
-    "client:regenerateSecret",
-    "client:update",
-    "workspace:list",
-    "workspace:create",
-    "workspace:read",
-    "workspace:update",
-    "workspace:delete",
-    "project:list",
-    "project:create",
-    "project:read",
-    "project:update",
-    "project:delete",
-    "membership:list",
-    "membership:invite",
-    "membership:updateStatus",
-    "membership:manageRole",
-    "membership:delete",
-    "membership:readSelf",
-    "role:list",
-    "role:create",
-    "role:update",
-    "role:delete",
-    "permission:read",
-    "permission:manageConfig",
-    "credential:manageSelf",
-    "credential:resetAny",
-    "token:revokeSelf",
-    "audit:read",
-    "meta:update",
-    "tags:update",
-    // Optional Wildcard Permissions (Conceptual)
-    "project:*",
-    "*:read",
-    "*",
-];
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -40,7 +40,6 @@ impl IntoParams<CredentialDescribeParams> for CredentialDescribeReq {
 pub struct CredentialDescribeRes {
     pub id: Uuid,
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
     pub kind: CredentialKind,
     pub provider: CredentialProvider,
     pub status: CredentialStatus,
@@ -61,7 +60,6 @@ impl From<Credential> for CredentialDescribeRes {
         Self {
             id: c.id,
             account_id: c.account.id,
-            workspace_id: c.workspace.id,
             kind: c.kind,
             provider: c.provider,
             status: c.status,

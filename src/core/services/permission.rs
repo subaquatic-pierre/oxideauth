@@ -1,15 +1,9 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use uuid::Uuid;
 
 use crate::{
-    cache::{
-        manager::CacheManager,
-        traits::CacheExecutor,
-    },
+    cache::{manager::CacheManager, traits::CacheExecutor},
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -159,7 +153,7 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for PermissionService<D, C> {
     type CreateParams = PermissionCreateParams;
-    const CREATE_PERMISSION: &'static str = "permission:create";
+    const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.permission.create;
 
     async fn create(
         &self,
@@ -189,7 +183,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for PermissionSe
 }
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for PermissionService<D, C> {
     type DescribeParams = PermissionDescribeParams;
-    const DESCRIBE_PERMISSION: &'static str = "permission:describe";
+    const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.permission.describe;
 
     async fn describe(
         &self,
@@ -237,7 +231,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for Permission
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for PermissionService<D, C> {
     type ListParams = PermissionListParams;
-    const LIST_PERMISSION: &'static str = "permission:list";
+    const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.permission.list;
 
     async fn list(
         &self,
@@ -258,7 +252,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for PermissionServ
         let filter = tags_filter.filter();
 
         let data = store
-            .list_with_tags_and_filter(&store_ctx, tags.clone(), filter.clone(), Some(options.clone()))
+            .list_with_tags_and_filter(
+                &store_ctx,
+                tags.clone(),
+                filter.clone(),
+                Some(options.clone()),
+            )
             .await?;
         let total = store
             .count_with_tags_and_filter(&store_ctx, tags, filter)
@@ -272,7 +271,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for PermissionServ
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for PermissionService<D, C> {
     type UpdateParams = PermissionUpdateParams;
-    const UPDATE_PERMISSION: &'static str = "permission:update";
+    const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.permission.update;
 
     async fn update(
         &self,
@@ -318,7 +317,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for PermissionSe
 }
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for PermissionService<D, C> {
     type DeleteParams = PermissionDeleteParams;
-    const DELETE_PERMISSION: &'static str = "permission:delete";
+    const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.permission.delete;
 
     async fn delete(
         &self,
@@ -362,3 +361,149 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for PermissionSe
         Ok(to_delete)
     }
 }
+
+// ============================================================================
+// Per-domain permission structs
+// ============================================================================
+
+pub struct AccountPermissions {
+    pub create: &'static str,
+    pub describe: &'static str,
+    pub list: &'static str,
+    pub update: &'static str,
+    pub delete: &'static str,
+}
+
+pub struct WorkspacePermissions {
+    pub create: &'static str,
+    pub describe: &'static str,
+    pub list: &'static str,
+    pub update: &'static str,
+    pub delete: &'static str,
+}
+
+pub struct ProjectPermissions {
+    pub create: &'static str,
+    pub describe: &'static str,
+    pub list: &'static str,
+    pub update: &'static str,
+    pub delete: &'static str,
+}
+
+pub struct MembershipPermissions {
+    pub create: &'static str,
+    pub describe: &'static str,
+    pub list: &'static str,
+    pub update: &'static str,
+    pub delete: &'static str,
+}
+
+pub struct RolePermissions {
+    pub create: &'static str,
+    pub describe: &'static str,
+    pub list: &'static str,
+    pub update: &'static str,
+    pub delete: &'static str,
+}
+
+pub struct ClientPermissions {
+    pub create: &'static str,
+    pub describe: &'static str,
+    pub list: &'static str,
+    pub update: &'static str,
+    pub delete: &'static str,
+    pub validate: &'static str,
+    pub regenerate_secret: &'static str,
+}
+
+pub struct CredentialPermissions {
+    pub create: &'static str,
+    pub describe: &'static str,
+    pub list: &'static str,
+    pub update: &'static str,
+    pub delete: &'static str,
+}
+
+pub struct PermissionPermissions {
+    pub create: &'static str,
+    pub describe: &'static str,
+    pub list: &'static str,
+    pub update: &'static str,
+    pub delete: &'static str,
+}
+
+// ============================================================================
+// Canonical permissions aggregate
+// ============================================================================
+
+pub struct CanonicalPermissions {
+    pub account: AccountPermissions,
+    pub workspace: WorkspacePermissions,
+    pub project: ProjectPermissions,
+    pub membership: MembershipPermissions,
+    pub role: RolePermissions,
+    pub client: ClientPermissions,
+    pub credential: CredentialPermissions,
+    pub permission: PermissionPermissions,
+}
+
+pub const CANONICAL_PERMISSIONS: CanonicalPermissions = CanonicalPermissions {
+    account: AccountPermissions {
+        create: "account:create",
+        describe: "account:describe",
+        list: "account:list",
+        update: "account:update",
+        delete: "account:delete",
+    },
+    workspace: WorkspacePermissions {
+        create: "workspace:create",
+        describe: "workspace:describe",
+        list: "workspace:list",
+        update: "workspace:update",
+        delete: "workspace:delete",
+    },
+    project: ProjectPermissions {
+        create: "project:create",
+        describe: "project:describe",
+        list: "project:list",
+        update: "project:update",
+        delete: "project:delete",
+    },
+    membership: MembershipPermissions {
+        create: "membership:create",
+        describe: "membership:describe",
+        list: "membership:list",
+        update: "membership:update",
+        delete: "membership:delete",
+    },
+    role: RolePermissions {
+        create: "role:create",
+        describe: "role:describe",
+        list: "role:list",
+        update: "role:update",
+        delete: "role:delete",
+    },
+    client: ClientPermissions {
+        create: "client:create",
+        describe: "client:describe",
+        list: "client:list",
+        update: "client:update",
+        delete: "client:delete",
+        validate: "client:validate",
+        regenerate_secret: "client:regenerateSecret",
+    },
+    credential: CredentialPermissions {
+        create: "credential:create",
+        describe: "credential:describe",
+        list: "credential:list",
+        update: "credential:update",
+        delete: "credential:delete",
+    },
+    permission: PermissionPermissions {
+        create: "permission:create",
+        describe: "permission:describe",
+        list: "permission:list",
+        update: "permission:update",
+        delete: "permission:delete",
+    },
+};

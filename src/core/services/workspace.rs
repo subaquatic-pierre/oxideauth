@@ -15,7 +15,7 @@ use crate::{
                 WorkspaceListParams, WorkspaceUpdateParams,
             },
         },
-        services::auth::AuthValidator,
+        services::{auth::AuthValidator, permission::CANONICAL_PERMISSIONS},
         traits::{
             list::RequestListParams,
             service::{
@@ -102,7 +102,7 @@ impl<D: DbExecutor> CoreModelService<D> for WorkspaceService<D> {
 
 impl<D: DbExecutor> CoreModelCreateService<D> for WorkspaceService<D> {
     type CreateParams = WorkspaceCreateParams;
-    const CREATE_PERMISSION: &'static str = "workspace:create";
+    const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.create;
 
     /// Creates a new workspace.
     async fn create(
@@ -152,7 +152,7 @@ impl<D: DbExecutor> CoreModelCreateService<D> for WorkspaceService<D> {
 
 impl<D: DbExecutor> CoreModelDescribeService<D> for WorkspaceService<D> {
     type DescribeParams = WorkspaceDescribeParams;
-    const DESCRIBE_PERMISSION: &'static str = "workspace:describe";
+    const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.describe;
 
     /// Retrieves a single workspace by ID or slug.
     async fn describe(
@@ -180,7 +180,7 @@ impl<D: DbExecutor> CoreModelDescribeService<D> for WorkspaceService<D> {
 
 impl<D: DbExecutor> CoreModelListService<D> for WorkspaceService<D> {
     type ListParams = WorkspaceListParams;
-    const LIST_PERMISSION: &'static str = "workspace:list";
+    const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.list;
 
     /// Lists workspaces based on filter and options.
     async fn list(
@@ -219,7 +219,7 @@ impl<D: DbExecutor> CoreModelListService<D> for WorkspaceService<D> {
 
 impl<D: DbExecutor> CoreModelUpdateService<D> for WorkspaceService<D> {
     type UpdateParams = WorkspaceUpdateParams;
-    const UPDATE_PERMISSION: &'static str = "workspace:update";
+    const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.update;
 
     /// Updates an existing workspace.
     async fn update(
@@ -260,7 +260,7 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for WorkspaceService<D> {
 
 impl<D: DbExecutor> CoreModelDeleteService<D> for WorkspaceService<D> {
     type DeleteParams = WorkspaceDeleteParams;
-    const DELETE_PERMISSION: &'static str = "workspace:delete";
+    const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.delete;
 
     /// Deletes a workspace by ID or slug.
     async fn delete(

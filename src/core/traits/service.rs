@@ -9,7 +9,9 @@ use crate::{
             permission::PermissionCheck,
             workspace::{Workspace, WorkspaceDescribeParams},
         },
-        services::{auth::AuthValidator, workspace::WorkspaceService},
+        services::{
+            auth::AuthValidator, permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService,
+        },
     },
     store::{ctx::StoreCtx, traits::dbx::DbExecutor},
 };
@@ -27,7 +29,7 @@ pub trait CoreModelService<D: DbExecutor> {
             slug: None,
         };
 
-        ctx.extend_perms(&["workspace:describe"])?;
+        ctx.extend_perms(&[CANONICAL_PERMISSIONS.workspace.describe])?;
 
         self.ws_svc().describe(ctx, params).await
     }

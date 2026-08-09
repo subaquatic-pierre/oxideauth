@@ -14,7 +14,9 @@ use crate::{
             },
             workspace::{Workspace, WorkspaceDescribeParams},
         },
-        services::{auth::AuthValidator, workspace::WorkspaceService},
+        services::{
+            auth::AuthValidator, permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService,
+        },
         traits::{
             list::RequestListParams,
             service::{
@@ -133,7 +135,7 @@ impl<D: DbExecutor> ProjectService<D> {
 
 impl<D: DbExecutor> CoreModelCreateService<D> for ProjectService<D> {
     type CreateParams = ProjectCreateParams;
-    const CREATE_PERMISSION: &'static str = "project:create";
+    const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.project.create;
 
     /// Creates a new Project, scoped to the provided workspace ID.
     async fn create(&self, ctx: &mut CoreCtx, params: ProjectCreateParams) -> CoreResult<Project> {
@@ -174,7 +176,7 @@ impl<D: DbExecutor> CoreModelCreateService<D> for ProjectService<D> {
 
 impl<D: DbExecutor> CoreModelDescribeService<D> for ProjectService<D> {
     type DescribeParams = ProjectDescribeParams;
-    const DESCRIBE_PERMISSION: &'static str = "project:describe";
+    const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.project.describe;
 
     async fn describe(
         &self,
@@ -199,7 +201,7 @@ impl<D: DbExecutor> CoreModelDescribeService<D> for ProjectService<D> {
 
 impl<D: DbExecutor> CoreModelListService<D> for ProjectService<D> {
     type ListParams = ProjectListParams;
-    const LIST_PERMISSION: &'static str = "project:list";
+    const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.project.list;
 
     async fn list(
         &self,
@@ -234,7 +236,7 @@ impl<D: DbExecutor> CoreModelListService<D> for ProjectService<D> {
 }
 impl<D: DbExecutor> CoreModelUpdateService<D> for ProjectService<D> {
     type UpdateParams = ProjectUpdateParams;
-    const UPDATE_PERMISSION: &'static str = "project:update";
+    const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.project.update;
 
     async fn update(&self, ctx: &mut CoreCtx, params: ProjectUpdateParams) -> CoreResult<Project> {
         let store = self.store();
@@ -278,7 +280,7 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for ProjectService<D> {
 
 impl<D: DbExecutor> CoreModelDeleteService<D> for ProjectService<D> {
     type DeleteParams = ProjectDeleteParams;
-    const DELETE_PERMISSION: &'static str = "project:delete";
+    const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.project.delete;
 
     async fn delete(&self, ctx: &mut CoreCtx, params: ProjectDeleteParams) -> CoreResult<Project> {
         let store = self.store();

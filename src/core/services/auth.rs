@@ -21,7 +21,9 @@ use crate::{
             permission::{PermissionCheck, PermissionChecker},
             token::{TokenClaims, TokenType},
         },
-        services::{account::AccountService, token::TokenService},
+        services::{
+            account::AccountService, permission::CANONICAL_PERMISSIONS, token::TokenService,
+        },
         traits::service::CoreModelService,
     },
     dev::fixtures::global_ws_id,
@@ -181,7 +183,10 @@ where
 
         let store = self.acc_svc.store();
         let mut ctx = CoreCtx::system(global_ws_id())?;
-        ctx.extend_perms(&["account:create", "credential:create"])?;
+        ctx.extend_perms(&[
+            CANONICAL_PERMISSIONS.account.create,
+            CANONICAL_PERMISSIONS.credential.create,
+        ])?;
         let store_ctx = StoreCtx::from(&ctx);
 
         // --- Check email uniqueness ---
@@ -291,7 +296,7 @@ where
         let email = email.trim().to_lowercase();
 
         let mut ctx = CoreCtx::system(global_ws_id())?;
-        ctx.extend_perms(&["account:describe"])?;
+        ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
         let store_ctx = StoreCtx::from(&ctx);
 
         // --- Find account by email ---
@@ -541,7 +546,7 @@ where
         let email = email.trim().to_lowercase();
 
         let mut ctx = CoreCtx::system(global_ws_id())?;
-        ctx.extend_perms(&["account:describe"])?;
+        ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
         let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
@@ -603,7 +608,11 @@ where
         let account_id = claims.validate_password_reset()?;
 
         let mut ctx = CoreCtx::system(global_ws_id())?;
-        ctx.extend_perms(&["account:describe", "credential:list", "credential:update"])?;
+        ctx.extend_perms(&[
+            CANONICAL_PERMISSIONS.account.describe,
+            CANONICAL_PERMISSIONS.credential.list,
+            CANONICAL_PERMISSIONS.credential.update,
+        ])?;
         let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
@@ -666,7 +675,10 @@ where
         let account_id = claims.validate_account_confirm()?;
 
         let mut ctx = CoreCtx::system(global_ws_id())?;
-        ctx.extend_perms(&["account:describe", "account:update"])?;
+        ctx.extend_perms(&[
+            CANONICAL_PERMISSIONS.account.describe,
+            CANONICAL_PERMISSIONS.account.update,
+        ])?;
         let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
@@ -713,7 +725,7 @@ where
         let email = email.trim().to_lowercase();
 
         let mut ctx = CoreCtx::system(global_ws_id())?;
-        ctx.extend_perms(&["account:describe"])?;
+        ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
         let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
@@ -827,7 +839,11 @@ where
             get_google_user(&token_response.access_token, &token_response.id_token).await?;
 
         let mut ctx = CoreCtx::system(global_ws_id())?;
-        ctx.extend_perms(&["account:describe", "account:create", "credential:create"])?;
+        ctx.extend_perms(&[
+            CANONICAL_PERMISSIONS.account.describe,
+            CANONICAL_PERMISSIONS.account.create,
+            CANONICAL_PERMISSIONS.credential.create,
+        ])?;
         let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
@@ -881,7 +897,7 @@ where
 
         // 7. Issue a token pair (access + refresh) for the session.
         let mut sys_ctx = CoreCtx::system(global_ws_id())?;
-        sys_ctx.extend_perms(&["account:describe"])?;
+        sys_ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
         let store_ctx = StoreCtx::from(&sys_ctx);
         let acc_ver = self
             .sm
@@ -1068,10 +1084,10 @@ mod tests {
         let granted = setup_checker()?;
 
         let mut ctx = CoreCtx::new_test()?;
-        ctx.extend_perms(&["account:create"])?;
+        ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.create])?;
         let auth = AuthValidator::new(&ctx);
 
-        let success = auth.validate_ctx_perms(&["account:create"]);
+        let success = auth.validate_ctx_perms(&[CANONICAL_PERMISSIONS.account.create]);
 
         assert!(
             matches!(success, Ok(())),

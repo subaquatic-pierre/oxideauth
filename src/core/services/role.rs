@@ -20,7 +20,8 @@ use crate::{
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{
-            auth::AuthValidator, permission::PermissionService, workspace::WorkspaceService,
+            auth::AuthValidator, permission::CANONICAL_PERMISSIONS, permission::PermissionService,
+            workspace::WorkspaceService,
         },
         traits::{
             list::RequestListParams,
@@ -38,7 +39,7 @@ use crate::{
             id::DbId,
             role::{RoleForCreate, RoleRow, RoleWithPermissions},
         },
-        join::{GetManyToMany, ListManyToMany},
+        join::{GetManyToMany, LinkManyToMany, ListManyToMany},
         manager::StoreManager,
         stores::role::RoleStore,
         traits::{crud::*, dbx::DbExecutor},
@@ -166,7 +167,7 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for RoleService<D, C> {
     type CreateParams = RoleCreateParams;
-    const CREATE_PERMISSION: &'static str = "role:create";
+    const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.role.create;
 
     async fn create(
         &self,
@@ -189,8 +190,16 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for RoleService<
 
         let row = store.create(&store_ctx, r_create).await?;
 
-        // TODO: Sync many-to-many permissions
-        if !params.permission_ids.is_empty() {}
+        // Sync many-to-many permissions
+        let perm_db_ids: Vec<DbId> = params
+            .permission_ids
+            .iter()
+            .map(|id| DbId::from(*id))
+            .collect();
+        self.sm
+            .role
+            .set_many_to_many_links(&store_ctx, &row.id, perm_db_ids)
+            .await?;
 
         self.describe(
             ctx,
@@ -205,7 +214,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for RoleService<
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for RoleService<D, C> {
     type DescribeParams = RoleDescribeParams;
-    const DESCRIBE_PERMISSION: &'static str = "role:describe";
+    const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.role.describe;
 
     async fn describe(
         &self,
@@ -231,7 +240,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for RoleServic
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for RoleService<D, C> {
     type ListParams = RoleListParams;
-    const LIST_PERMISSION: &'static str = "role:list";
+    const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.role.list;
 
     async fn list(
         &self,
@@ -297,7 +306,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for RoleService<D,
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for RoleService<D, C> {
     type UpdateParams = RoleUpdateParams;
-    const UPDATE_PERMISSION: &'static str = "role:update";
+    const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.role.update;
 
     async fn update(
         &self,
@@ -335,7 +344,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for RoleService<
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for RoleService<D, C> {
     type DeleteParams = RoleDeleteParams;
-    const DELETE_PERMISSION: &'static str = "role:delete";
+    const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.role.delete;
 
     async fn delete(
         &self,

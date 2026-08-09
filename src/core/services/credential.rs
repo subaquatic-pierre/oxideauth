@@ -22,7 +22,10 @@ use crate::{
             },
             list::ListResponse,
         },
-        services::{account::AccountService, auth::AuthValidator, workspace::WorkspaceService},
+        services::{
+            account::AccountService, auth::AuthValidator, permission::CANONICAL_PERMISSIONS,
+            workspace::WorkspaceService,
+        },
         traits::{
             list::RequestListParams,
             service::{
@@ -136,7 +139,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for CredentialService<
 // --- Create ---
 impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for CredentialService<D, C> {
     type CreateParams = CredentialCreateParams;
-    const CREATE_PERMISSION: &'static str = "credential:create";
+    const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.credential.create;
 
     async fn create(
         &self,
@@ -171,7 +174,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for CredentialSe
 // --- Describe (with Hydration) ---
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for CredentialService<D, C> {
     type DescribeParams = CredentialDescribeParams;
-    const DESCRIBE_PERMISSION: &'static str = "credential:describe";
+    const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.credential.describe;
 
     async fn describe(
         &self,
@@ -200,7 +203,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for Credential
 // --- List ---
 impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for CredentialService<D, C> {
     type ListParams = CredentialListParams;
-    const LIST_PERMISSION: &'static str = "credential:list";
+    const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.credential.list;
 
     async fn list(
         &self,
@@ -236,7 +239,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for CredentialServ
 // --- Update ---
 impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for CredentialService<D, C> {
     type UpdateParams = CredentialUpdateParams;
-    const UPDATE_PERMISSION: &'static str = "credential:update";
+    const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.credential.update;
 
     async fn update(
         &self,
@@ -271,7 +274,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for CredentialSe
 // --- Delete ---
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for CredentialService<D, C> {
     type DeleteParams = CredentialDeleteParams;
-    const DELETE_PERMISSION: &'static str = "credential:delete";
+    const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.credential.delete;
 
     async fn delete(
         &self,
