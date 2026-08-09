@@ -56,20 +56,11 @@ impl<F> ValidateParams for RequestFilterParams<F>
 where
     F: Clone,
 {
-    /// Validates the request parameters, ensuring that the request does not contain both
-    /// a `tags` filter and a flattened `filter` struct simultaneously.
+    /// Validates the request parameters.
     ///
-    /// # Returns
-    ///
-    /// A `CoreResult` containing consumed self if validation succeeds,
-    /// or `Err(CoreError::InvalidParams)` if both filters are present.
+    /// Previously enforced mutual exclusion between `tags` and `fields`.
+    /// Now allows both to coexist — the store layer combines them into a single query.
     fn validate(self) -> CoreResult<Self> {
-        if self.tags.is_some() && self.fields.is_some() {
-            return Err(CoreError::InvalidParams(
-                "cannot have both filter and tags on params".to_string(),
-            ));
-        }
-
         Ok(self)
     }
 }

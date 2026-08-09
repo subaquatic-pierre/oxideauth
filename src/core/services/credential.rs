@@ -216,33 +216,16 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for CredentialServ
         let list_options = params.list_options();
         let tags_filter = params.validate_filter_tags()?;
 
-        if let Some(tags) = tags_filter.tags() {
-            let data = store
-                .filter_by_tags_contain(&store_ctx, tags.clone(), Some(list_options.clone()))
-                .await?;
-            let total = store.count_by_tags_contain(&store_ctx, tags).await?;
+        // Combined query: tags (@> containment) + field filter
+        let tags = tags_filter.tags();
+        let filter = tags_filter.filter();
 
-            let projects = self.hydrate_credentials(ctx, data).await?;
-
-            return Ok(ListResponse::new(projects, total, list_options));
-        }
-
-        if let Some(filter) = tags_filter.filter() {
-            let data = store
-                .list(&store_ctx, Some(filter.clone()), Some(list_options.clone()))
-                .await?;
-            let total = store.count(&store_ctx, Some(filter)).await?;
-
-            let projects = self.hydrate_credentials(ctx, data).await?;
-
-            return Ok(ListResponse::new(projects, total, list_options));
-        }
-
-        // no filter provided, list all
         let data = store
-            .list(&store_ctx, None, Some(list_options.clone()))
+            .list_with_tags_and_filter(&store_ctx, tags.clone(), filter.clone(), Some(list_options.clone()))
             .await?;
-        let total = store.count(&store_ctx, None).await?;
+        let total = store
+            .count_with_tags_and_filter(&store_ctx, tags, filter)
+            .await?;
 
         let credentials = self.hydrate_credentials(ctx, data).await?;
 

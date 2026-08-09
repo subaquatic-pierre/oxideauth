@@ -1,9 +1,11 @@
-use modql::filter::ListOptions;
+use modql::filter::{FilterGroups, ListOptions};
 use serde_json::Value as JsonValue;
 
 use crate::store::ctx::StoreCtx;
 use crate::store::error::StoreResult;
-use crate::store::queries::contains::filter_by_value_contains;
+use crate::store::queries::contains::{
+    count_with_contains, filter_by_value_contains, list_with_contains,
+};
 use crate::store::queries::count::count_contains;
 use crate::store::queries::meta::ContainsFilter;
 use crate::store::traits::meta::{ContainsFilterStore, Store};
@@ -80,5 +82,49 @@ pub trait FilterByContains: ContainsFilterStore {
         let meta = self.contains_json_meta();
         let value = ContainsFilter::Json(json);
         filter_by_value_contains(ctx, &dbx, value, opts, &meta).await
+    }
+
+    /// Finds records matching both tags containment and an optional field-based filter
+    /// in a single combined SQL query.
+    ///
+    /// If both `tags` and `filter` are `None`, this lists all rows (same as an unfiltered list).
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx`: The store context.
+    /// * `tags`: Optional tags for `@>` array containment.
+    /// * `filter`: Optional field-based filter (e.g., `ProjectFilter`).
+    /// * `opts`: Pagination and sorting options.
+    async fn list_with_tags_and_filter<F>(
+        &self,
+        ctx: &StoreCtx,
+        tags: Option<Vec<String>>,
+        filter: Option<F>,
+        opts: Option<ListOptions>,
+    ) -> StoreResult<Vec<Self::Row>>
+    where
+        F: Into<FilterGroups> + Send,
+    {
+        let dbx = self.dbx();
+        let meta = self.contains_tags_meta();
+        let filter_groups: Option<FilterGroups> = filter.map(|f| f.into());
+        list_with_contains(ctx, &dbx, tags, filter_groups, opts, &meta).await
+    }
+
+    /// Returns a count of records matching both tags containment and an optional
+    /// field-based filter in a single combined SQL query.
+    async fn count_with_tags_and_filter<F>(
+        &self,
+        ctx: &StoreCtx,
+        tags: Option<Vec<String>>,
+        filter: Option<F>,
+    ) -> StoreResult<i64>
+    where
+        F: Into<FilterGroups> + Send,
+    {
+        let dbx = self.dbx();
+        let meta = self.contains_tags_meta();
+        let filter_groups: Option<FilterGroups> = filter.map(|f| f.into());
+        count_with_contains(ctx, &dbx, tags, filter_groups, &meta).await
     }
 }

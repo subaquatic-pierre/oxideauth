@@ -1,11 +1,12 @@
-use modql::filter::ListOptions;
-use sea_query::{Alias, Asterisk, Condition, Expr, PostgresQueryBuilder, Query};
+use modql::filter::{FilterGroups, ListOptions};
+use sea_query::{Alias, Asterisk, Condition, Expr, Func, PostgresQueryBuilder, Query};
 use sea_query_binder::SqlxBinder;
 use serde_json::Value as JsonValue;
 
 use crate::store::{
     ctx::StoreCtx,
     dbx::PgDbx,
+    entities::workspace::WorkspaceIden,
     error::{StoreError, StoreResult},
     queries::meta::{ContainsFilter, ContainsFilterQueryMeta},
     traits::{
@@ -101,6 +102,108 @@ pub async fn filter_by_value_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
     let res = dbx.fetch_all(query).await?;
 
     Ok(res)
+}
+
+/// Fetches entities where the designated array column contains the given tags
+/// AND the row also matches the optional field-based filter.
+///
+/// This combines PostgreSQL's `@>` containment operator with standard
+/// `FilterGroups` conditions in a single SQL query.
+///
+/// If both `tags` and `filter` are `None`, this acts as a simple list-all query.
+pub async fn list_with_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
+    ctx: &StoreCtx,
+    dbx: &E,
+    tags: Option<Vec<String>>,
+    filter: Option<FilterGroups>,
+    opts: Option<ListOptions>,
+    meta: &ContainsFilterQueryMeta<I>,
+) -> StoreResult<Vec<T>> {
+    let mut query = Query::select();
+    query.from(meta.table).column((meta.table, Asterisk));
+
+    // --- Workspace scoping ---
+    if let Some(ws_id) = ctx.workspace_scope() {
+        let cond = Condition::all().add(Expr::col(Alias::new("workspace_id")).eq(ws_id));
+        query.cond_where(cond);
+    }
+
+    // --- Tags containment (@>) ---
+    if let Some(tags) = tags.filter(|t| !t.is_empty()) {
+        let tags_values: Vec<JsonValue> =
+            tags.into_iter().map(JsonValue::String).collect();
+        let expr =
+            Expr::cust_with_values(format!(r#""{}" @> $"#, meta.col.to_string()), [tags_values]);
+        query.and_where(expr);
+    }
+
+    // --- Field-based filter ---
+    if let Some(filter) = filter {
+        let cond: Condition = filter.try_into()?;
+        query.cond_where(cond);
+    }
+
+    // --- List options (limit/offset/order) ---
+    let list_options = ListOptionsValidator::validate_list_opts(opts, meta.has_audit)?;
+    list_options.apply_to_sea_query(&mut query);
+
+    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let query = sqlx::query_as_with(&sql, vals);
+    let res = dbx.fetch_all(query).await?;
+
+    Ok(res)
+}
+
+/// Returns the count of rows where the designated array column contains the given
+/// tags AND the row also matches the optional field-based filter.
+pub async fn count_with_contains<E: DbExecutor, I: TableIden>(
+    ctx: &StoreCtx,
+    dbx: &E,
+    tags: Option<Vec<String>>,
+    filter: Option<FilterGroups>,
+    meta: &ContainsFilterQueryMeta<I>,
+) -> StoreResult<i64>
+where
+    E: DbExecutor,
+    I: TableIden,
+{
+    let mut query = Query::select();
+
+    // --- Workspace scoping ---
+    if let Some(ws_id) = ctx.workspace_scope() {
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        query.and_where(workspace_id_expr);
+    }
+
+    query
+        .expr_as(Func::count(Expr::col(Asterisk)), "count")
+        .from(meta.table);
+
+    // --- Tags containment (@>) ---
+    if let Some(tags) = tags.filter(|t| !t.is_empty()) {
+        let tags_values: Vec<JsonValue> =
+            tags.into_iter().map(JsonValue::String).collect();
+        let expr =
+            Expr::cust_with_values(format!(r#""{}" @> $"#, meta.col.to_string()), [tags_values]);
+        query.cond_where(expr);
+    }
+
+    // --- Field-based filter ---
+    if let Some(filter) = filter {
+        let cond: Condition = filter.try_into()?;
+        query.cond_where(cond);
+    }
+
+    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let sqlx_query = sqlx::query_as_with(&sql, vals);
+
+    #[derive(sqlx::FromRow)]
+    struct CountRow {
+        count: i64,
+    }
+
+    let row: CountRow = dbx.fetch_one(sqlx_query).await?;
+    Ok(row.count)
 }
 
 #[cfg(test)]

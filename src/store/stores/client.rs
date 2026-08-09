@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use crate::store::{
     entities::client::{ClientFilter, ClientForCreate, ClientForUpdate, ClientIden, ClientRow},
-    queries::meta::{MutateQueryMeta, ReadQueryMeta},
+    queries::meta::{ContainsFilterQueryMeta, MutateQueryMeta, ReadQueryMeta},
     traits::{
         dbx::DbExecutor,
-        meta::{MutateStore, ReadStore, Store},
+        meta::{ContainsFilterStore, MutateStore, ReadStore, Store},
     },
 };
 
@@ -55,6 +55,24 @@ impl<D: DbExecutor> MutateStore for ClientStore<D> {
         MutateQueryMeta {
             table: ClientIden::Table,
             pk: ClientIden::Id,
+            has_audit: true,
+        }
+    }
+}
+
+impl<D: DbExecutor> ContainsFilterStore for ClientStore<D> {
+    fn contains_tags_meta(&self) -> ContainsFilterQueryMeta<Self::Iden> {
+        ContainsFilterQueryMeta {
+            table: ClientIden::Table,
+            col: ClientIden::Tags,
+            has_audit: true,
+        }
+    }
+
+    fn contains_json_meta(&self) -> ContainsFilterQueryMeta<Self::Iden> {
+        ContainsFilterQueryMeta {
+            table: ClientIden::Table,
+            col: ClientIden::Meta,
             has_audit: true,
         }
     }

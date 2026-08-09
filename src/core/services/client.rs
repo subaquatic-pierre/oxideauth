@@ -37,7 +37,7 @@ use crate::{
         entities::client::{ClientFilter, ClientForCreate, ClientForUpdate},
         manager::StoreManager,
         stores::client::ClientStore,
-        traits::{crud::*, dbx::DbExecutor},
+        traits::{contains::FilterByContains, crud::*, dbx::DbExecutor},
     },
     utils::time::{format_time, now_utc},
 };
@@ -391,27 +391,21 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for ClientService<
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
             .await?;
 
-        // Merge any user-supplied field filter. Workspace scoping is enforced by
-        // the store itself via `store_ctx.workspace_scope` (set during
-        // `scope_and_validate_ctx`), so no explicit workspace filter is required here.
-        let filter = tags_filter.filter().unwrap_or_default();
-        let requested_tags = tags_filter.tags();
+        // Combined query: tags (@> containment) + field filter
+        // ClientStore now implements ContainsFilterStore, so tag filtering
+        // is done in SQL alongside field filters for accurate counts.
+        let tags = tags_filter.tags();
+        let filter = tags_filter.filter();
 
         let rows = store
-            .list(&store_ctx, Some(filter.clone()), Some(list_options.clone()))
+            .list_with_tags_and_filter(&store_ctx, tags.clone(), filter.clone(), Some(list_options.clone()))
             .await?;
-        let total = store.count(&store_ctx, Some(filter)).await?;
+        let total = store
+            .count_with_tags_and_filter(&store_ctx, tags, filter)
+            .await?;
 
-        // TODO: `ClientStore` does not implement `ContainsFilterStore` yet, so tag
-        // filtering is applied in-memory after the DB query. This means `total` may
-        // overcount when tags are supplied. Implement `ContainsFilterStore` for
-        // `ClientStore` to move tag filtering into the SQL query.
         let clients: Vec<Client> = rows
             .into_iter()
-            .filter(|row| match &requested_tags {
-                Some(tags) => tags.iter().all(|tag| row.tags.contains(tag)),
-                None => true,
-            })
             .map(|row| Client::from_row_with_workspace(row, workspace.clone()))
             .collect();
 

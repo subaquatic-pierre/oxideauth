@@ -196,31 +196,18 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for AccountService
 
         // NOTE: Account can never be workspace scoped, like other services such as ProjectService, because the model does not have a workspace_id field on it. This means Accounts are always global scoped. We have to find a different way to scope accounts by workspace, or only reserve account::list permission to memberships in the global namespace
 
-        // filter by tags
-        if let Some(tags) = tags_filter.tags() {
-            let data = store
-                .filter_by_tags_contain(&store_ctx, tags.clone(), Some(options.clone()))
-                .await?;
-            let total = store.count_by_tags_contain(&store_ctx, tags).await?;
+        // Combined query: tags (@> containment) + field filter in a single SQL query.
+        // Handles all four cases: (none, tags-only, filter-only, tags+filter).
+        let tags = tags_filter.tags();
+        let filter = tags_filter.filter();
 
-            let accounts: Vec<Account> = data.into_iter().map(|el| el.into()).collect();
-            return Ok(ListResponse::new(accounts, total, options));
-        }
+        let data = store
+            .list_with_tags_and_filter(&store_ctx, tags.clone(), filter.clone(), Some(options.clone()))
+            .await?;
+        let total = store
+            .count_with_tags_and_filter(&store_ctx, tags, filter)
+            .await?;
 
-        // filter by filter
-        if let Some(filter) = tags_filter.filter() {
-            let filter = Some(filter);
-            let data = store
-                .list(&store_ctx, filter.clone(), Some(options.clone()))
-                .await?;
-            let total = store.count(&store_ctx, filter).await?;
-            let accounts: Vec<Account> = data.into_iter().map(|el| el.into()).collect();
-            return Ok(ListResponse::new(accounts, total, options));
-        }
-
-        // no filter provided, list all
-        let data = store.list(&store_ctx, None, Some(options.clone())).await?;
-        let total = store.count(&store_ctx, None).await?;
         let accounts: Vec<Account> = data.into_iter().map(|el| el.into()).collect();
         Ok(ListResponse::new(accounts, total, options))
     }

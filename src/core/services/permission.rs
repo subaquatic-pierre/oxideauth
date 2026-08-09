@@ -253,36 +253,16 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for PermissionServ
 
         let tags_filter = params.validate_filter_tags()?;
 
-        // filter by tags
-        if let Some(tags) = tags_filter.tags() {
-            let data = store
-                .filter_by_tags_contain(&store_ctx, tags.clone(), Some(options.clone()))
-                .await?;
-            let total = store.count_by_tags_contain(&store_ctx, tags).await?;
+        // Combined query: tags (@> containment) + field filter
+        let tags = tags_filter.tags();
+        let filter = tags_filter.filter();
 
-            let perms = self.hydrate_permissions(ctx, data).await?;
-
-            return Ok(ListResponse::new(perms, total, options));
-        }
-
-        // filter by filter
-        if let Some(filter) = tags_filter.filter() {
-            let filter = Some(filter);
-            let data = store
-                .list(&store_ctx, filter.clone(), Some(options.clone()))
-                .await?;
-            let total = store.count(&store_ctx, filter).await?;
-
-            let perms = self.hydrate_permissions(ctx, data).await?;
-
-            return Ok(ListResponse::new(perms, total, options));
-        }
-
-        // no filter provided, list all
         let data = store
-            .list(&store_ctx, None, Some(options.clone()))
+            .list_with_tags_and_filter(&store_ctx, tags.clone(), filter.clone(), Some(options.clone()))
             .await?;
-        let total = store.count(&store_ctx, None).await?;
+        let total = store
+            .count_with_tags_and_filter(&store_ctx, tags, filter)
+            .await?;
 
         let perms = self.hydrate_permissions(ctx, data).await?;
 
