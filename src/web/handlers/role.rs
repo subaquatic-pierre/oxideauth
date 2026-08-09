@@ -1,19 +1,13 @@
-use axum::{
-    extract::Extension,
-    routing::post,
-    Json, Router,
-};
+use axum::{Json, Router, extract::Extension, routing::post};
 use tracing::info;
 
 use crate::{
     app::App,
     core::{
         ctx::CoreCtx,
-        models::{
-            role::{
-                RoleCreateParams, RoleDeleteParams, RoleDescribeParams, RoleListParams,
-                RoleUpdateParams,
-            },
+        models::role::{
+            RoleCreateParams, RoleDeleteParams, RoleDescribeParams, RoleListParams,
+            RoleUpdateParams,
         },
         traits::service::{
             CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
@@ -44,7 +38,7 @@ pub async fn describe_role(
     let role = svc.describe(&mut ctx, params).await?;
     let res: RoleDescribeRes = role.into();
 
-    info!("describe_role - CTX: {ctx:#?}");
+    // info!("describe_role - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -89,7 +83,7 @@ pub async fn create_role(
     let role = svc.create(&mut ctx, params).await?;
     let res: RoleDescribeRes = role.into();
 
-    info!("create_role - CTX: {ctx:#?}");
+    // info!("create_role - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -107,7 +101,7 @@ pub async fn update_role(
     let role = svc.update(&mut ctx, params).await?;
     let res: RoleDescribeRes = role.into();
 
-    info!("update_role - CTX: {ctx:#?}");
+    // info!("update_role - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -126,7 +120,7 @@ pub async fn delete_role(
 
     let res = RoleDeleteRes { id: role.id };
 
-    info!("delete_role - CTX: {ctx:#?}");
+    // info!("delete_role - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 

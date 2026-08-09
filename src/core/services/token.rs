@@ -62,17 +62,17 @@ impl<D: DbExecutor> TokenService<D> {
     }
 
     pub fn decode_token_str(&self, token_str: &str) -> CoreResult<TokenClaims> {
-        debug!(
-            "token_str in TokenService.decode_token_str: {:?}",
-            token_str
-        );
+        // debug!(
+        //     "token_str in TokenService.decode_token_str: {:?}",
+        //     token_str
+        // );
 
         let data = decode::<TokenClaims>(&token_str, &self.config.decoding_key, &self.config.algo)?;
 
-        debug!(
-            "TokenClaims in TokenService.decode_token_str: {:?}",
-            data.claims
-        );
+        // debug!(
+        //     "TokenClaims in TokenService.decode_token_str: {:?}",
+        //     data.claims
+        // );
 
         Ok(data.claims)
     }

@@ -4,7 +4,6 @@ use uuid::Uuid;
 
 use crate::{
     cache::{
-        entities::auth::AuthCache,
         manager::CacheManager,
         traits::CacheExecutor,
     },
@@ -105,12 +104,10 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
                 .iter()
                 .any(|r| Uuid::from(r.id) == role_id)
             {
-                let keyed = AuthCache::new_keyed(
-                    membership.id.into(),
-                    membership.membership.account_id,
-                    None,
-                );
-                self.cm.auth.invalidate(&keyed).await?;
+                self.cm
+                    .invalidation
+                    .invalidate(membership.id.into(), membership.membership.account_id, None)
+                    .await?;
             }
         }
         Ok(())

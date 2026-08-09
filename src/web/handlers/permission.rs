@@ -1,19 +1,13 @@
-use axum::{
-    extract::Extension,
-    routing::post,
-    Json, Router,
-};
+use axum::{Json, Router, extract::Extension, routing::post};
 use tracing::info;
 
 use crate::{
     app::App,
     core::{
         ctx::CoreCtx,
-        models::{
-            permission::{
-                PermissionCreateParams, PermissionDeleteParams, PermissionDescribeParams,
-                PermissionListParams, PermissionUpdateParams,
-            },
+        models::permission::{
+            PermissionCreateParams, PermissionDeleteParams, PermissionDescribeParams,
+            PermissionListParams, PermissionUpdateParams,
         },
         traits::service::{
             CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
@@ -44,7 +38,7 @@ pub async fn describe_permission(
     let perm = svc.describe(&mut ctx, params).await?;
     let res: PermissionDescribeRes = perm.into();
 
-    info!("describe_permission - CTX: {ctx:#?}");
+    // info!("describe_permission - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -89,7 +83,7 @@ pub async fn create_permission(
     let perm = svc.create(&mut ctx, params).await?;
     let res: PermissionDescribeRes = perm.into();
 
-    info!("create_permission - CTX: {ctx:#?}");
+    // info!("create_permission - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -107,7 +101,7 @@ pub async fn update_permission(
     let perm = svc.update(&mut ctx, params).await?;
     let res: PermissionDescribeRes = perm.into();
 
-    info!("update_permission - CTX: {ctx:#?}");
+    // info!("update_permission - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -126,7 +120,7 @@ pub async fn delete_permission(
 
     let res = PermissionDeleteRes { id: perm.id };
 
-    info!("delete_permission - CTX: {ctx:#?}");
+    // info!("delete_permission - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 

@@ -7,7 +7,6 @@ use uuid::Uuid;
 
 use crate::{
     cache::{
-        entities::auth::AuthCache,
         manager::CacheManager,
         traits::CacheExecutor,
     },
@@ -119,12 +118,10 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
                 .iter()
                 .any(|r| affected_role_ids.contains(&Uuid::from(r.id)))
             {
-                let keyed = AuthCache::new_keyed(
-                    membership.id.into(),
-                    membership.membership.account_id,
-                    None,
-                );
-                self.cm.auth.invalidate(&keyed).await?;
+                self.cm
+                    .invalidation
+                    .invalidate(membership.id.into(), membership.membership.account_id, None)
+                    .await?;
             }
         }
         Ok(())

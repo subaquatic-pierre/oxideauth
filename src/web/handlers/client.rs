@@ -1,8 +1,4 @@
-use axum::{
-    extract::Extension,
-    routing::post,
-    Json, Router,
-};
+use axum::{Json, Router, extract::Extension, routing::post};
 use tracing::info;
 
 use crate::{
@@ -46,7 +42,7 @@ pub async fn create_client(
     // TODO: need to return secret somehow - for now, model doesn't expose it
     let res = ClientCreateRes::from(client);
 
-    info!("create_client - CTX: {ctx:#?}");
+    // info!("create_client - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -74,7 +70,7 @@ pub async fn list_clients(
         metadata: list_res.metadata,
     };
 
-    info!("list_clients - CTX: {ctx:#?}");
+    // info!("list_clients - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -115,7 +111,7 @@ pub async fn describe_client(
     let client = svc.describe(&mut ctx, params).await?;
     let res: ClientDescribeRes = client.into();
 
-    info!("describe_client - CTX: {ctx:#?}");
+    // info!("describe_client - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -133,7 +129,7 @@ pub async fn update_client(
     let client = svc.update(&mut ctx, params).await?;
     let res: ClientDescribeRes = client.into();
 
-    info!("update_client - CTX: {ctx:#?}");
+    // info!("update_client - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -152,7 +148,7 @@ pub async fn delete_client(
 
     let res = ClientDeleteRes { id: client.id };
 
-    info!("delete_client - CTX: {ctx:#?}");
+    // info!("delete_client - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -175,7 +171,7 @@ pub async fn regenerate_secret_client(
         secret: client_secret.plaintext_secret,
     };
 
-    info!("regenerate_secret_client - CTX: {ctx:#?}");
+    // info!("regenerate_secret_client - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 

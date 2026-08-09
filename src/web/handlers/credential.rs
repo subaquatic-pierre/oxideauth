@@ -1,19 +1,13 @@
-use axum::{
-    extract::Extension,
-    routing::post,
-    Json, Router,
-};
+use axum::{Json, Router, extract::Extension, routing::post};
 use tracing::info;
 
 use crate::{
     app::App,
     core::{
         ctx::CoreCtx,
-        models::{
-            credential::{
-                CredentialDeleteParams, CredentialDescribeParams, CredentialListParams,
-                CredentialUpdateParams,
-            },
+        models::credential::{
+            CredentialDeleteParams, CredentialDescribeParams, CredentialListParams,
+            CredentialUpdateParams,
         },
         traits::service::{
             CoreModelDeleteService, CoreModelDescribeService, CoreModelListService,
@@ -89,7 +83,7 @@ pub async fn update_credential(
     let c = svc.update(&mut ctx, params).await?;
     let res: CredentialDescribeRes = c.into();
 
-    info!("update_credential - CTX: {ctx:#?}");
+    // info!("update_credential - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -108,7 +102,7 @@ pub async fn delete_credential(
 
     let res = CredentialDeleteRes { id: c.id };
 
-    info!("delete_credential - CTX: {ctx:#?}");
+    // info!("delete_credential - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 

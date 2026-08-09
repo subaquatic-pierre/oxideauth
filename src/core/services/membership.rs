@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     cache::{
-        entities::auth::AuthCache, manager::CacheManager, stores::membership::MembershipCacheStore,
+        manager::CacheManager, stores::membership::MembershipCacheStore,
         traits::CacheExecutor,
     },
     core::{
@@ -396,8 +396,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for MembershipSe
 
         // Invalidate the auth cache for the mutated membership so the next
         // request re-hydrates status/scope/version changes from the database.
-        let keyed = AuthCache::new_keyed(res.id.into(), res.account_id, None);
-        self.cm.auth.invalidate(&keyed).await?;
+        self.cm
+            .invalidation
+            .invalidate(res.id.into(), res.account_id, None)
+            .await?;
 
         // TODO(T032): Push notification trigger — notify all workspace clients
         // that a membership changed. Requires wiring a `ClientService`
@@ -449,8 +451,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for MembershipSe
 
         // Invalidate the auth cache for the deleted membership so no stale
         // cached auth data survives the deletion.
-        let keyed = AuthCache::new_keyed(to_delete.id, to_delete.account.id, None);
-        self.cm.auth.invalidate(&keyed).await?;
+        self.cm
+            .invalidation
+            .invalidate(to_delete.id, to_delete.account.id, None)
+            .await?;
 
         // TODO(T032): Push notification trigger — notify all workspace clients
         // that a membership was deleted. Requires wiring a `ClientService`

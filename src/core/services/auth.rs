@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -7,7 +7,11 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::{
-    cache::{entities::auth::AuthCache, manager::CacheManager, traits::CacheExecutor},
+    cache::{
+        entities::oauth_state::{OAuthProvider, OAuthStateCache},
+        manager::CacheManager,
+        traits::CacheExecutor,
+    },
     config::Config,
     core::{
         ctx::CoreCtx,
@@ -43,16 +47,6 @@ use crate::{
         time::now_utc,
     },
 };
-
-/// OAuth state persisted in Redis while a Google OAuth handshake is in flight.
-///
-/// Keyed by `oauth:state:{csrf_token}`, it lets the callback handler validate
-/// the `state` parameter (CSRF protection) and recover the client redirect URL.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GoogleOAuthStateCache {
-    pub redirect_url: String,
-    pub created_at: i64,
-}
 
 /// Return value for `AuthService::register()` and `AuthService::login()`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,7 +135,6 @@ where
             TokenType::Auth,
             mem_ver,
             acc_ver,
-            0, // sid_ver
             Some(sid),
             Some(Uuid::new_v4()),
         );
@@ -154,7 +147,6 @@ where
             TokenType::Refresh,
             mem_ver,
             acc_ver,
-            0, // sid_ver
             Some(sid),
             Some(Uuid::new_v4()),
         );
@@ -246,14 +238,6 @@ where
 
         // --- Issue token pair (access + refresh) ---
         let sid = Uuid::new_v4();
-        let chx = self.cm.executor();
-        chx.set_string(
-            &format!("oxauth:sv:{}", sid),
-            "0",
-            Some(self.config.refresh_token_max_age),
-        )
-        .await?;
-
         let tp = self.issue_token_pair(
             account.id,
             Uuid::nil(), // workspace set up separately after registration
@@ -394,14 +378,6 @@ where
 
         // --- Issue token pair (access + refresh) ---
         let sid = Uuid::new_v4();
-        let chx = self.cm.executor();
-        chx.set_string(
-            &format!("oxauth:sv:{}", sid),
-            "0",
-            Some(self.config.refresh_token_max_age),
-        )
-        .await?;
-
         let tp = self.issue_token_pair(
             account.id,
             credential.workspace_id.into(), // workspace, set up separately
@@ -440,13 +416,9 @@ where
         // fails signature validation or is already expired cannot be revoked.
         let claims = self.token_svc.decode_token_str(raw_token)?;
 
-        let sid = claims
-            .sid()
-            .ok_or_else(|| CoreError::Auth("invalid token".to_string()))?;
-        let mem_id = Uuid::from_str(claims.mem())
-            .map_err(|_| CoreError::Auth("invalid token".to_string()))?;
-        let acc_id = Uuid::from_str(claims.sub())
-            .map_err(|_| CoreError::Auth("invalid token".to_string()))?;
+        let sid = claims.require_sid()?;
+        let mem_id = claims.mem_id()?;
+        let acc_id = claims.acc_id()?;
 
         // Authorization: only the token owner may revoke their own token.
         // TODO: workspace admin (admin permission on the token's workspace) and
@@ -457,15 +429,11 @@ where
             ));
         }
 
-        // Invalidate the session: bump the session version so any outstanding
-        // access/refresh token for this session fails the sid_ver check.
-        let chx = self.cm.executor();
-        let sv_key = format!("oxauth:sv:{}", sid);
-        chx.incr(&sv_key).await?;
-
         // Purge the cached auth data for the membership + account.
-        let keyed = AuthCache::new_keyed(mem_id, acc_id, Some(sid));
-        self.cm.auth.invalidate(&keyed).await?;
+        self.cm
+            .invalidation
+            .invalidate(mem_id, acc_id, Some(sid))
+            .await?;
 
         // TODO(T033): Push notification trigger — notify the workspace's clients
         // that a token was revoked. Requires wiring a `ClientService` dependency
@@ -497,55 +465,37 @@ where
     pub async fn refresh_token(&self, raw_token: &str) -> CoreResult<TokenPair> {
         // Decode the refresh token.
         let claims = self.token_svc.decode_token_str(raw_token)?;
-        if claims.token_type() != TokenType::Refresh {
-            return Err(CoreError::Auth("invalid token type".to_string()));
+        let validated = claims.validate_refresh()?;
+        let sid = validated.sid;
+        let jti = validated.jti;
+        let acc_id = validated.account_id;
+        let ws_id = validated.workspace_id;
+        let mem_id = validated.membership_id;
+
+        // --- Replay check + consume (single-use) ---
+        let remaining_ttl = claims
+            .exp
+            .saturating_sub(now_utc().unix_timestamp() as usize);
+        if remaining_ttl == 0 {
+            return Err(CoreError::Auth("token expired".to_string()));
         }
-
-        let sid = claims
-            .sid()
-            .ok_or_else(|| CoreError::Auth("invalid refresh token".to_string()))?;
-        let jti = claims
-            .jti()
-            .ok_or_else(|| CoreError::Auth("invalid refresh token".to_string()))?;
-
-        let mem_id = Uuid::from_str(claims.mem())
-            .map_err(|_| CoreError::Auth("invalid token".to_string()))?;
-        let acc_id = Uuid::from_str(claims.sub())
-            .map_err(|_| CoreError::Auth("invalid token".to_string()))?;
-        let ws_id = Uuid::from_str(claims.ws())
-            .map_err(|_| CoreError::Auth("invalid token".to_string()))?;
-
-        let chx = self.cm.executor();
-        let consumed_key = format!("oxauth:crt:{}", jti);
-
-        // --- Replay check ---
-        if let Some(_consumed_sid) = chx.get::<String>(&consumed_key, None).await? {
+        if self
+            .cm
+            .replay
+            .check_and_consume(jti, sid, remaining_ttl as u64)
+            .await?
+        {
             // REPLAY DETECTED: the refresh token was already used. Compromise
             // the whole session so neither the old nor the (stolen) new tokens
             // remain valid.
-            let sv_key = format!("oxauth:sv:{}", sid);
-            chx.incr(&sv_key).await?;
-
-            let keyed = AuthCache::new_keyed(mem_id, acc_id, Some(sid));
-            self.cm.auth.invalidate(&keyed).await?;
+            self.cm
+                .invalidation
+                .invalidate(mem_id, acc_id, Some(sid))
+                .await?;
 
             return Err(CoreError::Auth(
                 "session compromised, please re-authenticate".to_string(),
             ));
-        }
-
-        // --- Consume this refresh token (single-use) ---
-        let remaining_ttl = claims
-            .exp
-            .saturating_sub(now_utc().unix_timestamp() as usize);
-        if remaining_ttl > 0 {
-            chx.set(
-                &consumed_key,
-                None,
-                &sid.to_string(),
-                Some(remaining_ttl as u64),
-            )
-            .await?;
         }
 
         // --- Issue the next token pair (same session, new jtis) ---
@@ -559,7 +509,6 @@ where
             TokenType::Auth,
             claims.mem_ver,
             claims.acc_ver,
-            claims.sid_ver,
             Some(sid),
             Some(Uuid::new_v4()),
         );
@@ -572,7 +521,6 @@ where
             TokenType::Refresh,
             claims.mem_ver,
             claims.acc_ver,
-            claims.sid_ver,
             Some(sid),
             Some(Uuid::new_v4()),
         );
@@ -617,7 +565,6 @@ where
             TokenType::PasswordReset,
             0, // mem_ver
             0, // acc_ver
-            0, // sid_ver
             None,
             Some(Uuid::new_v4()),
         );
@@ -653,16 +600,7 @@ where
 
         // Decode and validate the token.
         let claims = self.token_svc.decode_token_str(token)?;
-        if claims.token_type() != TokenType::PasswordReset {
-            return Err(CoreError::Auth("invalid token type".to_string()));
-        }
-        if claims.is_expired() {
-            return Err(CoreError::Auth("token expired".to_string()));
-        }
-
-        // Extract account id from the token subject.
-        let account_id = Uuid::from_str(claims.sub())
-            .map_err(|_| CoreError::InvalidParams("invalid token".to_string()))?;
+        let account_id = claims.validate_password_reset()?;
 
         let mut ctx = CoreCtx::system(global_ws_id())?;
         ctx.extend_perms(&["account:describe", "credential:list", "credential:update"])?;
@@ -725,16 +663,7 @@ where
     pub async fn confirm_account(&self, token: &str) -> CoreResult<AccountConfirmation> {
         // Decode and validate the token.
         let claims = self.token_svc.decode_token_str(token)?;
-        if claims.token_type() != TokenType::AccountConfirm {
-            return Err(CoreError::Auth("invalid token type".to_string()));
-        }
-        if claims.is_expired() {
-            return Err(CoreError::Auth("token expired".to_string()));
-        }
-
-        // Extract account id from the token subject.
-        let account_id = Uuid::from_str(claims.sub())
-            .map_err(|_| CoreError::InvalidParams("invalid token".to_string()))?;
+        let account_id = claims.validate_account_confirm()?;
 
         let mut ctx = CoreCtx::system(global_ws_id())?;
         ctx.extend_perms(&["account:describe", "account:update"])?;
@@ -810,7 +739,6 @@ where
             TokenType::AccountConfirm,
             0, // mem_ver
             0, // acc_ver
-            0, // sid_ver
             None,
             Some(Uuid::new_v4()),
         );
@@ -853,13 +781,13 @@ where
         let csrf_token = Uuid::new_v4().to_string();
 
         // Persist the OAuth state in Redis (10 minute TTL).
-        let state = GoogleOAuthStateCache {
+        let oauth_entity = OAuthStateCache {
+            csrf_token: csrf_token.clone(),
             redirect_url: redirect_url.to_string(),
             created_at: now_utc().unix_timestamp(),
+            provider: OAuthProvider::Google,
         };
-        let chx = self.cm.executor();
-        let cache_key = format!("oauth:state:{}", csrf_token);
-        chx.set(&cache_key, None, &state, Some(600)).await?;
+        self.cm.oauth_state.write(&oauth_entity, 600).await?;
 
         // Build the Google authorization URL.
         let auth_url = format!(
@@ -884,15 +812,12 @@ where
         state: &str,
     ) -> CoreResult<OAuthCallbackResult> {
         // 1. Validate the CSRF state persisted during initiation.
-        let chx = self.cm.executor();
-        let cache_key = format!("oauth:state:{}", state);
-        let oauth_state = chx
-            .get::<GoogleOAuthStateCache>(&cache_key, None)
-            .await?
-            .ok_or_else(|| CoreError::Auth("invalid oauth state".to_string()))?;
-
-        // The state is single-use: consume it after validation.
-        chx.del::<serde_json::Value>(&cache_key, None).await?;
+        let oauth_entity = self
+            .cm
+            .oauth_state
+            .fetch_and_consume(state)
+            .await
+            .map_err(|_| CoreError::Auth("invalid oauth state".to_string()))?;
 
         // 2. Exchange the authorization code for tokens.
         let token_response = request_google_token(code, &self.config).await?;
@@ -966,14 +891,6 @@ where
             .token_version as u64;
 
         let sid = Uuid::new_v4();
-        let chx = self.cm.executor();
-        chx.set_string(
-            &format!("oxauth:sv:{}", sid),
-            "0",
-            Some(self.config.refresh_token_max_age),
-        )
-        .await?;
-
         let tp = self.issue_token_pair(
             account.id,
             Uuid::nil(), // workspace, set up separately after sign-in
@@ -994,7 +911,7 @@ where
             account,
             access_token: tp.access_token,
             refresh_token: tp.refresh_token,
-            redirect_url: oauth_state.redirect_url,
+            redirect_url: oauth_entity.redirect_url,
         })
     }
 }
@@ -1019,7 +936,7 @@ impl<'a> AuthValidator<'a> {
     }
 
     pub fn validate_ctx_perms<'b>(&self, required: &[&str]) -> CoreResult<()> {
-        info!("CTX in validate_ctx_perms: {:#?}", self.ctx);
+        // info!("CTX in validate_ctx_perms: {:#?}", self.ctx);
         let required = PermissionCheck::perms_from_str_slice(required)?;
         let granted = self.ctx.permission_checker();
 

@@ -1,19 +1,13 @@
-use axum::{
-    extract::Extension,
-    routing::post,
-    Json, Router,
-};
+use axum::{Json, Router, extract::Extension, routing::post};
 use tracing::info;
 
 use crate::{
     app::App,
     core::{
         ctx::CoreCtx,
-        models::{
-            membership::{
-                MembershipCreateParams, MembershipDeleteParams, MembershipDescribeParams,
-                MembershipListParams, MembershipUpdateParams,
-            },
+        models::membership::{
+            MembershipCreateParams, MembershipDeleteParams, MembershipDescribeParams,
+            MembershipListParams, MembershipUpdateParams,
         },
         traits::service::{
             CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
@@ -44,7 +38,7 @@ pub async fn describe_membership(
     let m = svc.describe(&mut ctx, params).await?;
     let res: MembershipDescribeRes = m.into();
 
-    info!("describe_membership - CTX: {ctx:#?}");
+    // info!("describe_membership - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -89,7 +83,7 @@ pub async fn create_membership(
     let m = svc.create(&mut ctx, params).await?;
     let res: MembershipDescribeRes = m.into();
 
-    info!("create_membership - CTX: {ctx:#?}");
+    // info!("create_membership - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -107,7 +101,7 @@ pub async fn update_membership(
     let m = svc.update(&mut ctx, params).await?;
     let res: MembershipDescribeRes = m.into();
 
-    info!("update_membership - CTX: {ctx:#?}");
+    // info!("update_membership - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -126,7 +120,7 @@ pub async fn delete_membership(
 
     let res = MembershipDeleteRes { id: m.id };
 
-    info!("delete_membership - CTX: {ctx:#?}");
+    // info!("delete_membership - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 

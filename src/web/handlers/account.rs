@@ -1,8 +1,8 @@
 use axum::{
-    extract::{rejection::JsonRejection, Extension, State},
+    Json, Router,
+    extract::{Extension, State, rejection::JsonRejection},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -92,7 +92,7 @@ pub async fn create_account(
 
     let acc_res = acc.into();
 
-    info!("create_account - CTX: {ctx:#?}");
+    // info!("create_account - CTX: {ctx:#?}");
 
     WebResponse::json(acc_res)
 }
@@ -112,7 +112,7 @@ pub async fn delete_account(
 
     let res = AccountDeleteRes { id: acc.id };
 
-    info!("delete_account - CTX: {ctx:#?}");
+    // info!("delete_account - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 
@@ -131,7 +131,7 @@ pub async fn update_account(
 
     let acc_res: AccountDescribeRes = acc.into();
 
-    info!("update_account - CTX: {ctx:#?}");
+    // info!("update_account - CTX: {ctx:#?}");
     WebResponse::json(acc_res)
 }
 

@@ -1,8 +1,8 @@
 use axum::{
-    extract::{rejection::JsonRejection, Extension, State},
+    Json, Router,
+    extract::{Extension, State, rejection::JsonRejection},
     response::IntoResponse,
     routing::{delete, get, patch, post},
-    Json, Router,
 };
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -52,7 +52,7 @@ pub async fn describe_workspace(
 
     let ws_res: WorkspaceDescribeRes = ws.into();
 
-    info!("describe_workspace - CTX: {ctx:#?}");
+    // info!("describe_workspace - CTX: {ctx:#?}");
     WebResponse::json(ws_res)
 }
 
@@ -100,7 +100,7 @@ pub async fn create_workspace(
 
     let ws_res: WorkspaceDescribeRes = ws.into();
 
-    info!("create_workspace - CTX: {ctx:#?}");
+    // info!("create_workspace - CTX: {ctx:#?}");
     WebResponse::json(ws_res)
 }
 
@@ -120,7 +120,7 @@ pub async fn update_workspace(
 
     let ws_res: WorkspaceDescribeRes = ws.into();
 
-    info!("update_workspace - CTX: {ctx:#?}");
+    // info!("update_workspace - CTX: {ctx:#?}");
     WebResponse::json(ws_res)
 }
 
@@ -142,7 +142,7 @@ pub async fn delete_workspace(
     // Convert the deleted Workspace entity into the response DTO
     let res: WorkspaceDeleteRes = ws.into();
 
-    info!("delete_workspace - CTX: {ctx:#?}");
+    // info!("delete_workspace - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 

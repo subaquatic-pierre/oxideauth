@@ -1,19 +1,13 @@
-use axum::{
-    extract::Extension,
-    routing::post,
-    Json, Router,
-};
+use axum::{Json, Router, extract::Extension, routing::post};
 use tracing::info;
 
 use crate::{
     app::App,
     core::{
         ctx::CoreCtx,
-        models::{
-            project::{
-                Project, ProjectCreateParams, ProjectDeleteParams, ProjectDescribeParams,
-                ProjectListParams, ProjectUpdateParams,
-            },
+        models::project::{
+            Project, ProjectCreateParams, ProjectDeleteParams, ProjectDescribeParams,
+            ProjectListParams, ProjectUpdateParams,
         },
         traits::service::{
             CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
@@ -46,7 +40,7 @@ pub async fn describe_project(
 
     let project_res: ProjectDescribeRes = project.into();
 
-    info!("describe_project - CTX: {ctx:#?}");
+    // info!("describe_project - CTX: {ctx:#?}");
     WebResponse::json(project_res)
 }
 
@@ -90,7 +84,7 @@ pub async fn create_project(
 
     let project_res: ProjectDescribeRes = project.into();
 
-    info!("create_project - CTX: {ctx:#?}");
+    // info!("create_project - CTX: {ctx:#?}");
     WebResponse::json(project_res)
 }
 
@@ -110,7 +104,7 @@ pub async fn update_project(
 
     let project_res: ProjectDescribeRes = project.into();
 
-    info!("update_project - CTX: {ctx:#?}");
+    // info!("update_project - CTX: {ctx:#?}");
     WebResponse::json(project_res)
 }
 
@@ -130,7 +124,7 @@ pub async fn delete_project(
 
     let res: ProjectDeleteRes = project.into();
 
-    info!("delete_project - CTX: {ctx:#?}");
+    // info!("delete_project - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 

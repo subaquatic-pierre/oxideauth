@@ -21,7 +21,6 @@ pub struct TokenClaims {
     ty: TokenType,
     pub mem_ver: u64,      // Membership token version
     pub acc_ver: u64,      // Account token version
-    pub sid_ver: u64,      // Session version (default 0)
     pub sid: Option<Uuid>, // Session ID (None for single-use tokens)
     pub jti: Option<Uuid>, // JWT ID — unique per token
 }
@@ -43,7 +42,6 @@ impl TokenClaims {
         ty: TokenType,
         mem_ver: u64,
         acc_ver: u64,
-        sid_ver: u64,
         sid: Option<Uuid>,
         jti: Option<Uuid>,
     ) -> Self {
@@ -58,7 +56,6 @@ impl TokenClaims {
             ty,
             mem_ver,
             acc_ver,
-            sid_ver,
             sid,
             jti,
         }
@@ -111,4 +108,71 @@ impl TokenClaims {
     pub fn jti(&self) -> Option<Uuid> {
         self.jti
     }
+
+    /// Validates that the token is of the expected type.
+    pub fn validate_type(&self, expected: TokenType) -> CoreResult<&Self> {
+        if self.ty != expected {
+            return Err(CoreError::Auth("invalid token type".to_string()));
+        }
+        Ok(self)
+    }
+
+    /// Validates that the token has not expired.
+    pub fn validate_not_expired(&self) -> CoreResult<&Self> {
+        if self.is_expired() {
+            return Err(CoreError::Auth("token expired".to_string()));
+        }
+        Ok(self)
+    }
+
+    /// Returns the session id, erroring when the token has none.
+    pub fn require_sid(&self) -> CoreResult<Uuid> {
+        self.sid.ok_or_else(|| CoreError::Auth("invalid token".to_string()))
+    }
+
+    /// Returns the unique JWT id, erroring when the token has none.
+    pub fn require_jti(&self) -> CoreResult<Uuid> {
+        self.jti.ok_or_else(|| CoreError::Auth("invalid token".to_string()))
+    }
+
+    /// Validates a refresh token and returns the claims needed to issue a new session.
+    pub fn validate_refresh(&self) -> CoreResult<RefreshClaims> {
+        self.validate_type(TokenType::Refresh)?;
+        let sid = self.require_sid()?;
+        let jti = self.require_jti()?;
+        let account_id = self.acc_id()?;
+        let workspace_id = self.ws_id()?;
+        let membership_id = self.mem_id()?;
+        Ok(RefreshClaims {
+            account_id,
+            workspace_id,
+            membership_id,
+            sid,
+            jti,
+        })
+    }
+
+    /// Validates an account-confirmation token and returns the account id.
+    pub fn validate_account_confirm(&self) -> CoreResult<Uuid> {
+        self.validate_type(TokenType::AccountConfirm)?;
+        self.validate_not_expired()?;
+        self.acc_id()
+    }
+
+    /// Validates a password-reset token and returns the account id.
+    pub fn validate_password_reset(&self) -> CoreResult<Uuid> {
+        self.validate_type(TokenType::PasswordReset)?;
+        self.validate_not_expired()?;
+        self.acc_id()
+    }
+}
+
+/// Claims extracted from a validated refresh token.
+#[derive(Debug, Clone)]
+pub struct RefreshClaims {
+    pub account_id: Uuid,
+    pub workspace_id: Uuid,
+    pub membership_id: Uuid,
+    pub sid: Uuid,
+    pub jti: Uuid,
 }
