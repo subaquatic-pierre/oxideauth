@@ -278,7 +278,15 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for PermissionServ
             return Ok(ListResponse::new(perms, total, options));
         }
 
-        Ok(ListResponse::default())
+        // no filter provided, list all
+        let data = store
+            .list(&store_ctx, None, Some(options.clone()))
+            .await?;
+        let total = store.count(&store_ctx, None).await?;
+
+        let perms = self.hydrate_permissions(ctx, data).await?;
+
+        Ok(ListResponse::new(perms, total, options))
     }
 }
 

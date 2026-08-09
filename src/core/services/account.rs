@@ -218,8 +218,11 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for AccountService
             return Ok(ListResponse::new(accounts, total, options));
         }
 
-        // empty result
-        Ok(ListResponse::default())
+        // no filter provided, list all
+        let data = store.list(&store_ctx, None, Some(options.clone())).await?;
+        let total = store.count(&store_ctx, None).await?;
+        let accounts: Vec<Account> = data.into_iter().map(|el| el.into()).collect();
+        Ok(ListResponse::new(accounts, total, options))
     }
 }
 

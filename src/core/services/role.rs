@@ -283,7 +283,15 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for RoleService<D,
             return Ok(ListResponse::new(data, total, options));
         }
 
-        Ok(ListResponse::default())
+        // no filter provided, list all
+        let data = store
+            .list_many_to_many(&store_ctx, None, Some(options.clone()))
+            .await?;
+        let total = store.count(&store_ctx, None).await?;
+
+        let data = self.hydrate_roles(ctx, data).await?;
+
+        Ok(ListResponse::new(data, total, options))
     }
 }
 

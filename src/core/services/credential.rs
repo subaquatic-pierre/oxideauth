@@ -238,8 +238,15 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for CredentialServ
             return Ok(ListResponse::new(projects, total, list_options));
         }
 
-        // empty response
-        Ok(ListResponse::default())
+        // no filter provided, list all
+        let data = store
+            .list(&store_ctx, None, Some(list_options.clone()))
+            .await?;
+        let total = store.count(&store_ctx, None).await?;
+
+        let credentials = self.hydrate_credentials(ctx, data).await?;
+
+        Ok(ListResponse::new(credentials, total, list_options))
     }
 }
 

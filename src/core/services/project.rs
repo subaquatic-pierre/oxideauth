@@ -240,8 +240,15 @@ impl<D: DbExecutor> CoreModelListService<D> for ProjectService<D> {
             return Ok(ListResponse::new(projects, total, list_options));
         }
 
-        // empty response
-        Ok(ListResponse::default())
+        // no filter provided, list all
+        let data = store
+            .list(&store_ctx, None, Some(list_options.clone()))
+            .await?;
+        let total = store.count(&store_ctx, None).await?;
+
+        let projects = self.hydrate_projects(ctx, data).await?;
+
+        Ok(ListResponse::new(projects, total, list_options))
     }
 }
 impl<D: DbExecutor> CoreModelUpdateService<D> for ProjectService<D> {
