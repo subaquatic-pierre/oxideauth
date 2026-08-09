@@ -31,7 +31,6 @@ pub struct PermissionRow {
 
     // Permission identity
     pub name: String,
-    pub code: Option<String>,
     pub description: Option<String>,
 
     pub tags: Vec<String>,
@@ -46,7 +45,6 @@ pub struct PermissionRow {
 pub struct PermissionForCreate {
     pub workspace_id: Uuid,
     pub name: String,
-    pub code: Option<String>,
     pub description: Option<String>,
     pub tags: Vec<String>,
     pub meta: PermissionMeta,
@@ -55,7 +53,6 @@ pub struct PermissionForCreate {
 #[derive(Debug, Fields, Clone)]
 pub struct PermissionForUpdate {
     pub name: Option<String>,
-    pub code: Option<String>,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<PermissionMeta>,
@@ -88,7 +85,6 @@ pub struct PermissionFilter {
     pub workspace_id: Option<OpValsString>,
     #[modql(rel = "permission")]
     pub name: Option<OpValsString>,
-    pub code: Option<OpValsString>,
     pub description: Option<OpValsString>,
 
     // Audit filters (created_by/at, updated_by/at)
@@ -120,7 +116,6 @@ impl Default for PermissionForCreate {
         Self {
             workspace_id: Uuid::new_v4(),
             name: gen_rand_str(10),
-            code: Some("default-perm".to_string()),
             description: Some("A default permission for testing.".to_string()),
             tags: vec![],
             meta: PermissionMeta {
@@ -135,7 +130,6 @@ impl Default for PermissionForUpdate {
     fn default() -> Self {
         Self {
             name: None,
-            code: None,
             description: None,
             tags: None,
             meta: None,

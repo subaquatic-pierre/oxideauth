@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::{Arc, OnceLock}};
 
 use uuid::Uuid;
 
@@ -69,7 +69,7 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
     /// Invalidates the account-level auth cache for every membership whose roles
     /// include the given permission.
     ///
-    /// Changing a permission (its code/name or its deletion) affects the cached
+    /// Changing a permission (its name or its deletion) affects the cached
     /// auth scope of every membership holding a role that grants it. Collecting
     /// distinct account IDs and invalidating per-account avoids redundant
     /// per-membership cache purge calls.
@@ -175,7 +175,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for PermissionSe
             PermissionDescribeParams {
                 id: Some(n_perm.id.into()),
                 workspace_id: n_perm.workspace_id.into(),
-                code: None,
             },
         )
         .await
@@ -206,15 +205,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for Permission
                 },
             )
             .await?;
-
-        if let Some(code) = params.code {
-            let row = store
-                .get_by_code(&store_ctx, &code, params.workspace_id.into())
-                .await?;
-            let perm = Permission::from_row_with_entities(row, ws)?;
-
-            return Ok(perm);
-        }
 
         if let Some(id) = params.id {
             let row = store.get(&store_ctx, &id.into()).await?;
@@ -290,7 +280,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for PermissionSe
             .await?;
 
         // Invalidate the auth cache for all memberships whose roles grant the
-        // updated permission — its code/name may have changed.
+        // updated permission — its name may have changed.
         self.invalidate_memberships_for_permission(&store_ctx, updated.id.into())
             .await?;
 
@@ -309,7 +299,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for PermissionSe
             PermissionDescribeParams {
                 id: Some(updated.id.into()),
                 workspace_id: updated.workspace_id,
-                code: None,
             },
         )
         .await
@@ -337,7 +326,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for PermissionSe
                 PermissionDescribeParams {
                     id: Some(params.id.into()),
                     workspace_id: params.workspace_id,
-                    code: None,
                 },
             )
             .await?;
@@ -374,12 +362,42 @@ pub struct AccountPermissions {
     pub delete: &'static str,
 }
 
+impl AccountPermissions {
+    pub fn all(&self) -> &[(&'static str, &'static str)] {
+        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
+        ALL.get_or_init(|| {
+            [
+                (self.create, "Create new accounts"),
+                (self.describe, "View account details"),
+                (self.list, "List accounts"),
+                (self.update, "Update account details"),
+                (self.delete, "Delete accounts"),
+            ]
+        })
+    }
+}
+
 pub struct WorkspacePermissions {
     pub create: &'static str,
     pub describe: &'static str,
     pub list: &'static str,
     pub update: &'static str,
     pub delete: &'static str,
+}
+
+impl WorkspacePermissions {
+    pub fn all(&self) -> &[(&'static str, &'static str)] {
+        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
+        ALL.get_or_init(|| {
+            [
+                (self.create, "Create new workspaces"),
+                (self.describe, "View workspace details"),
+                (self.list, "List workspaces"),
+                (self.update, "Update workspace settings"),
+                (self.delete, "Delete workspaces"),
+            ]
+        })
+    }
 }
 
 pub struct ProjectPermissions {
@@ -390,6 +408,21 @@ pub struct ProjectPermissions {
     pub delete: &'static str,
 }
 
+impl ProjectPermissions {
+    pub fn all(&self) -> &[(&'static str, &'static str)] {
+        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
+        ALL.get_or_init(|| {
+            [
+                (self.create, "Create new projects"),
+                (self.describe, "View project details"),
+                (self.list, "List projects"),
+                (self.update, "Update project settings"),
+                (self.delete, "Delete projects"),
+            ]
+        })
+    }
+}
+
 pub struct MembershipPermissions {
     pub create: &'static str,
     pub describe: &'static str,
@@ -398,12 +431,42 @@ pub struct MembershipPermissions {
     pub delete: &'static str,
 }
 
+impl MembershipPermissions {
+    pub fn all(&self) -> &[(&'static str, &'static str)] {
+        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
+        ALL.get_or_init(|| {
+            [
+                (self.create, "Invite members to workspace"),
+                (self.describe, "View membership details"),
+                (self.list, "List memberships"),
+                (self.update, "Update membership roles"),
+                (self.delete, "Remove members"),
+            ]
+        })
+    }
+}
+
 pub struct RolePermissions {
     pub create: &'static str,
     pub describe: &'static str,
     pub list: &'static str,
     pub update: &'static str,
     pub delete: &'static str,
+}
+
+impl RolePermissions {
+    pub fn all(&self) -> &[(&'static str, &'static str)] {
+        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
+        ALL.get_or_init(|| {
+            [
+                (self.create, "Create new roles"),
+                (self.describe, "View role details"),
+                (self.list, "List roles"),
+                (self.update, "Update role permissions"),
+                (self.delete, "Delete roles"),
+            ]
+        })
+    }
 }
 
 pub struct ClientPermissions {
@@ -416,6 +479,23 @@ pub struct ClientPermissions {
     pub regenerate_secret: &'static str,
 }
 
+impl ClientPermissions {
+    pub fn all(&self) -> &[(&'static str, &'static str)] {
+        static ALL: OnceLock<[(&'static str, &'static str); 7]> = OnceLock::new();
+        ALL.get_or_init(|| {
+            [
+                (self.create, "Register new API clients"),
+                (self.describe, "View client details"),
+                (self.list, "List clients"),
+                (self.update, "Update client configuration"),
+                (self.delete, "Delete clients"),
+                (self.validate, "Validate client credentials"),
+                (self.regenerate_secret, "Regenerate client secret"),
+            ]
+        })
+    }
+}
+
 pub struct CredentialPermissions {
     pub create: &'static str,
     pub describe: &'static str,
@@ -424,12 +504,42 @@ pub struct CredentialPermissions {
     pub delete: &'static str,
 }
 
+impl CredentialPermissions {
+    pub fn all(&self) -> &[(&'static str, &'static str)] {
+        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
+        ALL.get_or_init(|| {
+            [
+                (self.create, "Create new credentials"),
+                (self.describe, "View credential details"),
+                (self.list, "List credentials"),
+                (self.update, "Update credentials"),
+                (self.delete, "Delete credentials"),
+            ]
+        })
+    }
+}
+
 pub struct PermissionPermissions {
     pub create: &'static str,
     pub describe: &'static str,
     pub list: &'static str,
     pub update: &'static str,
     pub delete: &'static str,
+}
+
+impl PermissionPermissions {
+    pub fn all(&self) -> &[(&'static str, &'static str)] {
+        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
+        ALL.get_or_init(|| {
+            [
+                (self.create, "Create new permissions"),
+                (self.describe, "View permission details"),
+                (self.list, "List permissions"),
+                (self.update, "Update permissions"),
+                (self.delete, "Delete permissions"),
+            ]
+        })
+    }
 }
 
 // ============================================================================
@@ -445,6 +555,22 @@ pub struct CanonicalPermissions {
     pub client: ClientPermissions,
     pub credential: CredentialPermissions,
     pub permission: PermissionPermissions,
+}
+
+impl CanonicalPermissions {
+    /// Returns all canonical permissions as (name, description) tuples across all domains.
+    pub fn all_codes(&self) -> Vec<(&'static str, &'static str)> {
+        let mut v = Vec::new();
+        v.extend_from_slice(self.account.all());
+        v.extend_from_slice(self.workspace.all());
+        v.extend_from_slice(self.project.all());
+        v.extend_from_slice(self.membership.all());
+        v.extend_from_slice(self.role.all());
+        v.extend_from_slice(self.client.all());
+        v.extend_from_slice(self.credential.all());
+        v.extend_from_slice(self.permission.all());
+        v
+    }
 }
 
 pub const CANONICAL_PERMISSIONS: CanonicalPermissions = CanonicalPermissions {

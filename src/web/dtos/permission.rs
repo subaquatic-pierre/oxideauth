@@ -16,7 +16,6 @@ use crate::core::traits::params::IntoParams;
 #[derive(Deserialize)]
 pub struct PermissionDescribeReq {
     pub id: Option<Uuid>,
-    pub code: Option<String>,
 }
 
 impl IntoParams<PermissionDescribeParams> for PermissionDescribeReq {
@@ -24,7 +23,6 @@ impl IntoParams<PermissionDescribeParams> for PermissionDescribeReq {
         Ok(PermissionDescribeParams {
             id: self.id,
             workspace_id,
-            code: self.code,
         })
     }
 }
@@ -34,7 +32,6 @@ impl IntoParams<PermissionDescribeParams> for PermissionDescribeReq {
 pub struct PermissionDescribeRes {
     pub id: Uuid,
     pub name: String,
-    pub code: Option<String>,
     pub description: Option<String>,
     pub tags: Vec<String>,
     pub meta: PermissionMeta,
@@ -49,7 +46,6 @@ impl From<Permission> for PermissionDescribeRes {
         Self {
             id: perm.id,
             name: perm.name,
-            code: perm.code,
             description: perm.description,
             tags: perm.tags,
             meta: perm.meta,
@@ -63,7 +59,6 @@ impl From<Permission> for PermissionDescribeRes {
 #[derive(Deserialize)]
 pub struct PermissionCreateReq {
     pub name: String,
-    pub code: Option<String>,
     pub description: Option<String>,
     pub tags: Vec<String>,
     pub meta: PermissionMeta,
@@ -74,7 +69,6 @@ impl IntoParams<PermissionCreateParams> for PermissionCreateReq {
         Ok(PermissionCreateParams {
             workspace_id,
             name: self.name,
-            code: self.code,
             description: self.description,
             tags: self.tags,
             meta: self.meta,
@@ -87,7 +81,6 @@ impl IntoParams<PermissionCreateParams> for PermissionCreateReq {
 pub struct PermissionUpdateReq {
     pub id: Uuid,
     pub name: Option<String>,
-    pub code: Option<String>,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<PermissionMeta>,
@@ -99,7 +92,6 @@ impl IntoParams<PermissionUpdateParams> for PermissionUpdateReq {
             id: self.id,
             workspace_id,
             name: self.name,
-            code: self.code,
             description: self.description,
             tags: self.tags,
             meta: self.meta,

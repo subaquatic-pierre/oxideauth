@@ -220,10 +220,8 @@ pub async fn list<E: DbExecutor, T: StoreRow, F: Into<FilterGroups>, I: TableIde
         // The context clause acts as a secure, enforced prefix to the user-provided filter,
         // ensuring the security boundary is never breached. The clauses are **ANDed**, not overridden.
 
-        let enforced_condition =
-            Condition::all().add(Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id));
-
-        query.cond_where(enforced_condition);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        query.and_where(workspace_id_expr);
     }
 
     // SCENARIO 2 & 3: CONTEXT IS GLOBAL (Admin/Global Token)

@@ -30,6 +30,7 @@ use crate::{
         entities::{
             account::{AccountFilter, AccountForCreate, AccountMeta},
             id::DbId,
+            permission::{PermissionForCreate, PermissionMeta},
             workspace::{
                 WorkspaceConfig as StoreWorkspaceConfig, WorkspaceFilter, WorkspaceForCreate,
                 WorkspaceForUpdate,
@@ -79,6 +80,51 @@ impl<D: DbExecutor> WorkspaceService<D> {
         };
 
         Ok(id.into())
+    }
+
+    /// Seeds all canonical permissions into a workspace (idempotent).
+    ///
+    /// Inserts every permission from `CANONICAL_PERMISSIONS.all_codes()` into the
+    /// given workspace. If a permission already exists (unique constraint on
+    /// name + workspace_id), it is skipped silently.
+    async fn seed_canonical_permissions(
+        &self,
+        store_ctx: &StoreCtx,
+        workspace_id: Uuid,
+    ) -> CoreResult<()> {
+        let permission_store = &self.sm.permission;
+
+        for (name, description) in CANONICAL_PERMISSIONS.all_codes() {
+            match permission_store
+                .create(
+                    store_ctx,
+                    PermissionForCreate {
+                        workspace_id,
+                        name: name.to_string(),
+                        description: Some(description.to_string()),
+                        tags: vec!["system".to_string(), "canonical".to_string()],
+                        meta: PermissionMeta::default(),
+                    },
+                )
+                .await
+            {
+                Ok(_) => {
+                    tracing::debug!(name = name, workspace_id = %workspace_id, "Seeded canonical permission");
+                }
+                Err(e) => {
+                    // If it's a unique constraint violation, skip (already exists).
+                    // Otherwise propagate the error.
+                    if e.to_string().contains("duplicate key") || e.to_string().contains("unique") {
+                        tracing::debug!(name = name, "Canonical permission already exists, skipping");
+                        continue;
+                    }
+                    return Err(e.into());
+                }
+            }
+        }
+
+        tracing::info!(workspace_id = %workspace_id, "Canonical permissions seeded");
+        Ok(())
     }
 }
 
@@ -146,6 +192,11 @@ impl<D: DbExecutor> CoreModelCreateService<D> for WorkspaceService<D> {
         // 3. Execute store creation
         let new_workspace = store.create(&store_ctx, n_ws).await?;
 
+        // 4. Seed canonical permissions into the new workspace
+        let workspace_id: Uuid = new_workspace.id.into();
+        self.seed_canonical_permissions(&store_ctx, workspace_id)
+            .await?;
+
         Ok(new_workspace.into())
     }
 }
@@ -206,7 +257,12 @@ impl<D: DbExecutor> CoreModelListService<D> for WorkspaceService<D> {
         let filter = tags_filter.filter();
 
         let data = store
-            .list_with_tags_and_filter(&store_ctx, tags.clone(), filter.clone(), Some(options.clone()))
+            .list_with_tags_and_filter(
+                &store_ctx,
+                tags.clone(),
+                filter.clone(),
+                Some(options.clone()),
+            )
             .await?;
         let total = store
             .count_with_tags_and_filter(&store_ctx, tags, filter)

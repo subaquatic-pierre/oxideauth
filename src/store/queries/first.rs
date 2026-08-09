@@ -59,10 +59,8 @@ pub async fn first_opt<E: DbExecutor, T: StoreRow, F: Into<FilterGroups>, I: Tab
     query.from(meta.table).column(Asterisk);
 
     if let Some(ws_id) = ctx.workspace_scope() {
-        let enforced_condition =
-            Condition::all().add(Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id));
-
-        query.cond_where(enforced_condition);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        query.and_where(workspace_id_expr);
     }
 
     // apply filter

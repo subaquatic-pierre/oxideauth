@@ -32,7 +32,6 @@ pub struct Permission {
     pub workspace: Workspace,
 
     pub name: String,
-    pub code: Option<String>,
     pub description: Option<String>,
 
     pub tags: Vec<String>,
@@ -53,7 +52,6 @@ impl Permission {
             id: row.id.into(),
             workspace,
             name: row.name,
-            code: row.code,
             description: row.description,
             tags: row.tags,
             meta: row.meta,
@@ -68,7 +66,6 @@ impl Default for Permission {
             id: Uuid::new_v4(),
             workspace: Workspace::default(),
             name: "New Permission".to_string(),
-            code: None,
             description: None,
             tags: vec![],
             meta: PermissionMeta {
@@ -83,7 +80,6 @@ impl Default for Permission {
 pub struct PermissionCreateParams {
     pub workspace_id: Uuid,
     pub name: String,
-    pub code: Option<String>,
     pub description: Option<String>,
     pub tags: Vec<String>,
     pub meta: PermissionMeta,
@@ -94,7 +90,6 @@ impl Into<PermissionForCreate> for PermissionCreateParams {
         PermissionForCreate {
             workspace_id: self.workspace_id.into(),
             name: self.name,
-            code: self.code,
             description: self.description,
             tags: self.tags,
             meta: self.meta,
@@ -107,7 +102,6 @@ pub struct PermissionUpdateParams {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub name: Option<String>,
-    pub code: Option<String>,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<PermissionMeta>,
@@ -117,7 +111,6 @@ impl From<PermissionUpdateParams> for PermissionForUpdate {
     fn from(params: PermissionUpdateParams) -> Self {
         Self {
             name: params.name,
-            code: params.code,
             description: params.description,
             tags: params.tags,
             meta: params.meta,
@@ -129,14 +122,13 @@ impl From<PermissionUpdateParams> for PermissionForUpdate {
 pub struct PermissionDescribeParams {
     pub id: Option<Uuid>,
     pub workspace_id: Uuid,
-    pub code: Option<String>,
 }
 
 impl ValidateParams for PermissionDescribeParams {
     fn validate(self) -> CoreResult<Self> {
-        if (self.id.is_none() && self.code.is_none()) {
+        if self.id.is_none() {
             return Err(CoreError::InvalidParams(
-                "Permission describe must contain `id` or `code`".into(),
+                "Permission describe must contain id".into(),
             ));
         }
 

@@ -192,7 +192,7 @@ where
             role_ids.push(role.id.into());
             let role_with_perms = self.sm.role.get_many_to_many(&store_ctx, &role.id).await?;
             for perm in role_with_perms.permissions.iter() {
-                let code = perm.code.clone().unwrap_or_else(|| perm.name.clone());
+                let code = perm.name.clone();
                 if !permissions.contains(&code) {
                     permissions.push(code);
                 }

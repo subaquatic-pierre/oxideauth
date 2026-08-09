@@ -1,7 +1,8 @@
 use modql::filter::{FilterGroups, ListOptions};
-use sea_query::{Alias, Asterisk, Condition, Expr, Func, PostgresQueryBuilder, Query};
+use sea_query::{Asterisk, Condition, Expr, Func, PostgresQueryBuilder, Query};
 use sea_query_binder::SqlxBinder;
 use serde_json::Value as JsonValue;
+use tracing::debug;
 
 use crate::store::{
     ctx::StoreCtx,
@@ -81,11 +82,8 @@ pub async fn filter_by_value_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
     query.and_where(expr);
 
     if let Some(ws_id) = ctx.workspace_scope() {
-        // Add WHERE clause for workspace_id
-        let enforced_condition =
-            Condition::all().add(Expr::col(Alias::new("workspace_id")).eq(ws_id));
-
-        query.cond_where(enforced_condition);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        query.and_where(workspace_id_expr);
     }
 
     // validate list options
@@ -122,16 +120,9 @@ pub async fn list_with_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
     let mut query = Query::select();
     query.from(meta.table).column((meta.table, Asterisk));
 
-    // --- Workspace scoping ---
-    if let Some(ws_id) = ctx.workspace_scope() {
-        let cond = Condition::all().add(Expr::col(Alias::new("workspace_id")).eq(ws_id));
-        query.cond_where(cond);
-    }
-
     // --- Tags containment (@>) ---
     if let Some(tags) = tags.filter(|t| !t.is_empty()) {
-        let tags_values: Vec<JsonValue> =
-            tags.into_iter().map(JsonValue::String).collect();
+        let tags_values: Vec<JsonValue> = tags.into_iter().map(JsonValue::String).collect();
         let expr =
             Expr::cust_with_values(format!(r#""{}" @> $"#, meta.col.to_string()), [tags_values]);
         query.and_where(expr);
@@ -143,11 +134,20 @@ pub async fn list_with_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
         query.cond_where(cond);
     }
 
+    // --- Workspace scoping ---
+    if let Some(ws_id) = ctx.workspace_scope() {
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        query.and_where(workspace_id_expr);
+    }
+
     // --- List options (limit/offset/order) ---
     let list_options = ListOptionsValidator::validate_list_opts(opts, meta.has_audit)?;
     list_options.apply_to_sea_query(&mut query);
 
     let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+
+    debug!("SQL: {:#?}, VALS: {:#?}", sql, vals);
+
     let query = sqlx::query_as_with(&sql, vals);
     let res = dbx.fetch_all(query).await?;
 
@@ -181,8 +181,7 @@ where
 
     // --- Tags containment (@>) ---
     if let Some(tags) = tags.filter(|t| !t.is_empty()) {
-        let tags_values: Vec<JsonValue> =
-            tags.into_iter().map(JsonValue::String).collect();
+        let tags_values: Vec<JsonValue> = tags.into_iter().map(JsonValue::String).collect();
         let expr =
             Expr::cust_with_values(format!(r#""{}" @> $"#, meta.col.to_string()), [tags_values]);
         query.cond_where(expr);
@@ -242,11 +241,18 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+
+        // Isolate this test in a dedicated fixture workspace (registrar) and
+        // scope queries to it, so the exact-count assertions are unaffected by
+        // other rows in the shared test DB (e.g. canonical permissions that are
+        // seeded into every workspace created via the workspace service).
+        let ws_id = Uuid::try_parse("10000000-0000-0000-0000-000000000002").unwrap();
+        let mut ctx = StoreCtx::new_root();
+        ctx.set_workspace_scope(Some(ws_id));
 
         let c_perm = |i| {
             let mut perm = PermissionForCreate::default();
-            perm.workspace_id = ctx.ws_id;
+            perm.workspace_id = ws_id;
             perm.name = format!("PERMISSION_GET_MANY_TEST_{i}_i_{i}_i_{i}");
             if (i < 2) {
                 perm.meta = PermissionMeta {
@@ -306,12 +312,19 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+
+        // Isolate this test in a dedicated fixture workspace (acme) and scope
+        // queries to it, so the exact-count assertions are unaffected by other
+        // rows in the shared test DB (e.g. canonical permissions that are seeded
+        // into every workspace created via the workspace service).
+        let ws_id = Uuid::try_parse("10000000-0000-0000-0000-000000000003").unwrap();
+        let mut ctx = StoreCtx::new_root();
+        ctx.set_workspace_scope(Some(ws_id));
 
         // -- Create test data with different tags
         let c_perm = |i| {
             let mut perm = PermissionForCreate::default();
-            perm.workspace_id = ctx.ws_id;
+            perm.workspace_id = ws_id;
             perm.name = format!("PERMISSION_TAGS_TEST_{i}");
             // Assign different tags to two distinct groups
             if i < 2 {

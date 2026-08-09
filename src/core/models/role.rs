@@ -67,7 +67,6 @@ impl Role {
                 id: el.id.into(),
                 workspace: workspace.clone(),
                 name: el.name,
-                code: el.code,
                 description: el.description,
                 tags: el.tags,
                 meta: PermissionMeta { ..el.meta },

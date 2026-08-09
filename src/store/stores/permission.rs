@@ -33,35 +33,6 @@ impl<D: DbExecutor> PermissionStore<D> {
         Self { dbx }
     }
 
-    pub async fn get_by_code(
-        &self,
-        ctx: &StoreCtx,
-        code: &str,
-        workspace_id: DbId,
-    ) -> StoreResult<PermissionRow> {
-        match self.get_by_code_opt(ctx, code, workspace_id).await? {
-            Some(row) => Ok(row),
-            None => Err(StoreError::EntityNotFound {
-                entity: self.read_meta().table.to_string(),
-                id: code.to_string(),
-            }),
-        }
-    }
-
-    pub async fn get_by_code_opt(
-        &self,
-        ctx: &StoreCtx,
-        code: &str,
-        workspace_id: DbId,
-    ) -> StoreResult<Option<PermissionRow>> {
-        let filter: PermissionFilter = json!({
-            "code": code.to_string(),
-            "workspace_id":workspace_id.to_string()
-        })
-        .try_into()?;
-
-        Ok(self.list(ctx, Some(filter), None).await?.into_iter().next())
-    }
 }
 
 // region:    --- Base Trait Implementations

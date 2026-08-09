@@ -4,7 +4,6 @@
 -- Notes:
 --   - Each permission belongs to exactly one workspace (global or tenant).
 --   - `name` should be unique per workspace (e.g. 'project.read','project.write').
---   - `code` is optional as a short identifier if needed for programmatic usage.
 --   - `meta` and `tags` support lightweight extension and search.
 --   - `created_by` / `updated_by` are audit fields; FKs can be added later if bootstrap-safe.
 CREATE TABLE IF NOT EXISTS
@@ -15,7 +14,6 @@ CREATE TABLE IF NOT EXISTS
     workspace_id UUID NOT NULL,
     -- Permission identity
     name TEXT NOT NULL, -- canonical identifier, e.g. 'project.read'
-    code TEXT, -- optional short key
     description TEXT, -- human-readable description
     -- START Meta & Tags
     tags TEXT[] NOT NULL DEFAULT '{}', -- lightweight labels
@@ -35,17 +33,12 @@ CREATE TABLE IF NOT EXISTS
     CONSTRAINT perm_audit_is_object CHECK (jsonb_typeof(audit) = 'object'),
     -- Ensure per-workspace uniqueness of permission names
     CONSTRAINT permission_workspace_name_key UNIQUE (workspace_id, name)
-    -- Optional: enforce uniqueness of code per workspace
-    -- , CONSTRAINT permission_workspace_code_key UNIQUE (workspace_id, code)
   );
 
 -- =========================
 -- Indexes
 -- =========================
 -- UNIQUE(workspace_id, name) already provides fast lookups.
--- Optionally enforce and index (workspace_id, code) if used heavily.
--- CREATE UNIQUE INDEX IF NOT EXISTS permission_workspace_code_key
---   ON permission(workspace_id, code);
 -- Optional: add GIN indexes if tags/meta will be queried often.
 -- CREATE INDEX IF NOT EXISTS idx_permission_tags_gin ON permission USING GIN(tags);
 -- CREATE INDEX IF NOT EXISTS idx_permission_meta_gin ON permission USING GIN(meta);

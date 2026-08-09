@@ -1,6 +1,6 @@
 use modql::filter::{FilterGroups, ListOptions};
 use sea_query::{
-    Alias, Asterisk, CommonTableExpression, Condition, Expr, Func, Iden, JoinType, OnConflict,
+    Asterisk, CommonTableExpression, Condition, Expr, Func, Iden, JoinType, OnConflict,
     PostgresQueryBuilder, Query, SelectStatement, SimpleExpr, Value,
 };
 use sea_query_binder::SqlxBinder;
@@ -10,6 +10,7 @@ use sqlx::{postgres::PgRow, FromRow};
 use crate::store::{
     ctx::StoreCtx,
     dbx::PgDbx,
+    entities::workspace::WorkspaceIden,
     error::{StoreError, StoreResult},
     queries::{
         count::{count, count_many},
@@ -247,9 +248,8 @@ pub async fn list_one_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: Tab
 
     // apply workspace scope
     if let Some(ws_id) = ctx.workspace_scope() {
-        let enforced_condition =
-            Condition::all().add(Expr::col(Alias::new("workspace_id")).eq(ws_id));
-        main_query.cond_where(enforced_condition);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        main_query.and_where(workspace_id_expr);
     }
 
     // apply filter BEFORE join/group_by so it generates WHERE, not HAVING

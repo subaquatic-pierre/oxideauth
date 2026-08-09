@@ -5,8 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     cache::{
-        manager::CacheManager, stores::membership::MembershipCacheStore,
-        traits::CacheExecutor,
+        manager::CacheManager, stores::membership::MembershipCacheStore, traits::CacheExecutor,
     },
     core::{
         ctx::CoreCtx,
@@ -42,8 +41,8 @@ use crate::{
             account::{AccountFilter, AccountForCreate, AccountMeta},
             id::DbId,
             membership::{
-                JoinedRoleOnMembership, MembershipFilter, MembershipForCreate,
-                MembershipForUpdate, MembershipRow, MembershipWithRoles,
+                JoinedRoleOnMembership, MembershipFilter, MembershipForCreate, MembershipForUpdate,
+                MembershipRow, MembershipWithRoles,
             },
         },
         join::{GetManyToMany, LinkManyToMany, ListManyToMany},
@@ -272,11 +271,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for MembershipSe
         let membership_row = store.create(&store_ctx, m_create).await?;
 
         // Assign roles to the new membership
-        let role_db_ids: Vec<DbId> = params
-            .role_ids
-            .iter()
-            .map(|id| DbId::from(*id))
-            .collect();
+        let role_db_ids: Vec<DbId> = params.role_ids.iter().map(|id| DbId::from(*id)).collect();
         self.sm
             .membership
             .set_many_to_many_links(&store_ctx, &membership_row.id, role_db_ids)
@@ -357,42 +352,20 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for MembershipServ
         let options = params.list_options();
 
         let tags_filter = params.validate_filter_tags()?;
+        let tags = tags_filter.tags();
+        let filter = tags_filter.filter();
 
-        if let Some(tags) = tags_filter.tags() {
-            let data = store
-                .filter_by_tags_contain(&store_ctx, tags.clone(), Some(options.clone()))
-                .await?;
-            let total = store.count_by_tags_contain(&store_ctx, tags).await?;
-
-            let mut memberships = vec![];
-
-            for row in data.iter() {
-                let membership = self
-                    .describe(
-                        ctx,
-                        MembershipDescribeParams {
-                            id: row.id.into(),
-                            workspace_id: row.workspace_id,
-                        },
-                    )
-                    .await?;
-                memberships.push(membership);
-            }
-
-            return Ok(ListResponse::new(memberships, total, options));
-        }
-
-        if let Some(filter) = tags_filter.filter() {
-            let filter = Some(filter);
-            let data = store
-                .list_many_to_many(&store_ctx, filter.clone(), Some(options.clone()))
-                .await?;
-            let total = store.count(&store_ctx, filter).await?;
-
-            let data = self.hydrate_memberships(ctx, data).await?;
-
-            return Ok(ListResponse::new(data, total, options));
-        }
+        let data = store
+            .list_with_tags_and_filter(
+                &store_ctx,
+                tags.clone(),
+                filter.clone(),
+                Some(options.clone()),
+            )
+            .await?;
+        let total = store
+            .count_with_tags_and_filter(&store_ctx, tags, filter)
+            .await?;
 
         // no filter provided, list all
         let data = store
