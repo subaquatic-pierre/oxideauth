@@ -9,9 +9,12 @@ use crate::{
             MembershipCreateParams, MembershipDeleteParams, MembershipDescribeParams,
             MembershipListParams, MembershipUpdateParams,
         },
-        traits::service::{
-            CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
-            CoreModelListService, CoreModelUpdateService,
+        traits::{
+            params::IntoParams,
+            service::{
+                CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
+                CoreModelListService, CoreModelUpdateService,
+            },
         },
     },
     web::{
@@ -34,7 +37,8 @@ pub async fn describe_membership(
     let Json(body) = body?;
     let svc = app.svc_factory.membership();
 
-    let params: MembershipDescribeParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: MembershipDescribeParams = body.into_params(ws_id)?;
     let m = svc.describe(&mut ctx, params).await?;
     let res: MembershipDescribeRes = m.into();
 
@@ -52,7 +56,8 @@ pub async fn list_memberships(
     let Json(body) = body?;
     let svc = app.svc_factory.membership();
 
-    let params: MembershipListParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: MembershipListParams = body.into_params(ws_id)?;
     let list_res = svc.list(&mut ctx, params).await?;
 
     let memberships: Vec<MembershipDescribeRes> = list_res
@@ -79,7 +84,8 @@ pub async fn create_membership(
     let Json(body) = body?;
     let svc = app.svc_factory.membership();
 
-    let params: MembershipCreateParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: MembershipCreateParams = body.into_params(ws_id)?;
     let m = svc.create(&mut ctx, params).await?;
     let res: MembershipDescribeRes = m.into();
 
@@ -97,7 +103,8 @@ pub async fn update_membership(
     let Json(body) = body?;
     let svc = app.svc_factory.membership();
 
-    let params: MembershipUpdateParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: MembershipUpdateParams = body.into_params(ws_id)?;
     let m = svc.update(&mut ctx, params).await?;
     let res: MembershipDescribeRes = m.into();
 
@@ -115,7 +122,8 @@ pub async fn delete_membership(
     let Json(body) = body?;
     let svc = app.svc_factory.membership();
 
-    let params: MembershipDeleteParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: MembershipDeleteParams = body.into_params(ws_id)?;
     let m = svc.delete(&mut ctx, params).await?;
 
     let res = MembershipDeleteRes { id: m.id };

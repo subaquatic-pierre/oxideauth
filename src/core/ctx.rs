@@ -1,7 +1,3 @@
-use std::str::FromStr;
-use std::{collections::HashSet, ops::Deref};
-
-use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::cache::entities::auth::AuthCache;
@@ -10,50 +6,45 @@ use crate::{
     core::{
         error::CoreResult,
         models::{
-            account::Account,
-            membership::MembershipCache,
             permission::{PermissionCheck, PermissionChecker},
-            workspace::{GLOBAL_WS_ID, Workspace},
+            workspace::Workspace,
         },
     },
     store::ctx::StoreCtx,
-    utils::time::now_utc,
 };
 
+/// The request-scoped operational context, resolved by the auth middleware.
+///
+/// `auth_cache` is the single source of truth for the authenticated identity:
+/// account ID, membership ID, token-scoped workspace, and permissions.
+///
+/// `scoped_ws_id` is the **operational target** — the workspace this request
+/// acts on. For scoped tokens it equals the token's workspace. For global/root
+/// tokens the middleware sets it from the `X-Workspace-Id` header.
 #[derive(Clone, Debug)]
 pub struct CoreCtx {
-    auth_cache: AuthCache,
-    account: Account,
-    workspace: Workspace,
+    pub(crate) auth_cache: AuthCache,
+    scoped_ws_id: Uuid,
     perm_checker: PermissionChecker,
 }
 
 impl CoreCtx {
-    pub fn new(auth_cache: AuthCache, account: Account, workspace: Workspace) -> CoreResult<Self> {
+    pub fn new(auth_cache: AuthCache, scoped_ws_id: Uuid) -> CoreResult<Self> {
         let perm_checker =
             PermissionChecker::from_string_vec(auth_cache.auth_scope.permissions.clone())?;
         Ok(Self {
             auth_cache,
-            account,
-            workspace,
+            scoped_ws_id,
             perm_checker,
         })
     }
 
     pub fn new_test() -> CoreResult<Self> {
-        let mut acc = Account::default();
-        acc.id = root_user_id();
-        let mut ns = Workspace::default();
-        ns.id = global_ws_id();
-
         let auth_cache = AuthCache::root_cache();
-
-        let perm_checker =
-            PermissionChecker::from_string_vec(auth_cache.auth_scope.permissions.clone())?;
+        let perm_checker = PermissionChecker::from_string_vec(vec![])?;
         Ok(Self {
             auth_cache,
-            account: acc,
-            workspace: ns,
+            scoped_ws_id: global_ws_id(),
             perm_checker,
         })
     }
@@ -65,17 +56,11 @@ impl CoreCtx {
     /// The system account ID is `Uuid::nil()` and permissions start empty —
     /// callers must use `extend_perms()` to grant operation-specific permissions.
     pub fn system(workspace_id: Uuid) -> CoreResult<Self> {
-        let system_account_id = Uuid::nil();
-        let mut acc = Account::default();
-        acc.id = system_account_id;
-        let mut ws = Workspace::default();
-        ws.id = workspace_id;
         let perm_checker = PermissionChecker::from_string_vec(vec![])?;
         let auth_cache = AuthCache::root_cache();
         Ok(Self {
             auth_cache,
-            account: acc,
-            workspace: ws,
+            scoped_ws_id: workspace_id,
             perm_checker,
         })
     }
@@ -85,50 +70,58 @@ impl CoreCtx {
     }
 
     pub fn extend_perms(&mut self, perms: &[&str]) -> CoreResult<()> {
-        let new_perms: Vec<String> = perms.iter().map(|el| el.to_string()).collect();
-
-        let mut new_perms: Vec<PermissionCheck> = PermissionCheck::perms_from_str_slice(perms)?;
-
+        let new_perms: Vec<PermissionCheck> = PermissionCheck::perms_from_str_slice(perms)?;
         self.perm_checker.extend(new_perms);
         Ok(())
     }
 
-    pub fn account_id(&self) -> Uuid {
-        self.account.id
-    }
+    // --- Identity (from auth_cache — the token's claims) ---
 
-    pub fn workspace_id(&self) -> Uuid {
-        self.auth_cache.auth_scope.workspace_id
+    pub fn account_id(&self) -> Uuid {
+        self.auth_cache.acc_id
     }
 
     pub fn membership_id(&self) -> Uuid {
         self.auth_cache.mem_id
     }
 
-    pub fn set_workspace_id(&mut self, ws_id: Uuid) {
-        self.workspace.id = ws_id;
+    /// Whether the token is scoped to the global/root workspace (admin).
+    pub fn is_global_workspace(&self) -> CoreResult<bool> {
+        Ok(self.auth_cache.auth_scope.workspace_id == global_ws_id())
     }
 
-    pub fn is_global_workspace(&self) -> CoreResult<bool> {
-        Ok(self.workspace.id == global_ws_id())
+    // --- Operational target (may differ from token scope for root tokens) ---
+
+    /// The workspace this request actually operates on.
+    ///
+    /// Set during context resolution to the token's workspace for scoped users,
+    /// or to the `X-Workspace-Id` header value for global/root tokens.
+    pub fn scoped_ws_id(&self) -> Uuid {
+        self.scoped_ws_id
+    }
+
+    /// Override the operational workspace target (used by middleware for
+    /// global tokens that supply an `X-Workspace-Id` header).
+    pub fn set_scoped_ws_id(&mut self, ws_id: Uuid) {
+        self.scoped_ws_id = ws_id;
     }
 }
 
 impl From<CoreCtx> for StoreCtx {
     fn from(ctx: CoreCtx) -> Self {
-        Self::new(ctx.account.id, ctx.workspace.id)
+        Self::new(ctx.auth_cache.acc_id, ctx.scoped_ws_id)
     }
 }
 
 impl From<&CoreCtx> for StoreCtx {
     fn from(ctx: &CoreCtx) -> Self {
-        Self::new(ctx.account.id, ctx.workspace.id)
+        Self::new(ctx.auth_cache.acc_id, ctx.scoped_ws_id)
     }
 }
 
 impl From<&mut CoreCtx> for StoreCtx {
     fn from(ctx: &mut CoreCtx) -> Self {
-        Self::new(ctx.account.id, ctx.workspace.id)
+        Self::new(ctx.auth_cache.acc_id, ctx.scoped_ws_id)
     }
 }
 
@@ -153,8 +146,6 @@ mod tests {
     #[serial]
     async fn test_ctx_extend() -> CoreResult<()> {
         let mut ctx = CoreCtx::new_test()?;
-
-        let initial_perms = ctx.permission_checker();
 
         ctx.extend_perms(&["account:create"])?;
 

@@ -9,9 +9,12 @@ use crate::{
             RoleCreateParams, RoleDeleteParams, RoleDescribeParams, RoleListParams,
             RoleUpdateParams,
         },
-        traits::service::{
-            CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
-            CoreModelListService, CoreModelUpdateService,
+        traits::{
+            params::IntoParams,
+            service::{
+                CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
+                CoreModelListService, CoreModelUpdateService,
+            },
         },
     },
     web::{
@@ -34,7 +37,8 @@ pub async fn describe_role(
     let Json(body) = body?;
     let svc = app.svc_factory.role();
 
-    let params: RoleDescribeParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: RoleDescribeParams = body.into_params(ws_id)?;
     let role = svc.describe(&mut ctx, params).await?;
     let res: RoleDescribeRes = role.into();
 
@@ -52,7 +56,8 @@ pub async fn list_roles(
     let Json(body) = body?;
     let svc = app.svc_factory.role();
 
-    let params: RoleListParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: RoleListParams = body.into_params(ws_id)?;
     let list_res = svc.list(&mut ctx, params).await?;
 
     let roles: Vec<RoleDescribeRes> = list_res
@@ -79,7 +84,8 @@ pub async fn create_role(
     let Json(body) = body?;
     let svc = app.svc_factory.role();
 
-    let params: RoleCreateParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: RoleCreateParams = body.into_params(ws_id)?;
     let role = svc.create(&mut ctx, params).await?;
     let res: RoleDescribeRes = role.into();
 
@@ -97,7 +103,8 @@ pub async fn update_role(
     let Json(body) = body?;
     let svc = app.svc_factory.role();
 
-    let params: RoleUpdateParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: RoleUpdateParams = body.into_params(ws_id)?;
     let role = svc.update(&mut ctx, params).await?;
     let res: RoleDescribeRes = role.into();
 
@@ -115,7 +122,8 @@ pub async fn delete_role(
     let Json(body) = body?;
     let svc = app.svc_factory.role();
 
-    let params: RoleDeleteParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: RoleDeleteParams = body.into_params(ws_id)?;
     let role = svc.delete(&mut ctx, params).await?;
 
     let res = RoleDeleteRes { id: role.id };

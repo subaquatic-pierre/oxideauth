@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::core::error::CoreResult;
 use crate::core::models::{
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
     permission::{
@@ -9,22 +10,22 @@ use crate::core::models::{
         PermissionFilter, PermissionListParams, PermissionMeta, PermissionUpdateParams,
     },
 };
+use crate::core::traits::params::IntoParams;
 
 // --- PermissionDescribeReq ---
 #[derive(Deserialize)]
 pub struct PermissionDescribeReq {
     pub id: Option<Uuid>,
-    pub workspace_id: Uuid,
     pub code: Option<String>,
 }
 
-impl From<PermissionDescribeReq> for PermissionDescribeParams {
-    fn from(value: PermissionDescribeReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-            code: value.code,
-        }
+impl IntoParams<PermissionDescribeParams> for PermissionDescribeReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<PermissionDescribeParams> {
+        Ok(PermissionDescribeParams {
+            id: self.id,
+            workspace_id,
+            code: self.code,
+        })
     }
 }
 
@@ -61,7 +62,6 @@ impl From<Permission> for PermissionDescribeRes {
 // --- PermissionCreateReq ---
 #[derive(Deserialize)]
 pub struct PermissionCreateReq {
-    pub workspace_id: Uuid,
     pub name: String,
     pub code: Option<String>,
     pub description: Option<String>,
@@ -69,16 +69,16 @@ pub struct PermissionCreateReq {
     pub meta: PermissionMeta,
 }
 
-impl From<PermissionCreateReq> for PermissionCreateParams {
-    fn from(value: PermissionCreateReq) -> Self {
-        Self {
-            workspace_id: value.workspace_id,
-            name: value.name,
-            code: value.code,
-            description: value.description,
-            tags: value.tags,
-            meta: value.meta,
-        }
+impl IntoParams<PermissionCreateParams> for PermissionCreateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<PermissionCreateParams> {
+        Ok(PermissionCreateParams {
+            workspace_id,
+            name: self.name,
+            code: self.code,
+            description: self.description,
+            tags: self.tags,
+            meta: self.meta,
+        })
     }
 }
 
@@ -86,7 +86,6 @@ impl From<PermissionCreateReq> for PermissionCreateParams {
 #[derive(Deserialize)]
 pub struct PermissionUpdateReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
     pub name: Option<String>,
     pub code: Option<String>,
     pub description: Option<String>,
@@ -94,35 +93,34 @@ pub struct PermissionUpdateReq {
     pub meta: Option<PermissionMeta>,
 }
 
-impl From<PermissionUpdateReq> for PermissionUpdateParams {
-    fn from(value: PermissionUpdateReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-            name: value.name,
-            code: value.code,
-            description: value.description,
-            tags: value.tags,
-            meta: value.meta,
-        }
+impl IntoParams<PermissionUpdateParams> for PermissionUpdateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<PermissionUpdateParams> {
+        Ok(PermissionUpdateParams {
+            id: self.id,
+            workspace_id,
+            name: self.name,
+            code: self.code,
+            description: self.description,
+            tags: self.tags,
+            meta: self.meta,
+        })
     }
 }
 
 // --- PermissionListReq ---
 #[derive(Deserialize, Debug)]
 pub struct PermissionListReq {
-    pub workspace_id: Uuid,
     pub filter: Option<RequestFilterParams<PermissionFilter>>,
     pub options: Option<RequestListOptions>,
 }
 
-impl From<PermissionListReq> for PermissionListParams {
-    fn from(value: PermissionListReq) -> Self {
-        Self {
-            workspace_id: value.workspace_id,
-            filter: value.filter,
-            options: value.options,
-        }
+impl IntoParams<PermissionListParams> for PermissionListReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<PermissionListParams> {
+        Ok(PermissionListParams {
+            workspace_id,
+            filter: self.filter,
+            options: self.options,
+        })
     }
 }
 
@@ -137,15 +135,14 @@ pub struct PermissionListRes {
 #[derive(Deserialize)]
 pub struct PermissionDeleteReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
 }
 
-impl From<PermissionDeleteReq> for PermissionDeleteParams {
-    fn from(value: PermissionDeleteReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-        }
+impl IntoParams<PermissionDeleteParams> for PermissionDeleteReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<PermissionDeleteParams> {
+        Ok(PermissionDeleteParams {
+            id: self.id,
+            workspace_id,
+        })
     }
 }
 

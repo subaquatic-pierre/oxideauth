@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::core::error::CoreResult;
 use crate::core::models::{
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
     project::{
@@ -9,6 +10,7 @@ use crate::core::models::{
         ProjectFilter, ProjectListParams, ProjectMeta, ProjectUpdateParams,
     },
 };
+use crate::core::traits::params::IntoParams;
 
 // --- ProjectDescribeReq ---
 #[derive(Deserialize)]
@@ -16,19 +18,17 @@ pub struct ProjectDescribeReq {
     pub id: Option<Uuid>,
     // Use 'code' instead of 'slug'
     pub code: Option<String>,
-    // Add the required workspace identifier for context
-    pub workspace_id: Uuid,
 }
 
-// Implement From to convert Web Req to Core Param
-impl From<ProjectDescribeReq> for ProjectDescribeParams {
-    fn from(value: ProjectDescribeReq) -> Self {
-        Self {
-            id: value.id,
+// Implement IntoParams to convert Web Req to Core Param
+impl IntoParams<ProjectDescribeParams> for ProjectDescribeReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProjectDescribeParams> {
+        Ok(ProjectDescribeParams {
+            id: self.id,
             // Map 'code'
-            code: value.code,
-            workspace_id: value.workspace_id,
-        }
+            code: self.code,
+            workspace_id,
+        })
     }
 }
 
@@ -79,7 +79,6 @@ impl From<Project> for ProjectDescribeRes {
 // --- ProjectCreateReq ---
 #[derive(Deserialize)]
 pub struct ProjectCreateReq {
-    pub workspace_id: Uuid,
     pub name: String,
     // Use 'code' instead of 'slug'
     pub code: Option<String>,
@@ -90,19 +89,19 @@ pub struct ProjectCreateReq {
     pub meta: ProjectMeta,
 }
 
-// Implement From to convert Web Req to Core Param
-impl From<ProjectCreateReq> for ProjectCreateParams {
-    fn from(value: ProjectCreateReq) -> Self {
-        Self {
-            workspace_id: value.workspace_id,
-            name: value.name,
+// Implement IntoParams to convert Web Req to Core Param
+impl IntoParams<ProjectCreateParams> for ProjectCreateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProjectCreateParams> {
+        Ok(ProjectCreateParams {
+            workspace_id,
+            name: self.name,
             // Map 'code'
-            code: value.code,
-            description: value.description,
-            config: value.config,
-            tags: value.tags,
-            meta: value.meta,
-        }
+            code: self.code,
+            description: self.description,
+            config: self.config,
+            tags: self.tags,
+            meta: self.meta,
+        })
     }
 }
 
@@ -113,7 +112,6 @@ pub struct ProjectUpdateReq {
     pub id: Option<Uuid>,
     // Use current 'code' instead of 'slug' for identifying the project
     pub code: Option<String>,
-    pub workspace_id: Uuid,
 
     // Fields to Update (all fields here are Option<T> to represent 'patch')
     pub name: Option<String>,
@@ -125,20 +123,20 @@ pub struct ProjectUpdateReq {
     pub meta: Option<ProjectMeta>,
 }
 
-// Implement From to convert Web Req to Core Param
-impl From<ProjectUpdateReq> for ProjectUpdateParams {
-    fn from(value: ProjectUpdateReq) -> Self {
-        Self {
-            id: value.id,
-            code: value.code,
-            workspace_id: value.workspace_id,
-            name: value.name,
-            new_code: value.new_code, // Map to new_code
-            description: value.description,
-            config: value.config,
-            tags: value.tags,
-            meta: value.meta,
-        }
+// Implement IntoParams to convert Web Req to Core Param
+impl IntoParams<ProjectUpdateParams> for ProjectUpdateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProjectUpdateParams> {
+        Ok(ProjectUpdateParams {
+            id: self.id,
+            code: self.code,
+            workspace_id,
+            name: self.name,
+            new_code: self.new_code, // Map to new_code
+            description: self.description,
+            config: self.config,
+            tags: self.tags,
+            meta: self.meta,
+        })
     }
 }
 
@@ -146,19 +144,18 @@ impl From<ProjectUpdateReq> for ProjectUpdateParams {
 #[derive(Deserialize)]
 pub struct ProjectDeleteReq {
     pub id: Option<Uuid>,
-    pub workspace_id: Uuid,
     // Use 'code' instead of 'slug'
     pub code: Option<String>,
 }
 
-// Implement From<ProjectDeleteReq> for ProjectDeleteParams
-impl From<ProjectDeleteReq> for ProjectDeleteParams {
-    fn from(value: ProjectDeleteReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-            code: value.code,
-        }
+// Implement IntoParams<ProjectDeleteReq> for ProjectDeleteParams
+impl IntoParams<ProjectDeleteParams> for ProjectDeleteReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProjectDeleteParams> {
+        Ok(ProjectDeleteParams {
+            id: self.id,
+            workspace_id,
+            code: self.code,
+        })
     }
 }
 
@@ -187,18 +184,17 @@ impl From<Project> for ProjectDeleteRes {
 #[derive(Deserialize, Debug)]
 pub struct ProjectListReq {
     // The filter and options are unchanged in structure but are mapped to ProjectFilter
-    pub workspace_id: Uuid,
     pub filter: Option<RequestFilterParams<ProjectFilter>>,
     pub options: Option<RequestListOptions>,
 }
 
-impl From<ProjectListReq> for ProjectListParams {
-    fn from(value: ProjectListReq) -> Self {
-        Self {
-            filter: value.filter,
-            options: value.options,
-            workspace_id: value.workspace_id,
-        }
+impl IntoParams<ProjectListParams> for ProjectListReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProjectListParams> {
+        Ok(ProjectListParams {
+            filter: self.filter,
+            options: self.options,
+            workspace_id,
+        })
     }
 }
 

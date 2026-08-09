@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::core::error::CoreResult;
 use crate::core::models::{
     credential::{
         Credential, CredentialDeleteParams, CredentialDescribeParams, CredentialFilter,
@@ -9,6 +10,7 @@ use crate::core::models::{
     },
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
 };
+use crate::core::traits::params::IntoParams;
 use crate::store::entities::credential::{CredentialKind, CredentialProvider, CredentialStatus};
 
 // --- CredentialDescribeReq ---
@@ -16,20 +18,19 @@ use crate::store::entities::credential::{CredentialKind, CredentialProvider, Cre
 pub struct CredentialDescribeReq {
     pub id: Uuid,
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
     pub provider_id: Option<String>,
     pub email: Option<String>,
 }
 
-impl From<CredentialDescribeReq> for CredentialDescribeParams {
-    fn from(value: CredentialDescribeReq) -> Self {
-        Self {
-            id: value.id,
-            account_id: value.account_id,
-            workspace_id: value.workspace_id,
-            provider_id: value.provider_id,
-            email: value.email,
-        }
+impl IntoParams<CredentialDescribeParams> for CredentialDescribeReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<CredentialDescribeParams> {
+        Ok(CredentialDescribeParams {
+            id: self.id,
+            account_id: self.account_id,
+            workspace_id,
+            provider_id: self.provider_id,
+            email: self.email,
+        })
     }
 }
 
@@ -84,7 +85,6 @@ pub struct CredentialUpdateReq {
     pub provider_id: Option<String>,
     pub email: Option<String>,
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
     pub kind: Option<CredentialKind>,
     pub provider: Option<CredentialProvider>,
     pub status: Option<CredentialStatus>,
@@ -97,42 +97,41 @@ pub struct CredentialUpdateReq {
     pub meta: Option<CredentialMeta>,
 }
 
-impl From<CredentialUpdateReq> for CredentialUpdateParams {
-    fn from(value: CredentialUpdateReq) -> Self {
-        Self {
-            id: value.id,
-            provider_id: value.provider_id,
-            email: value.email,
-            account_id: value.account_id,
-            workspace_id: value.workspace_id,
-            kind: value.kind,
-            provider: value.provider,
-            status: value.status,
-            new_provider_id: value.new_provider_id,
-            new_email: value.new_email,
-            secret: value.secret,
-            last_used_at: value.last_used_at,
-            tags: value.tags,
-            meta: value.meta,
-        }
+impl IntoParams<CredentialUpdateParams> for CredentialUpdateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<CredentialUpdateParams> {
+        Ok(CredentialUpdateParams {
+            id: self.id,
+            provider_id: self.provider_id,
+            email: self.email,
+            account_id: self.account_id,
+            workspace_id,
+            kind: self.kind,
+            provider: self.provider,
+            status: self.status,
+            new_provider_id: self.new_provider_id,
+            new_email: self.new_email,
+            secret: self.secret,
+            last_used_at: self.last_used_at,
+            tags: self.tags,
+            meta: self.meta,
+        })
     }
 }
 
 // --- CredentialListReq ---
 #[derive(Deserialize, Debug)]
 pub struct CredentialListReq {
-    pub workspace_id: Uuid,
     pub filter: Option<RequestFilterParams<CredentialFilter>>,
     pub options: Option<RequestListOptions>,
 }
 
-impl From<CredentialListReq> for CredentialListParams {
-    fn from(value: CredentialListReq) -> Self {
-        Self {
-            workspace_id: value.workspace_id,
-            filter: value.filter,
-            options: value.options,
-        }
+impl IntoParams<CredentialListParams> for CredentialListReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<CredentialListParams> {
+        Ok(CredentialListParams {
+            workspace_id,
+            filter: self.filter,
+            options: self.options,
+        })
     }
 }
 
@@ -148,20 +147,19 @@ pub struct CredentialListRes {
 pub struct CredentialDeleteReq {
     pub id: Uuid,
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
     pub provider_id: Option<String>,
     pub email: Option<String>,
 }
 
-impl From<CredentialDeleteReq> for CredentialDeleteParams {
-    fn from(value: CredentialDeleteReq) -> Self {
-        Self {
-            id: value.id,
-            account_id: value.account_id,
-            workspace_id: value.workspace_id,
-            provider_id: value.provider_id,
-            email: value.email,
-        }
+impl IntoParams<CredentialDeleteParams> for CredentialDeleteReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<CredentialDeleteParams> {
+        Ok(CredentialDeleteParams {
+            id: self.id,
+            account_id: self.account_id,
+            workspace_id,
+            provider_id: self.provider_id,
+            email: self.email,
+        })
     }
 }
 

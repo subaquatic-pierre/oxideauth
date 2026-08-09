@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::core::error::CoreResult;
 use crate::core::models::{
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
     permission::Permission,
@@ -10,20 +11,20 @@ use crate::core::models::{
         RoleMeta, RoleUpdateParams,
     },
 };
+use crate::core::traits::params::IntoParams;
 
 // --- RoleDescribeReq ---
 #[derive(Deserialize)]
 pub struct RoleDescribeReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
 }
 
-impl From<RoleDescribeReq> for RoleDescribeParams {
-    fn from(value: RoleDescribeReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-        }
+impl IntoParams<RoleDescribeParams> for RoleDescribeReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<RoleDescribeParams> {
+        Ok(RoleDescribeParams {
+            id: self.id,
+            workspace_id,
+        })
     }
 }
 
@@ -60,7 +61,6 @@ impl From<Role> for RoleDescribeRes {
 // --- RoleCreateReq ---
 #[derive(Deserialize)]
 pub struct RoleCreateReq {
-    pub workspace_id: Uuid,
     pub name: String,
     pub description: Option<String>,
     pub permission_ids: Vec<Uuid>,
@@ -68,16 +68,16 @@ pub struct RoleCreateReq {
     pub meta: RoleMeta,
 }
 
-impl From<RoleCreateReq> for RoleCreateParams {
-    fn from(value: RoleCreateReq) -> Self {
-        Self {
-            workspace_id: value.workspace_id,
-            name: value.name,
-            description: value.description,
-            permission_ids: value.permission_ids,
-            tags: value.tags,
-            meta: value.meta,
-        }
+impl IntoParams<RoleCreateParams> for RoleCreateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<RoleCreateParams> {
+        Ok(RoleCreateParams {
+            workspace_id,
+            name: self.name,
+            description: self.description,
+            permission_ids: self.permission_ids,
+            tags: self.tags,
+            meta: self.meta,
+        })
     }
 }
 
@@ -85,7 +85,6 @@ impl From<RoleCreateReq> for RoleCreateParams {
 #[derive(Deserialize)]
 pub struct RoleUpdateReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
     pub name: Option<String>,
     pub description: Option<String>,
     pub permission_ids: Option<Vec<Uuid>>,
@@ -93,35 +92,34 @@ pub struct RoleUpdateReq {
     pub meta: Option<RoleMeta>,
 }
 
-impl From<RoleUpdateReq> for RoleUpdateParams {
-    fn from(value: RoleUpdateReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-            name: value.name,
-            description: value.description,
-            permission_ids: value.permission_ids,
-            tags: value.tags,
-            meta: value.meta,
-        }
+impl IntoParams<RoleUpdateParams> for RoleUpdateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<RoleUpdateParams> {
+        Ok(RoleUpdateParams {
+            id: self.id,
+            workspace_id,
+            name: self.name,
+            description: self.description,
+            permission_ids: self.permission_ids,
+            tags: self.tags,
+            meta: self.meta,
+        })
     }
 }
 
 // --- RoleListReq ---
 #[derive(Deserialize, Debug)]
 pub struct RoleListReq {
-    pub workspace_id: Uuid,
     pub filter: Option<RequestFilterParams<RoleFilter>>,
     pub options: Option<RequestListOptions>,
 }
 
-impl From<RoleListReq> for RoleListParams {
-    fn from(value: RoleListReq) -> Self {
-        Self {
-            workspace_id: value.workspace_id,
-            filter: value.filter,
-            options: value.options,
-        }
+impl IntoParams<RoleListParams> for RoleListReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<RoleListParams> {
+        Ok(RoleListParams {
+            workspace_id,
+            filter: self.filter,
+            options: self.options,
+        })
     }
 }
 
@@ -136,15 +134,14 @@ pub struct RoleListRes {
 #[derive(Deserialize)]
 pub struct RoleDeleteReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
 }
 
-impl From<RoleDeleteReq> for RoleDeleteParams {
-    fn from(value: RoleDeleteReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-        }
+impl IntoParams<RoleDeleteParams> for RoleDeleteReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<RoleDeleteParams> {
+        Ok(RoleDeleteParams {
+            id: self.id,
+            workspace_id,
+        })
     }
 }
 

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::core::error::CoreResult;
 use crate::core::models::{
     account::{
         Account, AccountCreateParams, AccountDeleteParams, AccountDescribeParams, AccountFilter,
@@ -9,24 +10,24 @@ use crate::core::models::{
     },
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
 };
+use crate::core::traits::params::IntoParams;
 
 // --- AccountDescribeReq ---
 #[derive(Deserialize)]
 pub struct AccountDescribeReq {
     pub email: Option<String>,
     pub id: Option<Uuid>,
-    pub workspace_id: Uuid,
 }
 
-// Implement From to convert Web Req to Core Param
+// Implement IntoParams to convert Web Req to Core Param
 // This simplifies the handler, especially for structs where fields change names/types.
-impl From<AccountDescribeReq> for AccountDescribeParams {
-    fn from(value: AccountDescribeReq) -> Self {
-        Self {
-            email: value.email,
-            id: value.id,
-            workspace_id: value.workspace_id,
-        }
+impl IntoParams<AccountDescribeParams> for AccountDescribeReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<AccountDescribeParams> {
+        Ok(AccountDescribeParams {
+            email: self.email,
+            id: self.id,
+            workspace_id,
+        })
     }
 }
 
@@ -75,7 +76,6 @@ impl From<Account> for AccountDescribeRes {
 pub struct AccountCreateReq {
     pub email: String,
     pub password: String,
-    pub workspace_id: Uuid,
     // Fields that map to core::AccountCreateParams
     pub name: String,
     pub description: Option<String>,
@@ -85,19 +85,19 @@ pub struct AccountCreateReq {
     pub meta: Option<AccountMeta>,
 }
 
-// Implement From to convert Web Req to Core Param
-impl From<AccountCreateReq> for AccountCreateParams {
-    fn from(value: AccountCreateReq) -> Self {
-        Self {
-            email: value.email,
-            password: value.password,
-            name: value.name,
-            description: value.description,
-            avatar_url: value.avatar_url,
-            tags: value.tags,
-            meta: value.meta,
-            workspace_id: value.workspace_id,
-        }
+// Implement IntoParams to convert Web Req to Core Param
+impl IntoParams<AccountCreateParams> for AccountCreateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<AccountCreateParams> {
+        Ok(AccountCreateParams {
+            email: self.email,
+            password: self.password,
+            name: self.name,
+            description: self.description,
+            avatar_url: self.avatar_url,
+            tags: self.tags,
+            meta: self.meta,
+            workspace_id,
+        })
     }
 }
 
@@ -107,7 +107,6 @@ pub struct AccountUpdateReq {
     // Identifier (one or both must be provided)
     pub email: Option<String>,
     pub id: Option<Uuid>,
-    pub workspace_id: Uuid,
 
     // Fields to Update (all fields here are Option<T> to represent 'patch')
     pub name: Option<String>,
@@ -119,21 +118,21 @@ pub struct AccountUpdateReq {
     pub meta: Option<AccountMeta>,
 }
 
-// Implement From to convert Web Req to Core Param
-impl From<AccountUpdateReq> for AccountUpdateParams {
-    fn from(value: AccountUpdateReq) -> Self {
-        Self {
-            email: value.email,
-            id: value.id,
-            name: value.name,
-            description: value.description,
-            avatar_url: value.avatar_url,
-            enabled: value.enabled,
-            verified: value.verified,
-            tags: value.tags,
-            workspace_id: value.workspace_id,
-            meta: value.meta,
-        }
+// Implement IntoParams to convert Web Req to Core Param
+impl IntoParams<AccountUpdateParams> for AccountUpdateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<AccountUpdateParams> {
+        Ok(AccountUpdateParams {
+            email: self.email,
+            id: self.id,
+            name: self.name,
+            description: self.description,
+            avatar_url: self.avatar_url,
+            enabled: self.enabled,
+            verified: self.verified,
+            tags: self.tags,
+            workspace_id,
+            meta: self.meta,
+        })
     }
 }
 
@@ -141,7 +140,6 @@ impl From<AccountUpdateReq> for AccountUpdateParams {
 #[derive(Deserialize, Debug)]
 pub struct AccountListReq {
     // These typically contain nested structs for filtering and pagination/sorting
-    pub workspace_id: Uuid,
     pub filter: Option<RequestFilterParams<AccountFilter>>,
     pub options: Option<RequestListOptions>,
 }
@@ -149,13 +147,13 @@ pub struct AccountListReq {
 // Assuming you have a corresponding AccountListParams struct in your core layer:
 // use crate::core::models::account::AccountListParams;
 
-impl From<AccountListReq> for AccountListParams {
-    fn from(value: AccountListReq) -> Self {
-        Self {
-            filter: value.filter,
-            workspace_id: value.workspace_id,
-            options: value.options,
-        }
+impl IntoParams<AccountListParams> for AccountListReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<AccountListParams> {
+        Ok(AccountListParams {
+            filter: self.filter,
+            workspace_id,
+            options: self.options,
+        })
     }
 }
 
@@ -171,17 +169,16 @@ pub struct AccountListRes {
 pub struct AccountDeleteReq {
     pub email: Option<String>,
     pub id: Option<Uuid>,
-    pub workspace_id: Uuid,
 }
 
-// Implement From<AccountDeleteReq> for AccountDeleteParams
-impl From<AccountDeleteReq> for AccountDeleteParams {
-    fn from(value: AccountDeleteReq) -> Self {
-        Self {
-            email: value.email,
-            id: value.id,
-            workspace_id: value.workspace_id,
-        }
+// Implement IntoParams<AccountDeleteParams> for AccountDeleteReq
+impl IntoParams<AccountDeleteParams> for AccountDeleteReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<AccountDeleteParams> {
+        Ok(AccountDeleteParams {
+            email: self.email,
+            id: self.id,
+            workspace_id,
+        })
     }
 }
 

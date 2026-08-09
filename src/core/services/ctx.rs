@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use axum::http::HeaderMap;
 use tracing::info;
@@ -14,13 +14,10 @@ use crate::{
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
-        models::{
-            account::Account, membership::MembershipCache, permission::ALL_PERMISSIONS,
-            token::TokenClaims, workspace::Workspace,
-        },
+        models::token::TokenClaims,
         services::{factory::ServiceFactory, token::TokenService},
     },
-    dev::fixtures::root_user_id,
+    dev::fixtures::{global_ws_id, root_user_id},
     store::{
         ctx::StoreCtx,
         entities::membership::MembershipStatus,
@@ -79,7 +76,6 @@ where
 
         let mem_id = claims.mem_id()?;
         let acc_id = claims.acc_id()?;
-        let ws_id = claims.ws_id()?;
         let sid = claims.sid();
 
         // Build the keyed template, then read the auth cache.
@@ -101,24 +97,14 @@ where
         auth_resolver.validate(&auth_cache, &claims)?;
 
         // Reconstruct the CoreCtx from the cached auth scope.
-        let auth_scope = auth_cache.auth_scope.clone();
-
-        let account = Account {
-            id: acc_id,
-            ..Default::default()
-        };
-
-        let workspace = Workspace {
-            id: auth_scope.workspace_id,
-            ..Default::default()
-        };
+        let scoped_ws_id = auth_cache.auth_scope.workspace_id;
 
         // TODO: REMOVE THIS IN PRODUCTION
         // GIVES ROOT USER FULL ACCESS
         let mut core_ctx = if acc_id == root_user_id() {
-            CoreCtx::new(AuthCache::root_cache(), account, workspace)?
+            CoreCtx::new(AuthCache::root_cache(), global_ws_id())?
         } else {
-            CoreCtx::new(auth_cache, account, workspace)?
+            CoreCtx::new(auth_cache, scoped_ws_id)?
         };
 
         info!(

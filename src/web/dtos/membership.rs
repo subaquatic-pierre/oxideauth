@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::core::error::CoreResult;
 use crate::core::models::{
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
     membership::{
@@ -10,21 +11,21 @@ use crate::core::models::{
     },
     role::Role,
 };
+use crate::core::traits::params::IntoParams;
 use crate::store::entities::membership::{MembershipScope, MembershipStatus};
 
 // --- MembershipDescribeReq ---
 #[derive(Deserialize)]
 pub struct MembershipDescribeReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
 }
 
-impl From<MembershipDescribeReq> for MembershipDescribeParams {
-    fn from(value: MembershipDescribeReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-        }
+impl IntoParams<MembershipDescribeParams> for MembershipDescribeReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<MembershipDescribeParams> {
+        Ok(MembershipDescribeParams {
+            id: self.id,
+            workspace_id,
+        })
     }
 }
 
@@ -68,7 +69,6 @@ impl From<Membership> for MembershipDescribeRes {
 #[derive(Deserialize)]
 pub struct MembershipCreateReq {
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
     pub scope: MembershipScope,
     pub status: MembershipStatus,
     pub project_id: Option<Uuid>,
@@ -77,18 +77,18 @@ pub struct MembershipCreateReq {
     pub meta: MembershipMeta,
 }
 
-impl From<MembershipCreateReq> for MembershipCreateParams {
-    fn from(value: MembershipCreateReq) -> Self {
-        Self {
-            account_id: value.account_id,
-            workspace_id: value.workspace_id,
-            scope: value.scope,
-            status: value.status,
-            project_id: value.project_id,
-            role_ids: value.role_ids,
-            tags: value.tags,
-            meta: value.meta,
-        }
+impl IntoParams<MembershipCreateParams> for MembershipCreateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<MembershipCreateParams> {
+        Ok(MembershipCreateParams {
+            account_id: self.account_id,
+            workspace_id,
+            scope: self.scope,
+            status: self.status,
+            project_id: self.project_id,
+            role_ids: self.role_ids,
+            tags: self.tags,
+            meta: self.meta,
+        })
     }
 }
 
@@ -96,7 +96,6 @@ impl From<MembershipCreateReq> for MembershipCreateParams {
 #[derive(Deserialize)]
 pub struct MembershipUpdateReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
     pub status: Option<MembershipStatus>,
     pub scope: Option<MembershipScope>,
     pub project_id: Option<Uuid>,
@@ -104,35 +103,34 @@ pub struct MembershipUpdateReq {
     pub meta: Option<MembershipMeta>,
 }
 
-impl From<MembershipUpdateReq> for MembershipUpdateParams {
-    fn from(value: MembershipUpdateReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-            status: value.status,
-            scope: value.scope,
-            project_id: value.project_id,
-            tags: value.tags,
-            meta: value.meta,
-        }
+impl IntoParams<MembershipUpdateParams> for MembershipUpdateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<MembershipUpdateParams> {
+        Ok(MembershipUpdateParams {
+            id: self.id,
+            workspace_id,
+            status: self.status,
+            scope: self.scope,
+            project_id: self.project_id,
+            tags: self.tags,
+            meta: self.meta,
+        })
     }
 }
 
 // --- MembershipListReq ---
 #[derive(Deserialize, Debug)]
 pub struct MembershipListReq {
-    pub workspace_id: Uuid,
     pub filter: Option<RequestFilterParams<MembershipFilter>>,
     pub options: Option<RequestListOptions>,
 }
 
-impl From<MembershipListReq> for MembershipListParams {
-    fn from(value: MembershipListReq) -> Self {
-        Self {
-            workspace_id: value.workspace_id,
-            filter: value.filter,
-            options: value.options,
-        }
+impl IntoParams<MembershipListParams> for MembershipListReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<MembershipListParams> {
+        Ok(MembershipListParams {
+            workspace_id,
+            filter: self.filter,
+            options: self.options,
+        })
     }
 }
 
@@ -147,15 +145,14 @@ pub struct MembershipListRes {
 #[derive(Deserialize)]
 pub struct MembershipDeleteReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
 }
 
-impl From<MembershipDeleteReq> for MembershipDeleteParams {
-    fn from(value: MembershipDeleteReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-        }
+impl IntoParams<MembershipDeleteParams> for MembershipDeleteReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<MembershipDeleteParams> {
+        Ok(MembershipDeleteParams {
+            id: self.id,
+            workspace_id,
+        })
     }
 }
 

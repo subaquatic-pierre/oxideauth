@@ -9,9 +9,12 @@ use crate::{
             PermissionCreateParams, PermissionDeleteParams, PermissionDescribeParams,
             PermissionListParams, PermissionUpdateParams,
         },
-        traits::service::{
-            CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
-            CoreModelListService, CoreModelUpdateService,
+        traits::{
+            params::IntoParams,
+            service::{
+                CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
+                CoreModelListService, CoreModelUpdateService,
+            },
         },
     },
     web::{
@@ -34,7 +37,8 @@ pub async fn describe_permission(
     let Json(body) = body?;
     let svc = app.svc_factory.permission();
 
-    let params: PermissionDescribeParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: PermissionDescribeParams = body.into_params(ws_id)?;
     let perm = svc.describe(&mut ctx, params).await?;
     let res: PermissionDescribeRes = perm.into();
 
@@ -52,7 +56,8 @@ pub async fn list_permissions(
     let Json(body) = body?;
     let svc = app.svc_factory.permission();
 
-    let params: PermissionListParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: PermissionListParams = body.into_params(ws_id)?;
     let list_res = svc.list(&mut ctx, params).await?;
 
     let permissions: Vec<PermissionDescribeRes> = list_res
@@ -79,7 +84,8 @@ pub async fn create_permission(
     let Json(body) = body?;
     let svc = app.svc_factory.permission();
 
-    let params: PermissionCreateParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: PermissionCreateParams = body.into_params(ws_id)?;
     let perm = svc.create(&mut ctx, params).await?;
     let res: PermissionDescribeRes = perm.into();
 
@@ -97,7 +103,8 @@ pub async fn update_permission(
     let Json(body) = body?;
     let svc = app.svc_factory.permission();
 
-    let params: PermissionUpdateParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: PermissionUpdateParams = body.into_params(ws_id)?;
     let perm = svc.update(&mut ctx, params).await?;
     let res: PermissionDescribeRes = perm.into();
 
@@ -115,7 +122,8 @@ pub async fn delete_permission(
     let Json(body) = body?;
     let svc = app.svc_factory.permission();
 
-    let params: PermissionDeleteParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: PermissionDeleteParams = body.into_params(ws_id)?;
     let perm = svc.delete(&mut ctx, params).await?;
 
     let res = PermissionDeleteRes { id: perm.id };

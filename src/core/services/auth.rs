@@ -999,16 +999,8 @@ impl<'a> AuthValidator<'a> {
 
     /// Validates the requested workspace ID against the user's operational context.
     ///
-    /// This function enforces the separation of tenancy by ensuring that a user
-    /// operating within a scoped context (i.e., not a global/root user) can only
-    /// query or mutate data within their assigned workspace.
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx`: The current operational context (`CoreCtx`), which holds the user's
-    ///          authentication and assigned workspace scope.
-    /// * `requested_workspace_id`: The optional workspace ID provided by the client
-    ///                             (e.g., in a query filter or mutation DTO).
+    /// This function enforces the separation of tenancy by ensuring that a
+    /// non-root user always has a concrete workspace ID to operate on.
     ///
     /// # Behavior
     ///
@@ -1018,44 +1010,37 @@ impl<'a> AuthValidator<'a> {
     ///
     /// 2. **Scoped Context (Tenant User):**
     ///    * **Required:** If `requested_workspace_id` is `None`, an error is returned.
-    ///    * **Authorization:** The provided `requested_workspace_id` must exactly match
-    ///      the workspace ID stored in the `ctx.workspace_id()`.
+    ///      (Should not happen in practice — the middleware always resolves a
+    ///      concrete workspace before the service layer.)
     ///
     /// # Returns
     ///
     /// A `CoreResult<Option<Uuid>>` containing:
     ///
-    /// * `Ok(Some(Uuid))`: If validation succeeds (either global or matched scoped).
+    /// * `Ok(Some(Uuid))`: If validation succeeds (either global or scoped with ID).
     /// * `Ok(None)`: Only if in a global context and no ID was requested.
-    /// * `Err(CoreError::Auth)`: If the user is scoped and fails the validation checks.
+    /// * `Err(CoreError::Auth)`: If the user is scoped and no ID was provided.
     pub fn validate_workspace(
         &self,
         requested_workspace_id: Option<Uuid>,
     ) -> CoreResult<Option<Uuid>> {
-        let ctx = self.ctx;
-        let is_global_context = ctx.is_global_workspace()?;
+        let is_global_context = self.ctx.is_global_workspace()?;
 
         if is_global_context {
             // Case 1: Global context (admin/root).
             return Ok(requested_workspace_id);
         }
 
-        // Case 2: Scoped context.
-        let ctx_workspace_id = ctx.workspace_id();
-
-        // 2a: Scoped user must provide an ID.
-        let requested_workspace_id = match requested_workspace_id {
-            Some(id) => id,
-            None => return Err(CoreError::Auth("workspace_id required".to_string())),
-        };
-
-        // 2b: Provided ID must match the context's ID.
-        if ctx_workspace_id != requested_workspace_id {
-            return Err(CoreError::Auth("unauthorized workspace".to_string()));
+        // Case 2: Scoped context — must have a concrete workspace.
+        match requested_workspace_id {
+            Some(id) => {
+                if self.ctx.auth_cache.auth_scope.workspace_id != id {
+                    return Err(CoreError::Auth("unauthorized workspace".to_string()));
+                }
+                Ok(Some(id))
+            }
+            None => Err(CoreError::Auth("workspace_id required".to_string())),
         }
-
-        // 2c: Success. The scoped user is operating within their assigned workspace.
-        Ok(Some(requested_workspace_id))
     }
 }
 

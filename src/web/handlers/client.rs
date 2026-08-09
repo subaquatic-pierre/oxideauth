@@ -10,9 +10,12 @@ use crate::{
             ClientUpdateParams,
         },
         services::client::ClientSecret,
-        traits::service::{
-            CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
-            CoreModelListService, CoreModelUpdateService,
+        traits::{
+            params::IntoParams,
+            service::{
+                CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
+                CoreModelListService, CoreModelUpdateService,
+            },
         },
     },
     web::{
@@ -36,7 +39,8 @@ pub async fn create_client(
     let Json(body) = body?;
     let svc = app.svc_factory.client();
 
-    let params: ClientCreateParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: ClientCreateParams = body.into_params(ws_id)?;
     let client = svc.create(&mut ctx, params).await?;
 
     // TODO: need to return secret somehow - for now, model doesn't expose it
@@ -56,7 +60,8 @@ pub async fn list_clients(
     let Json(body) = body?;
     let svc = app.svc_factory.client();
 
-    let params: ClientListParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: ClientListParams = body.into_params(ws_id)?;
     let list_res = svc.list(&mut ctx, params).await?;
 
     let clients: Vec<ClientDescribeRes> = list_res
@@ -83,10 +88,11 @@ pub async fn validate_client(
 ) -> JsonResResult<WebResponse<ClientValidateRes>> {
     let Json(body) = body?;
     let svc = app.svc_factory.client();
+    let ws_id = ctx.scoped_ws_id();
     let authorized = svc
         .validate(
             &mut ctx,
-            body.workspace_id,
+            ws_id,
             &body.client_secret,
             &body.user_token,
             &body.required_permissions,
@@ -107,7 +113,8 @@ pub async fn describe_client(
     let Json(body) = body?;
     let svc = app.svc_factory.client();
 
-    let params: ClientDescribeParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: ClientDescribeParams = body.into_params(ws_id)?;
     let client = svc.describe(&mut ctx, params).await?;
     let res: ClientDescribeRes = client.into();
 
@@ -125,7 +132,8 @@ pub async fn update_client(
     let Json(body) = body?;
     let svc = app.svc_factory.client();
 
-    let params: ClientUpdateParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: ClientUpdateParams = body.into_params(ws_id)?;
     let client = svc.update(&mut ctx, params).await?;
     let res: ClientDescribeRes = client.into();
 
@@ -143,7 +151,8 @@ pub async fn delete_client(
     let Json(body) = body?;
     let svc = app.svc_factory.client();
 
-    let params: ClientDeleteParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: ClientDeleteParams = body.into_params(ws_id)?;
     let client = svc.delete(&mut ctx, params).await?;
 
     let res = ClientDeleteRes { id: client.id };
@@ -162,8 +171,9 @@ pub async fn regenerate_secret_client(
     let Json(body) = body?;
     let svc = app.svc_factory.client();
 
+    let ws_id = ctx.scoped_ws_id();
     let client_secret = svc
-        .regenerate_secret(&mut ctx, body.id, body.workspace_id)
+        .regenerate_secret(&mut ctx, body.id, ws_id)
         .await?;
 
     let res = ClientRegenerateSecretRes {

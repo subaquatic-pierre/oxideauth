@@ -9,9 +9,12 @@ use crate::{
             Project, ProjectCreateParams, ProjectDeleteParams, ProjectDescribeParams,
             ProjectListParams, ProjectUpdateParams,
         },
-        traits::service::{
-            CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
-            CoreModelListService, CoreModelUpdateService,
+        traits::{
+            params::IntoParams,
+            service::{
+                CoreModelCreateService, CoreModelDeleteService, CoreModelDescribeService,
+                CoreModelListService, CoreModelUpdateService,
+            },
         },
     },
     web::{
@@ -34,7 +37,8 @@ pub async fn describe_project(
     let Json(body) = body?;
     let svc = app.svc_factory.project();
 
-    let params: ProjectDescribeParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: ProjectDescribeParams = body.into_params(ws_id)?;
 
     let project = svc.describe(&mut ctx, params).await?;
 
@@ -54,7 +58,8 @@ pub async fn list_projects(
     let Json(body) = body?;
     let svc = app.svc_factory.project();
 
-    let params: ProjectListParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: ProjectListParams = body.into_params(ws_id)?;
     let res = svc.list(&mut ctx, params).await?;
 
     let projects: Vec<ProjectDescribeRes> =
@@ -78,7 +83,8 @@ pub async fn create_project(
     let Json(body) = body?;
     let svc = app.svc_factory.project();
 
-    let params: ProjectCreateParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: ProjectCreateParams = body.into_params(ws_id)?;
 
     let project = svc.create(&mut ctx, params).await?;
 
@@ -98,7 +104,8 @@ pub async fn update_project(
     let Json(body) = body?;
     let svc = app.svc_factory.project();
 
-    let params: ProjectUpdateParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: ProjectUpdateParams = body.into_params(ws_id)?;
 
     let project = svc.update(&mut ctx, params).await?;
 
@@ -118,7 +125,8 @@ pub async fn delete_project(
     let Json(body) = body?;
     let svc = app.svc_factory.project();
 
-    let params: ProjectDeleteParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: ProjectDeleteParams = body.into_params(ws_id)?;
 
     let project = svc.delete(&mut ctx, params).await?;
 

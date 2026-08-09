@@ -1,28 +1,29 @@
 use axum::{
-    RequestExt,
     body::Body,
-    extract::{FromRequest, Request},
-    http::{HeaderMap, StatusCode, header::AUTHORIZATION},
+    extract::Request,
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-};
-use axum_extra::{
-    TypedHeader,
-    headers::{Authorization, authorization::Bearer},
 };
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tower::{Layer, Service};
-use tracing::{debug, error};
+use tracing::error;
+use uuid::Uuid;
 
 use crate::{
-    app::{App, AppState},
+    app::App,
     cache::redis::RedisChx,
     core::services::ctx::CtxService,
     web::error::ErrorBody,
 };
-use crate::{core::services::token::TokenService, store::dbx::PgDbx}; // Use Axum's body type
+use crate::{core::services::token::TokenService, store::dbx::PgDbx};
+
+/// Header used by global/root tokens to specify which workspace they are
+/// operating on. Scoped tokens do not need to send this header — their
+/// workspace is resolved from the JWT.
+const WORKSPACE_ID_HEADER: &str = "X-Workspace-Id";
 
 #[derive(Clone)]
 pub struct CtxLayer {
@@ -58,6 +59,15 @@ pub struct CtxMw<S> {
     ctx_svc: Arc<CtxService<PgDbx, RedisChx>>,
 }
 
+/// Parse the `X-Workspace-Id` header as a UUID. Returns `None` if the header
+/// is missing or unparseable.
+fn parse_workspace_header(headers: &HeaderMap) -> Option<Uuid> {
+    headers
+        .get(WORKSPACE_ID_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| Uuid::parse_str(s).ok())
+}
+
 impl<S> Service<Request<Body>> for CtxMw<S>
 where
     S: Service<Request, Response = Response> + Send + 'static + Clone,
@@ -72,18 +82,36 @@ where
     }
 
     fn call(&mut self, mut req: Request) -> Self::Future {
-        // Clone the state so we can move it into the async block
         let ctx_svc = self.ctx_svc.clone();
         let mut inner = self.inner.clone();
 
         Box::pin(async move {
-            // Extract the Authorization header
+            // Extract the parsed workspace header early (before ctx is moved).
+            let header_ws = parse_workspace_header(req.headers());
 
-            // Call your auth service
             match ctx_svc.resolve_ctx(req.headers()).await {
-                Ok(ctx) => {
-                    req.extensions_mut().insert(ctx);
+                Ok(mut ctx) => {
+                    // Resolve the operational workspace for global tokens.
+                    if ctx.is_global_workspace().unwrap_or(false) {
+                        match header_ws {
+                            Some(ws) => ctx.set_scoped_ws_id(ws),
+                            None => {
+                                error!("X-Workspace-Id header required for global-scope tokens");
+                                let body = ErrorBody {
+                                    success: false,
+                                    status: StatusCode::BAD_REQUEST.as_u16(),
+                                    message: "X-Workspace-Id header required for global-scope tokens"
+                                        .to_string(),
+                                };
+                                return Ok(
+                                    (StatusCode::BAD_REQUEST, axum::Json(body)).into_response()
+                                );
+                            }
+                        }
+                    }
+                    // Scoped tokens: scoped_ws_id is already the token's workspace.
 
+                    req.extensions_mut().insert(ctx);
                     inner.call(req).await
                 }
                 Err(e) => {

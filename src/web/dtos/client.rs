@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::core::error::CoreResult;
 use crate::core::models::{
     client::{
         Client, ClientCreateParams, ClientDeleteParams, ClientDescribeParams, ClientFilter,
@@ -10,20 +11,20 @@ use crate::core::models::{
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
     workspace::Workspace,
 };
+use crate::core::traits::params::IntoParams;
 
 // --- ClientDescribeReq ---
 #[derive(Deserialize)]
 pub struct ClientDescribeReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
 }
 
-impl From<ClientDescribeReq> for ClientDescribeParams {
-    fn from(value: ClientDescribeReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-        }
+impl IntoParams<ClientDescribeParams> for ClientDescribeReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientDescribeParams> {
+        Ok(ClientDescribeParams {
+            id: self.id,
+            workspace_id,
+        })
     }
 }
 
@@ -60,7 +61,6 @@ impl From<Client> for ClientDescribeRes {
 // --- ClientCreateReq ---
 #[derive(Deserialize)]
 pub struct ClientCreateReq {
-    pub workspace_id: Uuid,
     pub name: String,
     pub endpoint: Option<String>,
     pub description: Option<String>,
@@ -68,16 +68,16 @@ pub struct ClientCreateReq {
     pub meta: ClientMeta,
 }
 
-impl From<ClientCreateReq> for ClientCreateParams {
-    fn from(value: ClientCreateReq) -> Self {
-        Self {
-            workspace_id: value.workspace_id,
-            name: value.name,
-            endpoint: value.endpoint,
-            description: value.description,
-            tags: value.tags,
-            meta: value.meta,
-        }
+impl IntoParams<ClientCreateParams> for ClientCreateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientCreateParams> {
+        Ok(ClientCreateParams {
+            workspace_id,
+            name: self.name,
+            endpoint: self.endpoint,
+            description: self.description,
+            tags: self.tags,
+            meta: self.meta,
+        })
     }
 }
 
@@ -141,7 +141,6 @@ impl From<(Client, String)> for ClientCreateRes {
 #[derive(Deserialize)]
 pub struct ClientUpdateReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
     pub name: Option<String>,
     pub endpoint: Option<String>,
     pub description: Option<String>,
@@ -149,17 +148,17 @@ pub struct ClientUpdateReq {
     pub meta: Option<ClientMeta>,
 }
 
-impl From<ClientUpdateReq> for ClientUpdateParams {
-    fn from(value: ClientUpdateReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-            name: value.name,
-            endpoint: value.endpoint,
-            description: value.description,
-            tags: value.tags,
-            meta: value.meta,
-        }
+impl IntoParams<ClientUpdateParams> for ClientUpdateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientUpdateParams> {
+        Ok(ClientUpdateParams {
+            id: self.id,
+            workspace_id,
+            name: self.name,
+            endpoint: self.endpoint,
+            description: self.description,
+            tags: self.tags,
+            meta: self.meta,
+        })
     }
 }
 
@@ -167,15 +166,14 @@ impl From<ClientUpdateReq> for ClientUpdateParams {
 #[derive(Deserialize)]
 pub struct ClientDeleteReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
 }
 
-impl From<ClientDeleteReq> for ClientDeleteParams {
-    fn from(value: ClientDeleteReq) -> Self {
-        Self {
-            id: value.id,
-            workspace_id: value.workspace_id,
-        }
+impl IntoParams<ClientDeleteParams> for ClientDeleteReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientDeleteParams> {
+        Ok(ClientDeleteParams {
+            id: self.id,
+            workspace_id,
+        })
     }
 }
 
@@ -189,7 +187,6 @@ pub struct ClientDeleteRes {
 #[derive(Deserialize)]
 pub struct ClientRegenerateSecretReq {
     pub id: Uuid,
-    pub workspace_id: Uuid,
 }
 
 // --- ClientRegenerateSecretRes ---
@@ -202,18 +199,17 @@ pub struct ClientRegenerateSecretRes {
 // --- ClientListReq ---
 #[derive(Deserialize, Debug)]
 pub struct ClientListReq {
-    pub workspace_id: Uuid,
     pub filter: Option<RequestFilterParams<ClientFilter>>,
     pub options: Option<RequestListOptions>,
 }
 
-impl From<ClientListReq> for ClientListParams {
-    fn from(value: ClientListReq) -> Self {
-        Self {
-            workspace_id: value.workspace_id,
-            filter: value.filter,
-            options: value.options,
-        }
+impl IntoParams<ClientListParams> for ClientListReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientListParams> {
+        Ok(ClientListParams {
+            workspace_id,
+            filter: self.filter,
+            options: self.options,
+        })
     }
 }
 
@@ -227,7 +223,6 @@ pub struct ClientListRes {
 // --- ClientValidateReq ---
 #[derive(Deserialize)]
 pub struct ClientValidateReq {
-    pub workspace_id: Uuid,
     pub client_secret: String,
     pub user_token: String,
     pub required_permissions: Vec<String>,

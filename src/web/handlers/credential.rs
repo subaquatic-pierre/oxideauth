@@ -9,9 +9,12 @@ use crate::{
             CredentialDeleteParams, CredentialDescribeParams, CredentialListParams,
             CredentialUpdateParams,
         },
-        traits::service::{
-            CoreModelDeleteService, CoreModelDescribeService, CoreModelListService,
-            CoreModelUpdateService,
+        traits::{
+            params::IntoParams,
+            service::{
+                CoreModelDeleteService, CoreModelDescribeService, CoreModelListService,
+                CoreModelUpdateService,
+            },
         },
     },
     web::{
@@ -34,7 +37,8 @@ pub async fn describe_credential(
     let Json(body) = body?;
     let svc = app.svc_factory.credential();
 
-    let params: CredentialDescribeParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: CredentialDescribeParams = body.into_params(ws_id)?;
     let c = svc.describe(&mut ctx, params).await?;
     let res: CredentialDescribeRes = c.into();
 
@@ -52,7 +56,8 @@ pub async fn list_credentials(
     let Json(body) = body?;
     let svc = app.svc_factory.credential();
 
-    let params: CredentialListParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: CredentialListParams = body.into_params(ws_id)?;
     let list_res = svc.list(&mut ctx, params).await?;
 
     let credentials: Vec<CredentialDescribeRes> = list_res
@@ -79,7 +84,8 @@ pub async fn update_credential(
     let Json(body) = body?;
     let svc = app.svc_factory.credential();
 
-    let params: CredentialUpdateParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: CredentialUpdateParams = body.into_params(ws_id)?;
     let c = svc.update(&mut ctx, params).await?;
     let res: CredentialDescribeRes = c.into();
 
@@ -97,7 +103,8 @@ pub async fn delete_credential(
     let Json(body) = body?;
     let svc = app.svc_factory.credential();
 
-    let params: CredentialDeleteParams = body.into();
+    let ws_id = ctx.scoped_ws_id();
+    let params: CredentialDeleteParams = body.into_params(ws_id)?;
     let c = svc.delete(&mut ctx, params).await?;
 
     let res = CredentialDeleteRes { id: c.id };
