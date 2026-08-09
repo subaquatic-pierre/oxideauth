@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::Request,
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use std::future::Future;
@@ -15,15 +15,10 @@ use uuid::Uuid;
 use crate::{
     app::App,
     cache::redis::RedisChx,
-    core::services::ctx::CtxService,
+    core::{error::CoreError, services::ctx::CtxService},
     web::error::ErrorBody,
 };
 use crate::{core::services::token::TokenService, store::dbx::PgDbx};
-
-/// Header used by global/root tokens to specify which workspace they are
-/// operating on. Scoped tokens do not need to send this header — their
-/// workspace is resolved from the JWT.
-const WORKSPACE_ID_HEADER: &str = "X-Workspace-Id";
 
 #[derive(Clone)]
 pub struct CtxLayer {
@@ -59,15 +54,6 @@ pub struct CtxMw<S> {
     ctx_svc: Arc<CtxService<PgDbx, RedisChx>>,
 }
 
-/// Parse the `X-Workspace-Id` header as a UUID. Returns `None` if the header
-/// is missing or unparseable.
-fn parse_workspace_header(headers: &HeaderMap) -> Option<Uuid> {
-    headers
-        .get(WORKSPACE_ID_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| Uuid::parse_str(s).ok())
-}
-
 impl<S> Service<Request<Body>> for CtxMw<S>
 where
     S: Service<Request, Response = Response> + Send + 'static + Clone,
@@ -87,41 +73,24 @@ where
 
         Box::pin(async move {
             // Extract the parsed workspace header early (before ctx is moved).
-            let header_ws = parse_workspace_header(req.headers());
-
             match ctx_svc.resolve_ctx(req.headers()).await {
                 Ok(mut ctx) => {
-                    // Resolve the operational workspace for global tokens.
-                    if ctx.is_global_workspace().unwrap_or(false) {
-                        match header_ws {
-                            Some(ws) => ctx.set_scoped_ws_id(ws),
-                            None => {
-                                error!("X-Workspace-Id header required for global-scope tokens");
-                                let body = ErrorBody {
-                                    success: false,
-                                    status: StatusCode::BAD_REQUEST.as_u16(),
-                                    message: "X-Workspace-Id header required for global-scope tokens"
-                                        .to_string(),
-                                };
-                                return Ok(
-                                    (StatusCode::BAD_REQUEST, axum::Json(body)).into_response()
-                                );
-                            }
-                        }
-                    }
-                    // Scoped tokens: scoped_ws_id is already the token's workspace.
-
                     req.extensions_mut().insert(ctx);
                     inner.call(req).await
                 }
                 Err(e) => {
+                    error!("{e}");
+
+                    let message = match e {
+                        CoreError::Auth(msg) => msg,
+                        _ => "unauthorized".into(),
+                    };
+
                     let body = ErrorBody {
                         success: false,
                         status: StatusCode::UNAUTHORIZED.as_u16(),
-                        message: "unauthorized".to_string(),
+                        message,
                     };
-
-                    error!("{e}");
 
                     Ok((StatusCode::UNAUTHORIZED, axum::Json(body)).into_response())
                 }

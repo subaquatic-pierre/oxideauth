@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use axum::http::HeaderMap;
-use tracing::info;
+use reqwest::StatusCode;
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::{
@@ -25,7 +26,13 @@ use crate::{
         manager::StoreManager,
         traits::{crud::Get, dbx::DbExecutor},
     },
+    web::error::ErrorBody,
 };
+
+/// Header used by global/root tokens to specify which workspace they are
+/// operating on. Scoped tokens do not need to send this header — their
+/// workspace is resolved from the JWT.
+const WORKSPACE_ID_HEADER: &str = "X-Workspace-Id";
 
 pub struct CtxService<D, C>
 where
@@ -68,6 +75,8 @@ where
     /// 4. Validate version claims (membership/account/session) and status
     ///    flags, then reconstruct the `CoreCtx` from the cached auth scope.
     pub async fn resolve_ctx(&self, headers: &HeaderMap) -> CoreResult<CoreCtx> {
+        // debug!("HEADERS: {:#?}", headers);
+
         let token_str = TokenService::<D>::token_str_from_headers(headers)
             .ok_or_else(|| CoreError::Auth("missing authorization header".into()))?;
 
@@ -80,10 +89,38 @@ where
 
         // Build the keyed template, then read the auth cache.
         let keyed = AuthCache::new_keyed(mem_id, acc_id, sid);
-        let auth_cache = match self.cm.auth.fetch(&keyed).await? {
+        let auth_cache = self.fetch_auth_cache(&keyed).await?;
+
+        // Validate version/status claims against the cached state.
+        let auth_resolver = AuthContextResolver::new(self.sm.clone(), &self.config);
+        auth_resolver.validate(&auth_cache, &claims)?;
+
+        let ws_scope = auth_cache.auth_scope.workspace_id;
+        let mut core_ctx = CoreCtx::new(auth_cache, ws_scope)?;
+
+        // scope global workspace if token is global scope
+        // this mutates ctx internal state and ensures header is set
+        // for workspace in which to operate
+        self.validate_and_scope_global_workspace(headers, &mut core_ctx)?;
+        let ws_id = core_ctx.scoped_ws_id();
+
+        info!(
+            account_id = %acc_id,
+            membership_id = %mem_id,
+            workspace_id = %ws_id,
+            "CTX_RESOLVED"
+        );
+
+        Ok(core_ctx)
+    }
+
+    async fn fetch_auth_cache(&self, keyed: &AuthCache) -> CoreResult<AuthCache> {
+        let hydrated = match self.cm.auth.fetch(&keyed).await? {
             Some(entity) => entity,
             None => {
-                let hydrated = self.build_auth_cache_from_db(mem_id, acc_id, sid).await?;
+                let hydrated = self
+                    .build_auth_cache_from_db(keyed.mem_id, keyed.acc_id, keyed.sid)
+                    .await?;
                 self.cm
                     .auth
                     .write(&hydrated, self.config.access_token_max_age)
@@ -92,28 +129,37 @@ where
             }
         };
 
-        // Validate version/status claims against the cached state.
-        let auth_resolver = AuthContextResolver::new(self.sm.clone(), &self.config);
-        auth_resolver.validate(&auth_cache, &claims)?;
+        Ok(hydrated)
+    }
 
-        // Reconstruct the CoreCtx from the cached auth scope.
-        let scoped_ws_id = auth_cache.auth_scope.workspace_id;
-
-        // TODO: REMOVE THIS IN PRODUCTION
-        // GIVES ROOT USER FULL ACCESS
-        let mut core_ctx = if acc_id == root_user_id() {
-            CoreCtx::new(AuthCache::root_cache(), global_ws_id())?
+    fn validate_and_scope_global_workspace(
+        &self,
+        headers: &HeaderMap,
+        ctx: &mut CoreCtx,
+    ) -> CoreResult<()> {
+        let header_ws = CtxService::<D, C>::parse_workspace_header(headers);
+        let scoped_ws = if ctx.is_global_workspace().unwrap_or(false) {
+            match header_ws {
+                Some(scoped_ws) => {
+                    // TODO: REMOVE THIS, QUICK HACK FOR DEVELOPMENT PURPOSE
+                    // WE NEED TO EXPLICIT ADD PERMISSIONS TO ACCOUNTS/MEMBERSHIPS
+                    // THAT ARE IN THE GLOBAL NAMESPACE
+                    ctx.extend_perms(&["*:*"]);
+                    scoped_ws
+                }
+                None => {
+                    error!("X-Workspace-Id header required for global-scope tokens");
+                    return Err(CoreError::Auth(
+                        "X-Workspace-Id header required for global-scope tokens".into(),
+                    ));
+                }
+            }
         } else {
-            CoreCtx::new(auth_cache, scoped_ws_id)?
+            ctx.auth_cache.auth_scope.workspace_id.clone()
         };
 
-        info!(
-            account_id = %acc_id,
-            membership_id = %mem_id,
-            "CTX_RESOLVED"
-        );
-
-        Ok(core_ctx)
+        ctx.set_scoped_ws_id(scoped_ws);
+        Ok(())
     }
 
     /// Hydrates a fully-populated `AuthCache` from the database.
@@ -170,6 +216,15 @@ where
             acc_enabled: acc_row.enabled,
             auth_scope,
         })
+    }
+
+    /// Parse the `X-Workspace-Id` header as a UUID. Returns `None` if the header
+    /// is missing or unparseable.
+    pub fn parse_workspace_header(headers: &HeaderMap) -> Option<Uuid> {
+        headers
+            .get(WORKSPACE_ID_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| Uuid::parse_str(s).ok())
     }
 }
 
