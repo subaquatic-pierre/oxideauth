@@ -20,6 +20,7 @@ use crate::{
         middlewares::{
             cors::build_cors,
             ctx::{CtxLayer, CtxMw},
+            empty_body::empty_body_fallback,
             fallback::FallbackMw,
             request::RequestMw,
             response::ResponseMw,
@@ -54,6 +55,7 @@ impl AppRouter {
             .nest("/memberships", MembershipRouter::routes())
             .nest("/credentials", CredentialRouter::routes())
             .nest("/auth", AuthRouter::protected_routes())
+            .layer(from_fn(empty_body_fallback))
             .layer(ctx);
 
         Router::new()
