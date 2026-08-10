@@ -29,7 +29,7 @@ pub type PermissionFilter = StorePermissionFilter;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Permission {
     pub id: Uuid,
-    pub workspace: Workspace,
+    pub workspace_id: Uuid,
 
     pub name: String,
     pub description: Option<String>,
@@ -40,23 +40,17 @@ pub struct Permission {
     pub audit: CoreAuditFields,
 }
 
-impl Permission {
-    pub fn from_row_with_entities(row: PermissionRow, workspace: Workspace) -> CoreResult<Self> {
-        if row.workspace_id != workspace.id {
-            return Err(CoreError::InvalidParams(
-                "row.workspace_id does not match workspace.id".to_string(),
-            ));
-        }
-
-        Ok(Self {
+impl From<PermissionRow> for Permission {
+    fn from(row: PermissionRow) -> Self {
+        Self {
             id: row.id.into(),
-            workspace,
+            workspace_id: row.workspace_id,
             name: row.name,
             description: row.description,
             tags: row.tags,
             meta: row.meta,
             audit: row.audit.into(),
-        })
+        }
     }
 }
 
@@ -64,7 +58,7 @@ impl Default for Permission {
     fn default() -> Self {
         Self {
             id: Uuid::new_v4(),
-            workspace: Workspace::default(),
+            workspace_id: Uuid::nil(),
             name: "New Permission".to_string(),
             description: None,
             tags: vec![],

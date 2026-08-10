@@ -33,6 +33,7 @@ impl IntoParams<MembershipDescribeParams> for MembershipDescribeReq {
 #[derive(Serialize, Debug)]
 pub struct MembershipDescribeRes {
     pub id: Uuid,
+    pub workspace_id: Uuid,
     pub account_id: Uuid,
     pub project_id: Option<Uuid>,
     pub scope: MembershipScope,
@@ -50,6 +51,7 @@ impl From<Membership> for MembershipDescribeRes {
     fn from(m: Membership) -> Self {
         Self {
             id: m.id,
+            workspace_id: m.workspace_id,
             account_id: m.account.id,
             project_id: m.project_id,
             scope: m.scope,

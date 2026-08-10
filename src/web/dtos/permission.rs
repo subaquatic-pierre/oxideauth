@@ -31,6 +31,7 @@ impl IntoParams<PermissionDescribeParams> for PermissionDescribeReq {
 #[derive(Serialize, Debug)]
 pub struct PermissionDescribeRes {
     pub id: Uuid,
+    pub workspace_id: Uuid,
     pub name: String,
     pub description: Option<String>,
     pub tags: Vec<String>,
@@ -45,6 +46,7 @@ impl From<Permission> for PermissionDescribeRes {
     fn from(perm: Permission) -> Self {
         Self {
             id: perm.id,
+            workspace_id: perm.workspace_id,
             name: perm.name,
             description: perm.description,
             tags: perm.tags,

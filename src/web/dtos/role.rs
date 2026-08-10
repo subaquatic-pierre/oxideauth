@@ -32,6 +32,7 @@ impl IntoParams<RoleDescribeParams> for RoleDescribeReq {
 #[derive(Serialize, Debug)]
 pub struct RoleDescribeRes {
     pub id: Uuid,
+    pub workspace_id: Uuid,
     pub name: String,
     pub description: Option<String>,
     pub permissions: Vec<Permission>,
@@ -47,6 +48,7 @@ impl From<Role> for RoleDescribeRes {
     fn from(role: Role) -> Self {
         Self {
             id: role.id,
+            workspace_id: role.workspace_id,
             name: role.name,
             description: role.description,
             permissions: role.permissions,

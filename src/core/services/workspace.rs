@@ -1,4 +1,7 @@
-use std::{marker::PhantomData, sync::{Arc, OnceLock, Weak}};
+use std::{
+    marker::PhantomData,
+    sync::{Arc, OnceLock, Weak},
+};
 
 use serde_json::json;
 use uuid::Uuid;
@@ -51,37 +54,35 @@ use crate::{
 
 pub struct WorkspaceService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
-    s: PhantomData<C>,
 
     /// `Weak` to break the Arc cycle with `RoleService`.
     /// Set by `ServiceRegistry` via `wire_role_service()`.
-    rs_svc: OnceLock<Weak<RoleService<D, C>>>,
+    role_svc: OnceLock<Weak<RoleService<D, C>>>,
 
     /// `Weak` to break the Arc cycle with `PermissionService`.
     /// Set by `ServiceRegistry` via `wire_permission_service()`.
-    ps_svc: OnceLock<Weak<PermissionService<D, C>>>,
+    perm_svc: OnceLock<Weak<PermissionService<D, C>>>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
     pub fn new(sm: Arc<StoreManager<D>>) -> Self {
         Self {
             sm,
-            s: PhantomData,
-            rs_svc: OnceLock::new(),
-            ps_svc: OnceLock::new(),
+            role_svc: OnceLock::new(),
+            perm_svc: OnceLock::new(),
         }
     }
 
     /// --- Wiring (called once by ServiceRegistry) ---
 
     pub(crate) fn wire_role_service(&self, role: &Arc<RoleService<D, C>>) {
-        self.rs_svc
+        self.role_svc
             .set(Arc::downgrade(role))
             .expect("wire_role_service must only be called once");
     }
 
     pub(crate) fn wire_permission_service(&self, perm: &Arc<PermissionService<D, C>>) {
-        self.ps_svc
+        self.perm_svc
             .set(Arc::downgrade(perm))
             .expect("wire_permission_service must only be called once");
     }
@@ -89,7 +90,7 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
     /// --- Resolvers ---
 
     fn role_svc(&self) -> Arc<RoleService<D, C>> {
-        self.rs_svc
+        self.role_svc
             .get()
             .expect("RoleService not wired")
             .upgrade()
@@ -97,7 +98,7 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
     }
 
     fn perm_svc(&self) -> Arc<PermissionService<D, C>> {
-        self.ps_svc
+        self.perm_svc
             .get()
             .expect("PermissionService not wired")
             .upgrade()
@@ -143,9 +144,11 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         store_ctx: &StoreCtx,
         workspace_id: Uuid,
     ) -> CoreResult<()> {
-        let permission_store = &self.sm.permission;
+        let perm_svc = self.perm_svc();
 
         for (name, description) in CANONICAL_PERMISSIONS.all() {
+            // perm_svc
+
             // match permission_store
             //     .create(
             //         store_ctx,

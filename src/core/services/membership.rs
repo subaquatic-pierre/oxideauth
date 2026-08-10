@@ -161,7 +161,6 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         ctx: &mut CoreCtx,
         rows: Vec<MembershipWithRoles>,
     ) -> CoreResult<Vec<Membership>> {
-        let mut workspaces: HashMap<Uuid, Workspace> = HashMap::new();
         let mut roles_map: HashMap<Uuid, Role> = HashMap::new();
 
         let mut data: Vec<Membership> = Vec::with_capacity(rows.len());
@@ -194,28 +193,11 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
                 membership_roles.push(role);
             }
 
-            let workspace_id: Uuid = row.membership.workspace_id;
-
-            let workspace = match workspaces.get(&workspace_id) {
-                Some(ws) => ws.clone(),
-                None => {
-                    let ws = self.get_workspace(ctx, workspace_id).await?;
-                    let ws_id = ws.id;
-                    workspaces.insert(ws_id, ws.clone());
-                    ws
-                }
-            };
-
             let account = self
                 .get_account(ctx, row.membership.account_id, row.membership.workspace_id)
                 .await?;
 
-            let membership = Membership::from_row_with_entities(
-                row.membership,
-                membership_roles,
-                account,
-                workspace,
-            )?;
+            let membership = Membership::from((row.membership, membership_roles, account));
 
             data.push(membership);
         }
@@ -317,16 +299,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Members
             )
             .await?;
 
-        let workspace = self
-            .get_workspace(ctx, membership_with_roles.membership.workspace_id)
-            .await?;
-
-        let membership = Membership::from_row_with_entities(
-            membership_with_roles.membership,
-            roles,
-            account,
-            workspace,
-        )?;
+        let membership = Membership::from((membership_with_roles.membership, roles, account));
 
         Ok(membership)
     }
@@ -571,7 +544,7 @@ mod tests {
         };
 
         let membership = svc.create(&mut ctx, params).await?;
-        assert_eq!(membership.workspace.id, workspace_id);
+        assert_eq!(membership.workspace_id, workspace_id);
         assert_eq!(membership.account.id, account_id);
         assert!(membership.tags.contains(&"pioneer".to_string()));
 

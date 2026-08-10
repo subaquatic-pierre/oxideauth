@@ -116,54 +116,12 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
         Ok(())
     }
 
-    async fn role_to_ws_map(
-        &self,
-        ctx: &mut CoreCtx,
-        roles: Vec<RoleRow>,
-    ) -> CoreResult<HashMap<Uuid, Workspace>> {
-        let mut data = HashMap::new();
-        let mut ws_map: HashMap<Uuid, Workspace> = HashMap::new();
-
-        for role in roles.iter() {
-            if let Some(ws) = ws_map.get(&role.workspace_id) {
-                data.insert(role.id.into(), ws.clone());
-            } else {
-                let ws = self.get_workspace(ctx, role.workspace_id).await?;
-                ws_map.insert(ws.id, ws.clone());
-                data.insert(role.id.into(), ws);
-            }
-        }
-
-        Ok(data)
-    }
-
     async fn hydrate_roles(
         &self,
-        ctx: &mut CoreCtx,
+        _ctx: &mut CoreCtx,
         rows: Vec<RoleWithPermissions>,
     ) -> CoreResult<Vec<Role>> {
-        let mut workspaces: HashMap<Uuid, Workspace> = HashMap::new();
-
-        let mut data: Vec<Role> = Vec::with_capacity(rows.len());
-
-        // Hydrate results
-        for row in rows.into_iter() {
-            let workspace_id: Uuid = row.role.workspace_id;
-            let workspace = match workspaces.get(&workspace_id) {
-                Some(ws) => ws,
-                None => {
-                    let ws = self.get_workspace(ctx, workspace_id).await?;
-                    let ws_id = ws.id;
-                    workspaces.insert(ws_id, ws);
-                    // SAFETY: can unwrap as insert occurs directly above
-                    workspaces.get(&ws_id).unwrap()
-                }
-            };
-            let role = Role::from_row_with_entities(row, workspace.clone())?;
-            data.push(role);
-        }
-
-        Ok(data)
+        Ok(rows.into_iter().map(Role::from).collect())
     }
 }
 
@@ -224,17 +182,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for RoleSer
         params: Self::DescribeParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
-        let (store_ctx, workspace) = self
+        let (store_ctx, _workspace) = self
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let role_with_perms_row = store
             .get_many_to_many(&store_ctx, &params.id.into())
             .await?;
-        let ws = self
-            .get_workspace(ctx, role_with_perms_row.role.workspace_id)
-            .await?;
-        let role = Role::from_row_with_entities(role_with_perms_row, ws)?;
+        let role = Role::from(role_with_perms_row);
 
         Ok(role)
     }

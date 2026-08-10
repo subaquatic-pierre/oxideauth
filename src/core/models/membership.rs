@@ -30,7 +30,7 @@ pub type MembershipFilter = StoreMembershipFilter;
 pub struct Membership {
     pub id: Uuid,
     pub account: Account,
-    pub workspace: Workspace,
+    pub workspace_id: Uuid,
     pub project_id: Option<Uuid>,
 
     pub scope: MembershipScope,
@@ -42,26 +42,12 @@ pub struct Membership {
     pub audit: CoreAuditFields,
 }
 
-impl Membership {
-    pub fn from_row_with_entities(
-        membership: MembershipRow,
-        roles: Vec<Role>,
-        account: Account,
-        workspace: Workspace,
-    ) -> CoreResult<Self> {
-        let row = membership;
-
-        if Uuid::from(row.account_id) != account.id {
-            return Err(CoreError::InvalidParams("Account ID mismatch".into()));
-        }
-        if Uuid::from(row.workspace_id) != workspace.id {
-            return Err(CoreError::InvalidParams("Workspace ID mismatch".into()));
-        }
-
-        Ok(Self {
+impl From<(MembershipRow, Vec<Role>, Account)> for Membership {
+    fn from((row, roles, account): (MembershipRow, Vec<Role>, Account)) -> Self {
+        Self {
             id: row.id.into(),
             account,
-            workspace,
+            workspace_id: row.workspace_id,
             project_id: row.project_id,
             scope: row.scope,
             status: row.status,
@@ -69,7 +55,7 @@ impl Membership {
             tags: row.tags,
             meta: row.meta,
             audit: row.audit.into(),
-        })
+        }
     }
 }
 
@@ -157,7 +143,7 @@ impl Default for Membership {
         Self {
             id: Uuid::new_v4(),
             account: Account::default(),
-            workspace: Workspace::default(),
+            workspace_id: Uuid::nil(),
             project_id: None,
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,

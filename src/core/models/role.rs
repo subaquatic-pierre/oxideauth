@@ -25,7 +25,8 @@ use crate::{
         traits::{filter::OpValWorkspaceId, list::RequestListParams},
     },
     store::entities::role::{
-        RoleFilter as StoreRoleFilter, RoleMeta as StoreRoleMeta, RoleRow, RoleWithPermissions,
+        JoinedPermissionOnRole, RoleFilter as StoreRoleFilter, RoleMeta as StoreRoleMeta, RoleRow,
+        RoleWithPermissions,
     },
 };
 
@@ -35,7 +36,7 @@ pub type RoleFilter = StoreRoleFilter;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Role {
     pub id: Uuid,
-    pub workspace: Workspace,
+    pub workspace_id: Uuid,
 
     pub name: String,
     pub description: Option<String>,
@@ -47,25 +48,15 @@ pub struct Role {
     pub audit: CoreAuditFields,
 }
 
-impl Role {
-    pub fn from_row_with_entities(
-        row_with_perms: RoleWithPermissions,
-        workspace: Workspace,
-    ) -> CoreResult<Self> {
-        let row = row_with_perms.role;
-
-        if row.workspace_id != workspace.id {
-            return Err(CoreError::InvalidParams(
-                "row.workspace_id does not match workspace.id".to_string(),
-            ));
-        }
-
-        let permissions = row_with_perms
+impl From<RoleWithPermissions> for Role {
+    fn from(rwp: RoleWithPermissions) -> Self {
+        let row = rwp.role;
+        let permissions = rwp
             .permissions
             .into_iter()
             .map(|el| Permission {
                 id: el.id.into(),
-                workspace: workspace.clone(),
+                workspace_id: el.workspace_id,
                 name: el.name,
                 description: el.description,
                 tags: el.tags,
@@ -82,16 +73,16 @@ impl Role {
             })
             .collect();
 
-        Ok(Self {
+        Self {
             id: row.id.into(),
-            workspace,
+            workspace_id: row.workspace_id,
             name: row.name,
             description: row.description,
             permissions,
             tags: row.tags,
             meta: row.meta,
             audit: row.audit.into(),
-        })
+        }
     }
 }
 
@@ -99,7 +90,7 @@ impl Default for Role {
     fn default() -> Self {
         Self {
             id: Uuid::new_v4(),
-            workspace: Workspace::default(),
+            workspace_id: Uuid::nil(),
             name: "New Role".to_string(),
             description: None,
             permissions: vec![],

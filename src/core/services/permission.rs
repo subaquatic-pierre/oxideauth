@@ -32,7 +32,7 @@ use crate::{
     },
     store::{
         contains::FilterByContains,
-        crud::{Create, Delete, Get, GetCount, List, Update},
+        crud::{Create, CreateMany, Delete, Get, GetCount, List, Update},
         ctx::StoreCtx,
         entities::permission::PermissionRow,
         join::ListManyToMany,
@@ -68,6 +68,23 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
         cm: Arc<CacheManager<C>>,
     ) -> Self {
         Self { sm, cm, ws_svc }
+    }
+
+    pub async fn create_many(
+        &self,
+        ctx: &mut CoreCtx,
+        ws_id: Uuid,
+        perms: Vec<PermissionCreateParams>,
+    ) -> CoreResult<Vec<Permission>> {
+        let (store_ctx, workspace) = self
+            .scope_and_validate_ctx(ctx, ws_id, &[Self::CREATE_PERMISSION])
+            .await?;
+        let data = perms.into_iter().map(|el| el.into()).collect();
+        let res = self.store().create_many(&store_ctx, data).await?;
+
+        let ret = res.into_iter().map(|el| el.into()).collect();
+
+        Ok(ret)
     }
 
     /// Invalidates the account-level auth cache for every membership whose roles
@@ -127,31 +144,10 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
 
     async fn hydrate_permissions(
         &self,
-        ctx: &mut CoreCtx,
+        _ctx: &mut CoreCtx,
         rows: Vec<PermissionRow>,
     ) -> CoreResult<Vec<Permission>> {
-        let mut workspaces: HashMap<Uuid, Workspace> = HashMap::new();
-
-        let mut perms: Vec<Permission> = Vec::with_capacity(rows.len());
-
-        // // Hydrate results
-        for row in rows.into_iter() {
-            let workspace_id: Uuid = row.workspace_id;
-            let workspace = match workspaces.get(&workspace_id) {
-                Some(ws) => ws,
-                None => {
-                    let ws = self.get_workspace(ctx, workspace_id).await?;
-                    let ws_id = ws.id;
-                    workspaces.insert(ws_id, ws);
-                    // SAFETY: can unwrap as insert occurs directly above
-                    workspaces.get(&ws_id).unwrap()
-                }
-            };
-            let perm = Permission::from_row_with_entities(row, workspace.clone())?;
-            perms.push(perm);
-        }
-
-        Ok(perms)
+        Ok(rows.into_iter().map(Permission::from).collect())
     }
 }
 
@@ -194,25 +190,15 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Permiss
         params: Self::DescribeParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
-        let (store_ctx, workspace) = self
+        let (store_ctx, _workspace) = self
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let params = params.validate()?;
-        let ws = self
-            .ws_svc
-            .describe(
-                ctx,
-                WorkspaceDescribeParams {
-                    id: Some(params.workspace_id),
-                    slug: None,
-                },
-            )
-            .await?;
 
         if let Some(id) = params.id {
             let row = store.get(&store_ctx, &id.into()).await?;
-            let perm = Permission::from_row_with_entities(row, ws)?;
+            let perm = Permission::from(row);
 
             return Ok(perm);
         }
