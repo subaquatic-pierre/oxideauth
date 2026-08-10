@@ -94,7 +94,7 @@ impl<D: DbExecutor> WorkspaceService<D> {
     ) -> CoreResult<()> {
         let permission_store = &self.sm.permission;
 
-        for (name, description) in CANONICAL_PERMISSIONS.all_codes() {
+        for (name, description) in CANONICAL_PERMISSIONS.all() {
             match permission_store
                 .create(
                     store_ctx,
@@ -115,7 +115,10 @@ impl<D: DbExecutor> WorkspaceService<D> {
                     // If it's a unique constraint violation, skip (already exists).
                     // Otherwise propagate the error.
                     if e.to_string().contains("duplicate key") || e.to_string().contains("unique") {
-                        tracing::debug!(name = name, "Canonical permission already exists, skipping");
+                        tracing::debug!(
+                            name = name,
+                            "Canonical permission already exists, skipping"
+                        );
                         continue;
                     }
                     return Err(e.into());

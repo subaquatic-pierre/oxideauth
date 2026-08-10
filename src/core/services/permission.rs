@@ -13,8 +13,9 @@ use crate::{
         models::{
             list::ListResponse,
             permission::{
-                Permission, PermissionRule, PermissionCreateParams, PermissionDeleteParams,
-                PermissionDescribeParams, PermissionListParams, PermissionUpdateParams,
+                Permission, PermissionCreateParams, PermissionDeleteParams,
+                PermissionDescribeParams, PermissionListParams, PermissionRule,
+                PermissionUpdateParams,
             },
             role::Role,
             workspace::{Workspace, WorkspaceDescribeParams},
@@ -562,7 +563,7 @@ pub struct CanonicalPermissions {
 
 impl CanonicalPermissions {
     /// Returns all canonical permissions as (name, description) tuples across all domains.
-    pub fn all_codes(&self) -> Vec<(&'static str, &'static str)> {
+    pub fn all(&self) -> Vec<(&'static str, &'static str)> {
         let mut v = Vec::new();
         v.extend_from_slice(self.account.all());
         v.extend_from_slice(self.workspace.all());
@@ -573,6 +574,31 @@ impl CanonicalPermissions {
         v.extend_from_slice(self.credential.all());
         v.extend_from_slice(self.permission.all());
         v
+    }
+
+    pub fn default_workspace_viewer_perms(&self) -> Vec<&'static str> {
+        let v = vec![
+            // account
+            CANONICAL_PERMISSIONS.account.describe, // describe own account
+            CANONICAL_PERMISSIONS.account.update,   // update own account
+            // workspace
+            CANONICAL_PERMISSIONS.workspace.describe, // describe own workspace
+        ];
+
+        v
+    }
+
+    pub fn default_workspace_admin_perms(&self) -> Vec<&'static str> {
+        let mut all = Vec::new();
+        all.extend_from_slice(self.account.all());
+        // all.extend_from_slice(self.workspace.all());
+        all.extend_from_slice(self.project.all());
+        all.extend_from_slice(self.membership.all());
+        all.extend_from_slice(self.role.all());
+        all.extend_from_slice(self.client.all());
+        all.extend_from_slice(self.credential.all());
+        all.extend_from_slice(self.permission.all());
+        all.into_iter().map(|(name, _)| name).collect()
     }
 }
 

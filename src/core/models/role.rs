@@ -123,13 +123,16 @@ pub struct RoleCreateParams {
 }
 
 impl RoleCreateParams {
-    pub fn new_default_workspace_role(ws_id: Uuid, perm_ids: Vec<Uuid>) -> Self {
+    pub fn new_workspace_system_role(
+        ws_id: Uuid,
+        name: &str,
+        desc: Option<&str>,
+        perm_ids: Vec<Uuid>,
+    ) -> Self {
         Self {
-            workspace_id: todo!(),
-            name: "Default Workspace Role".to_string(),
-            description: Some(
-                "Default role assigned to all memberships of a workspace".to_string(),
-            ),
+            workspace_id: ws_id,
+            name: name.to_string(),
+            description: desc.map(|d| d.to_string()),
             permission_ids: perm_ids,
             tags: vec!["system".to_string()],
             meta: RoleMeta::default(),

@@ -85,14 +85,14 @@ pub struct PermissionCreateParams {
     pub meta: PermissionMeta,
 }
 
-impl Into<PermissionForCreate> for PermissionCreateParams {
-    fn into(self) -> PermissionForCreate {
+impl From<PermissionCreateParams> for PermissionForCreate {
+    fn from(value: PermissionCreateParams) -> Self {
         PermissionForCreate {
-            workspace_id: self.workspace_id.into(),
-            name: self.name,
-            description: self.description,
-            tags: self.tags,
-            meta: self.meta,
+            workspace_id: value.workspace_id.into(),
+            name: value.name,
+            description: value.description,
+            tags: value.tags,
+            meta: value.meta,
         }
     }
 }

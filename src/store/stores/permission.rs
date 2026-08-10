@@ -15,7 +15,10 @@ use crate::store::{
         },
     },
     error::{StoreError, StoreResult},
-    queries::meta::{ContainsFilterQueryMeta, MutateQueryMeta, ReadQueryMeta},
+    queries::{
+        batch::find_many_where_value_in_key,
+        meta::{ContainsFilterQueryMeta, MutateQueryMeta, ReadQueryMeta},
+    },
     traits::{
         dbx::DbExecutor,
         meta::{ContainsFilterStore, MutateStore, ReadStore, Store},
@@ -37,14 +40,20 @@ impl<D: DbExecutor> PermissionStore<D> {
         }
     }
 
-    pub fn find_many_by_name(&self) -> Vec<PermissionRow> {
+    pub async fn find_all_many_by_names(
+        &self,
+        ctx: &StoreCtx,
+        names: Vec<String>,
+    ) -> StoreResult<Vec<PermissionRow>> {
         let meta = ReadQueryMeta {
             table: PermissionIden::Table,
             pk: PermissionIden::Name,
             has_audit: self.has_audit,
         };
 
-        Vec::new()
+        let res = find_many_where_value_in_key(ctx, &self.dbx, names, &meta).await?;
+
+        Ok(res)
     }
 }
 

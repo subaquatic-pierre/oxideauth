@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, todo};
 
 use uuid::Uuid;
 
@@ -76,6 +76,10 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
             ws_svc,
             perm_svc,
         }
+    }
+
+    pub fn create_workspace_default_role(&self, ws_id: Uuid) -> CoreResult<Role> {
+        todo!()
     }
 
     /// Invalidates the account-level auth cache for every membership that carries
