@@ -401,7 +401,7 @@ mod tests {
         // build cache manager with mock (no real Redis connection needed)
         let mock_cache = Arc::new(MockChx::default());
         let cm = Arc::new(CacheManager::new(mock_cache));
-        let svc_reg = ServiceRegistry::new(sm, cm);
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
         let svc = svc_reg.account.clone();
         let mut ctx = CoreCtx::new_test()?;
         ctx.extend_perms(&["account:create"])?;
@@ -458,7 +458,7 @@ mod tests {
         // build cache manager with mock (no real Redis connection needed)
         let mock_cache = Arc::new(MockChx::default());
         let cm = Arc::new(CacheManager::new(mock_cache));
-        let svc_reg = ServiceRegistry::new(sm, cm);
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
         let svc = svc_reg.account.clone();
 
         let mut ctx = CoreCtx::new_test()?;

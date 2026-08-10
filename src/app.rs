@@ -109,7 +109,7 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
         }
     };
 
-    let svc_reg = Arc::new(ServiceRegistry::new(sm.clone(), cm.clone()));
+    let svc_reg = Arc::new(ServiceRegistry::new(&config, sm.clone(), cm.clone()));
 
     // debug!("App Config config: {:?}", config);
 

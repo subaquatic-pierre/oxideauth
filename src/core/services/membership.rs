@@ -549,7 +549,7 @@ mod tests {
         let app = init_test().await;
         let mock_cache = Arc::new(MockChx::default());
         let cm = Arc::new(CacheManager::new(mock_cache));
-        let svc_reg = ServiceRegistry::new(app.sm.clone(), cm);
+        let svc_reg = ServiceRegistry::new(&app.config, app.sm.clone(), cm);
         let svc = svc_reg.membership.clone();
         let mut ctx = CoreCtx::new_test()?;
 
@@ -656,7 +656,7 @@ mod tests {
         // build cache manager with mock (no real Redis connection needed)
         let mock_cache = Arc::new(MockChx::default());
         let cm = Arc::new(CacheManager::new(mock_cache));
-        let svc_reg = ServiceRegistry::new(sm, cm);
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
         let svc = svc_reg.membership.clone();
 
         Ok(())

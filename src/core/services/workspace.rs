@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::{marker::PhantomData, sync::{Arc, OnceLock, Weak}};
 
 use serde_json::json;
 use uuid::Uuid;
@@ -19,6 +19,7 @@ use crate::{
         services::{
             auth::AuthValidator,
             permission::{CANONICAL_PERMISSIONS, PermissionService},
+            role::RoleService,
         },
         traits::{
             list::RequestListParams,
@@ -51,22 +52,56 @@ use crate::{
 pub struct WorkspaceService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     s: PhantomData<C>,
-    // rs_svc: RoleService<D, C>,
-    // ps_svc: PermissionService<D, C>,
+
+    /// `Weak` to break the Arc cycle with `RoleService`.
+    /// Set by `ServiceRegistry` via `wire_role_service()`.
+    rs_svc: OnceLock<Weak<RoleService<D, C>>>,
+
+    /// `Weak` to break the Arc cycle with `PermissionService`.
+    /// Set by `ServiceRegistry` via `wire_permission_service()`.
+    ps_svc: OnceLock<Weak<PermissionService<D, C>>>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
-    pub fn new(
-        sm: Arc<StoreManager<D>>,
-        // rs_svc: RoleService<D, C>,
-        // ps_svc: PermissionService<D, C>,
-    ) -> Self {
-        // Self { sm, rs_svc, ps_svc }
+    pub fn new(sm: Arc<StoreManager<D>>) -> Self {
         Self {
             sm,
-            // rs_svc,
             s: PhantomData,
+            rs_svc: OnceLock::new(),
+            ps_svc: OnceLock::new(),
         }
+    }
+
+    /// --- Wiring (called once by ServiceRegistry) ---
+
+    pub(crate) fn wire_role_service(&self, role: &Arc<RoleService<D, C>>) {
+        self.rs_svc
+            .set(Arc::downgrade(role))
+            .expect("wire_role_service must only be called once");
+    }
+
+    pub(crate) fn wire_permission_service(&self, perm: &Arc<PermissionService<D, C>>) {
+        self.ps_svc
+            .set(Arc::downgrade(perm))
+            .expect("wire_permission_service must only be called once");
+    }
+
+    /// --- Resolvers ---
+
+    fn role_svc(&self) -> Arc<RoleService<D, C>> {
+        self.rs_svc
+            .get()
+            .expect("RoleService not wired")
+            .upgrade()
+            .expect("RoleService Arc dropped before WorkspaceService")
+    }
+
+    fn perm_svc(&self) -> Arc<PermissionService<D, C>> {
+        self.ps_svc
+            .get()
+            .expect("PermissionService not wired")
+            .upgrade()
+            .expect("PermissionService Arc dropped before WorkspaceService")
     }
 
     async fn get_workspace_id(
