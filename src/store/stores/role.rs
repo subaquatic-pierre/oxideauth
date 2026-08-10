@@ -450,6 +450,49 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_multiple_roles_unique_defaults() -> Result<()> {
+        // -- Setup
+        let app = init_test().await;
+        let dbx = app.sm.dbx().clone();
+        let store = RoleStore::new(dbx);
+        let ctx = StoreCtx::new_root();
+        let workspace_id = seed_prerequisite(&ctx, &app).await?;
+
+        // -- Execute: create 3 roles using Default::default() with same workspace
+        let role1 = store
+            .create(&ctx, RoleForCreate { workspace_id, ..Default::default() })
+            .await?;
+        let role2 = store
+            .create(&ctx, RoleForCreate { workspace_id, ..Default::default() })
+            .await?;
+        let role3 = store
+            .create(&ctx, RoleForCreate { workspace_id, ..Default::default() })
+            .await?;
+
+        // -- Assert: all 3 roles persisted with unique names and valid IDs
+        assert_ne!(role1.id, role2.id);
+        assert_ne!(role2.id, role3.id);
+        assert_ne!(role1.id, role3.id);
+        assert_ne!(role1.name, role2.name, "Default role names should be unique");
+        assert_ne!(role2.name, role3.name, "Default role names should be unique");
+        assert_ne!(role1.name, role3.name, "Default role names should be unique");
+        assert_eq!(role1.workspace_id, workspace_id);
+        assert_eq!(role2.workspace_id, workspace_id);
+        assert_eq!(role3.workspace_id, workspace_id);
+
+        // Verify all 3 are retrievable
+        let fetched1 = store.get(&ctx, &role1.id).await?;
+        let fetched2 = store.get(&ctx, &role2.id).await?;
+        let fetched3 = store.get(&ctx, &role3.id).await?;
+        assert_eq!(fetched1.name, role1.name);
+        assert_eq!(fetched2.name, role2.name);
+        assert_eq!(fetched3.name, role3.name);
+
+        Ok(())
+    }
 }
 // -----------------------------------------------------------------------------
 // endregion: --- Tests

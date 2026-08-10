@@ -569,6 +569,12 @@ impl CanonicalPermissions {
             CANONICAL_PERMISSIONS.account.update,   // update own account
             // workspace
             CANONICAL_PERMISSIONS.workspace.describe, // describe own workspace
+            // project
+            CANONICAL_PERMISSIONS.project.describe, // describe projects
+            CANONICAL_PERMISSIONS.project.list,     // list projects
+            // membership
+            CANONICAL_PERMISSIONS.membership.describe, // describe memberships
+            CANONICAL_PERMISSIONS.membership.list,     // list memberships
         ];
 
         v

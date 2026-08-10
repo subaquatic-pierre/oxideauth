@@ -472,7 +472,6 @@ mod tests {
     use uuid::Uuid;
 
     use crate::{
-        core::models::workspace::GLOBAL_WS_ID,
         dev::init::init_test,
         store::{
             entities::{
@@ -481,6 +480,7 @@ mod tests {
                     AccountRow,
                 },
                 permission::{PermissionForCreate, PermissionRow},
+                workspace::WorkspaceForCreate,
             },
             error::StoreError,
             queries::batch::create_many,
@@ -995,7 +995,10 @@ mod tests {
         let mutate_meta = store.mutate_meta();
 
         // 1. Define the official, enforced workspace ID from the context (WS_A)
-        let enforced_ws_id = Uuid::try_parse(GLOBAL_WS_ID).unwrap();
+        // Use a real workspace so the created permission satisfies the FK.
+        let ctx = StoreCtx::new_root();
+        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let enforced_ws_id: Uuid = ws.id.into();
         let user_id = Uuid::new_v4();
         let mut scoped_ctx = StoreCtx::new(user_id, enforced_ws_id);
         scoped_ctx.set_workspace_scope(Some(enforced_ws_id));

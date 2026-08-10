@@ -1,17 +1,17 @@
 use uuid::Uuid;
 
 use crate::cache::entities::auth::AuthCache;
-use crate::dev::fixtures::{global_ws_id, root_user_id};
 use crate::{
     core::{
-        error::CoreResult,
+        error::{CoreError, CoreResult},
         models::{
             permission::{PermissionEngine, PermissionRule},
             workspace::Workspace,
         },
     },
-    store::ctx::StoreCtx,
+    store::{ctx::StoreCtx, manager::StoreManager, traits::dbx::DbExecutor},
 };
+use std::sync::OnceLock;
 
 /// The request-scoped operational context, resolved by the auth middleware.
 ///
@@ -39,12 +39,26 @@ impl CoreCtx {
         })
     }
 
-    pub fn new_test() -> CoreResult<Self> {
+    pub fn new_root() -> CoreResult<Self> {
         let auth_cache = AuthCache::root_cache();
         let perm_checker = PermissionEngine::from_string_vec(vec![])?;
         Ok(Self {
             auth_cache,
-            scoped_ws_id: global_ws_id(),
+            scoped_ws_id: Uuid::nil(),
+            perm_checker,
+        })
+    }
+
+    /// Creates a bootstrap context with nil UUIDs — no pre-existing DB data required.
+    ///
+    /// Used during seeding/initialization before any accounts or workspaces exist.
+    /// Has `*:*` permissions and nil scoped workspace (no row-level filtering).
+    pub fn bootstrap() -> CoreResult<Self> {
+        let auth_cache = AuthCache::bootstrap_cache();
+        let perm_checker = PermissionEngine::from_string_vec(vec!["*:*".to_string()])?;
+        Ok(Self {
+            auth_cache,
+            scoped_ws_id: Uuid::nil(),
             perm_checker,
         })
     }
@@ -123,6 +137,101 @@ impl From<&mut CoreCtx> for StoreCtx {
     }
 }
 
+/// Resolves and caches the UUIDs of well-known entities (global workspace, root
+/// account) so that context factories like `new_root()` and `system()` use real
+/// DB-backed identities instead of hardcoded strings.
+///
+/// # Lifecycle
+///
+/// 1. Created empty at startup.
+/// 2. Initialized via `init_from_seed()` after `seed_all` creates the global
+///    workspace and root account.
+/// 3. From that point on, `new_root()` and `system()` return contexts with real
+///    UUIDs.
+pub struct ContextFactory {
+    global_ws_id: OnceLock<Uuid>,
+    root_user_id: OnceLock<Uuid>,
+}
+
+impl ContextFactory {
+    /// Creates an empty factory. Call `init_from_seed()` before using
+    /// `new_root()` or `system()` in production.
+    pub fn new() -> Self {
+        Self {
+            global_ws_id: OnceLock::new(),
+            root_user_id: OnceLock::new(),
+        }
+    }
+
+    /// Looks up the global workspace (by slug `"global"`) and the root account
+    /// (by email `"root@system.local"`) in the database and caches their UUIDs.
+    ///
+    /// Must be called after `seed_all` has completed.
+    pub async fn init_from_seed<D: DbExecutor>(&self, sm: &StoreManager<D>) -> CoreResult<()> {
+        let store_ctx = StoreCtx::bootstrap();
+
+        // Look up global workspace by slug
+        let global_ws = sm
+            .workspace
+            .get_by_slug_opt(&store_ctx, "global")
+            .await?
+            .map(|ws| Uuid::from(ws.id))
+            .ok_or_else(|| {
+                CoreError::InvalidParams(
+                    "global workspace not found — run seed_all first".to_string(),
+                )
+            })?;
+        self.global_ws_id.set(global_ws).map_err(|_| {
+            CoreError::InvalidParams("ContextFactory already initialized".to_string())
+        })?;
+
+        // Look up root account by email
+        let root_user = sm
+            .account
+            .get_by_email(&store_ctx, "root@system.local")
+            .await?
+            .map(|acc| Uuid::from(acc.id))
+            .ok_or_else(|| {
+                CoreError::InvalidParams("root account not found — run seed_all first".to_string())
+            })?;
+        self.root_user_id.set(root_user).map_err(|_| {
+            CoreError::InvalidParams("ContextFactory already initialized".to_string())
+        })?;
+
+        Ok(())
+    }
+
+    /// Returns the cached global workspace UUID.
+    pub fn global_ws_id(&self) -> Uuid {
+        *self.global_ws_id.get().unwrap_or(&Uuid::nil())
+    }
+
+    /// Returns the cached root account UUID.
+    pub fn root_user_id(&self) -> Uuid {
+        *self.root_user_id.get().unwrap_or(&Uuid::nil())
+    }
+
+    /// Creates a root-level `CoreCtx` using cached real UUIDs.
+    ///
+    /// Falls back to nil UUIDs if `init_from_seed()` hasn't been called yet
+    /// (e.g., during tests that don't go through `seed_all`).
+    pub fn new_root(&self) -> CoreResult<CoreCtx> {
+        CoreCtx::system(self.global_ws_id())
+    }
+
+    /// Creates a system-level `CoreCtx` scoped to the given workspace, using
+    /// cached root identity UUIDs.
+    pub fn system(&self, workspace_id: Uuid) -> CoreResult<CoreCtx> {
+        CoreCtx::system(workspace_id)
+    }
+}
+
+impl Default for ContextFactory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serial_test::serial;
@@ -138,7 +247,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_ctx_extend() -> CoreResult<()> {
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
 
         ctx.extend_perms(&["account:create"])?;
 

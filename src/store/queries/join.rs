@@ -731,6 +731,7 @@ mod tests {
     use env_logger::filter;
     use serde_json::{from_value, json};
     use serial_test::serial;
+    use uuid::Uuid;
 
     use crate::{
         dev::init::init_test,
@@ -746,6 +747,7 @@ mod tests {
                 },
                 permission::{PermissionFilter, PermissionForCreate, PermissionIden},
                 role::{RoleFilter, RoleForCreate, RoleIden, RoleWithPermissions},
+                workspace::WorkspaceForCreate,
             },
             queries::crud::create,
             stores::{
@@ -769,15 +771,24 @@ mod tests {
         let store = CredentialStore::new(dbx.clone());
         let ctx = StoreCtx::new_root();
 
-        let filter: CredentialFilter = json!({"account_id": ctx.user_id}).try_into()?;
+        // FK prerequisites: credentials reference a real workspace and account.
+        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_id: Uuid = ws.id.into();
+        let acct = app.sm.account.create(&ctx, AccountForCreate::default()).await?;
+        let acct_id: Uuid = acct.id.into();
+
+        let filter: CredentialFilter = json!({"account_id": acct_id.to_string()}).try_into()?;
 
         let existing_cred = store.list(&ctx, Some(filter), None).await?;
 
         let c = |i| {
             let mut cred = CredentialForCreate::default();
-            cred.account_id = ctx.user_id;
-            cred.workspace_id = ctx.ws_id;
+            cred.account_id = acct_id;
+            cred.workspace_id = ws_id;
             cred.provider_id = Some("TEST".to_string());
+            // Multiple credentials per (workspace, account) require a non-password kind
+            // (the active-password unique index allows only one).
+            cred.kind = CredentialKind::ApiKey;
 
             cred
         };
@@ -799,7 +810,7 @@ mod tests {
             has_audit: true,
         };
 
-        let res: AccountWithCredentials = get_one_to_many(&ctx, &dbx, &ctx.user_id, &meta).await?;
+        let res: AccountWithCredentials = get_one_to_many(&ctx, &dbx, &acct_id, &meta).await?;
 
         let all_cred = res.credentials;
 
@@ -816,6 +827,10 @@ mod tests {
         let store = CredentialStore::new(dbx.clone());
         let acc_store = AccountStore::new(dbx.clone());
         let ctx = StoreCtx::new_root();
+
+        // FK prerequisite: credentials reference a real workspace.
+        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_id: Uuid = ws.id.into();
 
         let c = |i| {
             let mut acc = AccountForCreate::default();
@@ -837,7 +852,10 @@ mod tests {
         let c = |acc_id| {
             let mut cred = CredentialForCreate::default();
             cred.account_id = acc_id;
-            cred.workspace_id = ctx.ws_id;
+            cred.workspace_id = ws_id;
+            // Multiple credentials per (workspace, account) require a non-password kind
+            // (the active-password unique index allows only one).
+            cred.kind = CredentialKind::ApiKey;
             cred
         };
 
@@ -884,16 +902,20 @@ mod tests {
         let role_store = RoleStore::new(dbx.clone());
         let ctx = StoreCtx::new_root();
 
+        // FK prerequisite: roles and permissions reference a real workspace.
+        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_id: Uuid = ws.id.into();
+
         let c_perm = |i| {
             let mut perm = PermissionForCreate::default();
-            perm.workspace_id = ctx.ws_id;
+            perm.workspace_id = ws_id;
             perm.name = format!("PERMISSION_GET_MANY_TEST_i_i_i_i{i}_iii_ii_iii___{i}__{i}");
             perm
         };
 
         let c_role = |i| {
             let mut role = RoleForCreate::default();
-            role.workspace_id = ctx.ws_id;
+            role.workspace_id = ws_id;
             role.name = format!("ROLE_GET_MANY_TEST_i_i_i_i{i}_iii_ii_iii___{i}__{i}");
             role
         };
@@ -987,16 +1009,20 @@ mod tests {
         let role_store = RoleStore::new(dbx.clone());
         let ctx = StoreCtx::new_root();
 
+        // FK prerequisite: roles and permissions reference a real workspace.
+        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_id: Uuid = ws.id.into();
+
         let c_perm = |i, name: String| {
             let mut perm = PermissionForCreate::default();
-            perm.workspace_id = ctx.ws_id;
+            perm.workspace_id = ws_id;
             perm.name = format!("PERMISSION_GET_MANY_TEST_{i}_{name}");
             perm
         };
 
         let c_role = |i| {
             let mut role = RoleForCreate::default();
-            role.workspace_id = ctx.ws_id;
+            role.workspace_id = ws_id;
             role.name = format!("ROLE_GET_MANY_TEST_{i}");
             role
         };
@@ -1086,12 +1112,16 @@ mod tests {
         let role_store = RoleStore::new(dbx.clone());
         let ctx = StoreCtx::new_root();
 
+        // FK prerequisite: roles and permissions reference a real workspace.
+        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_id: Uuid = ws.id.into();
+
         // -- Create test entities
         let role = role_store
             .create(
                 &ctx,
                 RoleForCreate {
-                    workspace_id: ctx.ws_id,
+                    workspace_id: ws_id,
                     name: "ROLE_FOR_ATTACH_DETACH".to_string(),
                     ..Default::default()
                 },
@@ -1102,7 +1132,7 @@ mod tests {
             .create(
                 &ctx,
                 PermissionForCreate {
-                    workspace_id: ctx.ws_id,
+                    workspace_id: ws_id,
                     name: "PERMISSION_1_FOR_ATTACH_DETACH".to_string(),
                     ..Default::default()
                 },
@@ -1113,7 +1143,7 @@ mod tests {
             .create(
                 &ctx,
                 PermissionForCreate {
-                    workspace_id: ctx.ws_id,
+                    workspace_id: ws_id,
                     name: "PERMISSION_2_FOR_ATTACH_DETACH".to_string(),
                     ..Default::default()
                 },

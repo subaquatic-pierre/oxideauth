@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::core::models::account::Account;
+use crate::core::models::{account::Account, auth::RegisterParams};
 
 // --- AuthRegisterReq ---
 #[derive(Debug, Serialize, Deserialize)]
@@ -10,6 +10,22 @@ pub struct AuthRegisterReq {
     pub email: String,
     pub password: Option<String>,
     pub name: Option<String>,
+    /// The workspace to register into. Either `workspaceId` or `workspaceSlug`
+    /// must be provided.
+    pub workspace_id: Option<Uuid>,
+    pub workspace_slug: Option<String>,
+}
+
+impl From<AuthRegisterReq> for RegisterParams {
+    fn from(req: AuthRegisterReq) -> Self {
+        RegisterParams {
+            email: req.email,
+            password: req.password.unwrap_or_default(),
+            name: req.name,
+            workspace_id: req.workspace_id,
+            workspace_slug: req.workspace_slug,
+        }
+    }
 }
 
 // --- AuthRegisterRes ---

@@ -84,7 +84,7 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
 
     async fn get_account_id(
         &self,
-        store_ctx: &StoreCtx,
+        ctx: &CoreCtx,
         id: Option<Uuid>,
         email: Option<String>,
     ) -> CoreResult<DbId> {
@@ -92,8 +92,8 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
 
         let id: DbId = match (id, email) {
             (Some(id), _) => id.into(),
-            (None, Some(email)) => match store.get_by_email(store_ctx, &email).await? {
-                Some(acc) => acc.id,
+            (None, Some(email)) => match self.get_by_email(ctx, &email).await? {
+                Some(acc) => acc.id.into(),
                 None => {
                     return Err(CoreError::StoreError(StoreError::EntityNotFound {
                         entity: "account".to_string(),
@@ -109,6 +109,14 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
         };
 
         Ok(id)
+    }
+
+    pub async fn get_by_email(&self, ctx: &CoreCtx, email: &str) -> CoreResult<Option<Account>> {
+        let store = self.store();
+
+        let acc = store.get_by_email(&ctx.into(), &email).await?;
+
+        Ok(acc.map(|el| el.into()))
     }
 }
 
@@ -164,9 +172,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Account
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
             .await?;
 
-        let id = self
-            .get_account_id(&store_ctx, params.id, params.email)
-            .await?;
+        let id = self.get_account_id(ctx, params.id, params.email).await?;
 
         let acc: Account = store.get(&store_ctx, &id).await?.into();
 
@@ -227,9 +233,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
 
-        let id = self
-            .get_account_id(&store_ctx, params.id, params.email)
-            .await?;
+        let id = self.get_account_id(&ctx, params.id, params.email).await?;
 
         // TODO: updating email constraints need to be enforced
         // if email is updated then need to set verified as false
@@ -282,9 +286,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
             .await?;
 
-        let id = self
-            .get_account_id(&store_ctx, params.id, params.email)
-            .await?;
+        let id = self.get_account_id(&ctx, params.id, params.email).await?;
 
         let deleted = store.delete(&store_ctx, &id).await?.into();
 
@@ -309,10 +311,7 @@ mod tests {
         config::Config,
         core::services::registry::ServiceRegistry,
         create_dbx_mock_unsafe,
-        dev::{
-            fixtures::{global_ws_id, root_user_id},
-            init::init_test,
-        },
+        dev::init::init_test,
         store::{
             ctx::StoreCtx,
             entities::{
@@ -339,11 +338,18 @@ mod tests {
     async fn test_account_create() -> CoreResult<()> {
         let app = init_test().await;
         let acc_svc = app.svc_reg.account.clone();
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
         ctx.extend_perms(&["account:create"])?;
 
+        let global_ws = app
+            .sm
+            .workspace
+            .get_by_slug_opt(&(&ctx).into(), "global")
+            .await?
+            .expect("global workspace not seeded");
+
         let mut params = AccountCreateParams::default();
-        params.workspace_id = global_ws_id();
+        params.workspace_id = global_ws.id.into();
         params.email = "new_exist@new.com".to_string();
 
         let new_acc = acc_svc.create(&mut ctx, params).await?;
@@ -357,11 +363,18 @@ mod tests {
     async fn test_account_list() -> CoreResult<()> {
         let app = init_test().await;
         let acc_svc = app.svc_reg.account.clone();
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
         ctx.extend_perms(&["account:list"])?;
 
+        let global_ws = app
+            .sm
+            .workspace
+            .get_by_slug_opt(&(&ctx).into(), "global")
+            .await?
+            .expect("global workspace not seeded");
+
         let params = AccountListParams {
-            workspace_id: global_ws_id(),
+            workspace_id: global_ws.id.into(),
             filter: None,
             options: None,
         };
@@ -403,7 +416,7 @@ mod tests {
         let cm = Arc::new(CacheManager::new(mock_cache));
         let svc_reg = ServiceRegistry::new(&config, sm, cm);
         let svc = svc_reg.account.clone();
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
         ctx.extend_perms(&["account:create"])?;
 
         let params = AccountCreateParams::default();
@@ -461,7 +474,7 @@ mod tests {
         let svc_reg = ServiceRegistry::new(&config, sm, cm);
         let svc = svc_reg.account.clone();
 
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
         ctx.extend_perms(&["account:create"])?;
 
         let params = AccountCreateParams::default();

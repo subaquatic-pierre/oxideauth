@@ -123,10 +123,14 @@ impl<D: DbExecutor> ContainsFilterStore for PermissionStore<D> {
 mod tests {
     use super::*;
     use crate::{
+        cache::redis::RedisChx,
         dev::init::init_test,
         store::{
             ctx::StoreCtx,
-            entities::permission::PermissionForCreate,
+            entities::{
+                permission::PermissionForCreate,
+                workspace::WorkspaceForCreate,
+            },
             error::StoreError,
             traits::{contains::FilterByContains, crud::*},
         },
@@ -134,6 +138,20 @@ mod tests {
     use anyhow::Result;
     use serde_json::json;
     use serial_test::serial;
+    use uuid::Uuid;
+
+    /// Helper function to seed the necessary Workspace for a Permission.
+    async fn seed_prerequisite(
+        ctx: &StoreCtx,
+        app: &crate::app::AppState<PgDbx, RedisChx>,
+    ) -> Result<Uuid> {
+        let workspace = app
+            .sm
+            .workspace
+            .create(ctx, WorkspaceForCreate::default())
+            .await?;
+        Ok(workspace.id.into())
+    }
 
     #[tokio::test]
     #[serial]
@@ -143,10 +161,11 @@ mod tests {
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx);
         let ctx = StoreCtx::new_root();
+        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let data = PermissionForCreate {
             name: "project:create".to_string(),
-            workspace_id: ctx.ws_id,
+            workspace_id,
             ..Default::default()
         };
 
@@ -156,6 +175,7 @@ mod tests {
 
         // -- Assert
         assert_eq!(created_permission.name, "project:create");
+        assert_eq!(created_permission.workspace_id, workspace_id);
         assert_eq!(fetched_permission.id, created_permission.id);
         assert_eq!(fetched_permission.name, created_permission.name);
 
@@ -170,12 +190,13 @@ mod tests {
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx);
         let ctx = StoreCtx::new_root();
+        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let created_permission = store
             .create(
                 &ctx,
                 PermissionForCreate {
-                    workspace_id: ctx.ws_id,
+                    workspace_id,
                     ..Default::default()
                 },
             )
@@ -207,12 +228,13 @@ mod tests {
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx);
         let ctx = StoreCtx::new_root();
+        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let created_permission = store
             .create(
                 &ctx,
                 PermissionForCreate {
-                    workspace_id: ctx.ws_id,
+                    workspace_id,
                     ..Default::default()
                 },
             )
@@ -240,16 +262,17 @@ mod tests {
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx);
         let ctx = StoreCtx::new_root();
+        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let perms_to_create = vec![
             PermissionForCreate {
                 name: "perm:list:a".to_string(),
-                workspace_id: ctx.ws_id,
+                workspace_id,
                 ..Default::default()
             },
             PermissionForCreate {
                 name: "perm:list:b".to_string(),
-                workspace_id: ctx.ws_id,
+                workspace_id,
                 ..Default::default()
             },
         ];
@@ -274,6 +297,7 @@ mod tests {
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx);
         let ctx = StoreCtx::new_root();
+        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         // -- Create test data with different tags
         store
@@ -282,7 +306,7 @@ mod tests {
                 PermissionForCreate {
                     name: "tags-perm-a".into(),
                     tags: vec!["resource".into(), "project".into()],
-                    workspace_id: ctx.ws_id,
+                    workspace_id,
                     ..Default::default()
                 },
             )
@@ -293,7 +317,7 @@ mod tests {
                 PermissionForCreate {
                     name: "tags-perm-b".into(),
                     tags: vec!["action".into(), "delete".into()],
-                    workspace_id: ctx.ws_id,
+                    workspace_id,
                     ..Default::default()
                 },
             )

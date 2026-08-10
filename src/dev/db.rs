@@ -10,8 +10,13 @@ use tokio::sync::OnceCell;
 use tracing::info;
 
 use crate::{
-    dev::config::{PROJECT_ROOT, SQL_DIR},
-    store::{init::PgPool, manager::StoreManager},
+    app::AppState,
+    cache::redis::RedisChx,
+    dev::{
+        config::{PROJECT_ROOT, SQL_DIR},
+        seed,
+    },
+    store::{dbx::PgDbx, init::PgPool, manager::StoreManager},
 };
 
 static INIT: OnceCell<()> = OnceCell::const_new();
@@ -39,36 +44,41 @@ pub async fn load_fixture(pool: &PgPool, filename: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn load_all_fixtures(pool: &PgPool) -> Result<()> {
-    let path = get_sql_dir().join("fixtures");
-    let mut files: Vec<String> = vec![];
+// pub async fn load_all_fixtures(pool: &PgPool) -> Result<()> {
+//     let path = get_sql_dir().join("fixtures");
+//     let mut files: Vec<String> = vec![];
 
-    for file in fs::read_dir(path)? {
-        let file = file?;
-        if file.file_type()?.is_file() {
-            files.push(file.file_name().to_string_lossy().to_string());
-        }
-    }
+//     for file in fs::read_dir(path)? {
+//         let file = file?;
+//         if file.file_type()?.is_file() {
+//             files.push(file.file_name().to_string_lossy().to_string());
+//         }
+//     }
 
-    files.sort();
+//     files.sort();
 
-    for filename in files {
-        load_fixture(pool, &filename).await?;
-    }
+//     for filename in files {
+//         load_fixture(pool, &filename).await?;
+//     }
 
+//     Ok(())
+// }
+
+pub async fn load_all_fixtures(app: &AppState<PgDbx, RedisChx>) -> Result<()> {
+    seed::seed_all::<PgDbx, RedisChx>(app).await?;
     Ok(())
 }
 
-pub async fn init_dev_db(pool: &PgPool) {
-    reset_db(pool).await.unwrap();
-    run_migrations(pool, "dev").await.unwrap();
-    load_all_fixtures(pool).await.unwrap();
+pub async fn init_dev_db(app: &AppState<PgDbx, RedisChx>) {
+    reset_db(app.dbx.pool()).await.unwrap();
+    run_migrations(app.dbx.pool(), "dev").await.unwrap();
+    load_all_fixtures(app).await.unwrap();
 }
 
-pub async fn init_test_db(pool: &PgPool) {
-    reset_db(pool).await.unwrap();
-    run_migrations(pool, "dev").await.unwrap();
-    load_all_fixtures(pool).await.unwrap();
+pub async fn init_test_db(app: &AppState<PgDbx, RedisChx>) {
+    reset_db(app.dbx.pool()).await.unwrap();
+    run_migrations(app.dbx.pool(), "dev").await.unwrap();
+    load_all_fixtures(app).await.unwrap();
 }
 
 pub fn get_sql_dir() -> PathBuf {

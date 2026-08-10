@@ -412,15 +412,17 @@ mod tests {
             .await?;
 
         // -- Execute & Assert
-        let system_memberships = store
-            .filter_by_tags_contain(&ctx, vec!["system".into()], None)
+        // NOTE: the programmatic seed creates 6 memberships all tagged "system",
+        // so filtering by "system" would match seed data. Use unique tags instead.
+        let critical_memberships = store
+            .filter_by_tags_contain(&ctx, vec!["critical".into()], None)
             .await?;
         assert_eq!(
-            system_memberships.len(),
+            critical_memberships.len(),
             1,
-            "Should find 1 membership with 'system' tag"
+            "Should find 1 membership with 'critical' tag"
         );
-        assert!(system_memberships[0].tags.contains(&"system".to_string()));
+        assert!(critical_memberships[0].tags.contains(&"critical".to_string()));
 
         let general_memberships = store
             .filter_by_tags_contain(&ctx, vec!["general".into()], None)

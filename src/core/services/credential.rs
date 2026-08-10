@@ -8,6 +8,7 @@ use crate::{
     },
     store::{
         entities::credential::{CredentialForCreate, CredentialForUpdate, CredentialRow},
+        error::StoreError,
         manager::StoreManager,
         stores::credential::CredentialStore,
         traits::{crud::*, dbx::DbExecutor},
@@ -16,7 +17,7 @@ use crate::{
 use crate::{
     core::{
         ctx::CoreCtx,
-        error::CoreResult,
+        error::{CoreError, CoreResult},
         models::{
             account::{Account, AccountDescribeParams},
             credential::{
@@ -166,7 +167,21 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Credentia
 
         let for_create: CredentialForCreate = params.clone().into();
 
-        let row = store.create(&store_ctx, for_create).await?;
+        let row = match store.create(&store_ctx, for_create).await {
+            Ok(row) => row,
+            Err(e) => {
+                if let StoreError::SqlxError(ref sqlx_err) = e {
+                    if let Some(db_err) = sqlx_err.as_database_error() {
+                        if db_err.code().as_deref() == Some("23505") {
+                            return Err(CoreError::AlreadyExists(
+                                "a credential of this kind already exists for this account in this workspace".to_string(),
+                            ));
+                        }
+                    }
+                }
+                return Err(e.into());
+            }
+        };
 
         // // Use describe to return fully hydrated model
         self.describe(

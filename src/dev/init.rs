@@ -19,11 +19,6 @@ use crate::{
     store::{PgPool, manager::StoreManager},
 };
 
-pub async fn init_dev(db_pool: &PgPool) {
-    info!("{:<12} - init_dev()", "FOR-DEV-ONLY");
-    init_dev_db(db_pool).await;
-}
-
 use std::sync::Once;
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -49,7 +44,7 @@ pub async fn init_test<'a>() -> &'a AppState<PgDbx, RedisChx> {
 
             let app = new_app_data(AppEnv::Test).await;
 
-            init_test_db(&app.dbx.pool()).await;
+            init_test_db(&app).await;
             // init_tracing_for_tests();
 
             app

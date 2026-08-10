@@ -137,14 +137,9 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
 
     /// Seeds all canonical permissions into a workspace (idempotent).
     ///
-    /// Inserts every permission from `CANONICAL_PERMISSIONS.all_codes()` into the
-    /// given workspace. If a permission already exists (unique constraint on
-    /// name + workspace_id), it is skipped silently.
-    async fn seed_canonical_permissions(
-        &self,
-        ctx: &mut CoreCtx,
-        workspace_id: Uuid,
-    ) -> CoreResult<()> {
+    /// Inserts every permission from `CANONICAL_PERMISSIONS.all()` into the
+    /// given workspace.
+    async fn populate_ws_perms(&self, ctx: &mut CoreCtx, workspace_id: Uuid) -> CoreResult<()> {
         let perm_svc = self.perm_svc();
 
         let perms: Vec<PermissionCreateParams> = CANONICAL_PERMISSIONS
@@ -156,36 +151,54 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             .collect();
         let created = perm_svc.create_many(ctx, workspace_id, perms).await?;
 
-        for (name, description) in CANONICAL_PERMISSIONS.all() {
-            // let perms =
-            // perm_svc.create_many(ctx, ws_id, perms)
-
-            // match permission_store
-            //     .create(
-            //         store_ctx,
-            //         PermissionForCreate::new_system_permission(workspace_id, name, description),
-            //     )
-            //     .await
-            // {
-            //     Ok(_) => {
-            //         tracing::debug!(name = name, workspace_id = %workspace_id, "Seeded canonical permission");
-            //     }
-            //     Err(e) => {
-            //         // If it's a unique constraint violation, skip (already exists).
-            //         // Otherwise propagate the error.
-            //         if e.to_string().contains("duplicate key") || e.to_string().contains("unique") {
-            //             tracing::debug!(
-            //                 name = name,
-            //                 "Canonical permission already exists, skipping"
-            //             );
-            //             continue;
-            //         }
-            //         return Err(e.into());
-            //     }
-            // }
-        }
-
         tracing::info!(workspace_id = %workspace_id, "Canonical permissions seeded");
+        Ok(())
+    }
+
+    /// Seeds default workspace roles (Viewer and Admin) with the appropriate
+    /// canonical permissions.
+    ///
+    /// Must be called after `populate_ws_perms` so the permission rows exist.
+    async fn populate_ws_roles(&self, ctx: &mut CoreCtx, workspace_id: Uuid) -> CoreResult<()> {
+        let role_svc = self.role_svc();
+
+        // 1. Collect permission name sets for each default role
+        let viewer_names: Vec<String> = CANONICAL_PERMISSIONS
+            .default_workspace_viewer_perms()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+        let admin_names: Vec<String> = CANONICAL_PERMISSIONS
+            .default_workspace_admin_perms()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        // 2. Look up the just-seeded permission IDs (workspace-scoped via StoreCtx)
+
+        let viewer_perms = self
+            .sm
+            .permission
+            .find_all_many_by_names(&ctx.into(), viewer_names)
+            .await?;
+        let admin_perms = self
+            .sm
+            .permission
+            .find_all_many_by_names(&ctx.into(), admin_names)
+            .await?;
+
+        let viewer_ids: Vec<Uuid> = viewer_perms.into_iter().map(|p| p.id.into()).collect();
+        let admin_ids: Vec<Uuid> = admin_perms.into_iter().map(|p| p.id.into()).collect();
+
+        // 3. Create both default roles
+        role_svc
+            .create_workspace_viewer_role(ctx, workspace_id, viewer_ids)
+            .await?;
+        role_svc
+            .create_workspace_admin_role(ctx, workspace_id, admin_ids)
+            .await?;
+
+        tracing::info!(workspace_id = %workspace_id, "Default workspace roles seeded");
         Ok(())
     }
 }
@@ -245,7 +258,11 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Workspace
         // 4. Seed canonical permissions into the new workspace
         let workspace_id: Uuid = new_workspace.id.into();
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.permission.create]);
-        self.seed_canonical_permissions(ctx, workspace_id).await?;
+        self.populate_ws_perms(ctx, workspace_id).await?;
+
+        // 5. Seed default roles (Viewer, Admin) into the new workspace
+        ctx.extend_perms(&[CANONICAL_PERMISSIONS.role.create, CANONICAL_PERMISSIONS.role.describe]);
+        self.populate_ws_roles(ctx, workspace_id).await?;
 
         Ok(new_workspace.into())
     }
@@ -402,7 +419,7 @@ mod tests {
     use crate::{
         core::models::list::RequestFilterParams,
         create_dbx_mock_unsafe,
-        dev::{fixtures::global_ws_id, init::init_test},
+        dev::init::init_test,
         store::{
             ctx::StoreCtx,
             entities::{
@@ -426,10 +443,17 @@ mod tests {
     async fn test_workspace_describe() -> CoreResult<()> {
         let app = init_test().await;
         let svc = app.svc_reg.workspace.clone();
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
+
+        let global_ws = app
+            .sm
+            .workspace
+            .get_by_slug_opt(&(&ctx).into(), "global")
+            .await?
+            .expect("global workspace not seeded");
 
         let mut params = WorkspaceDescribeParams::default();
-        params.id = Some(global_ws_id());
+        params.id = Some(global_ws.id.into());
 
         let err = svc.describe(&mut ctx, params.clone()).await;
 
@@ -448,7 +472,7 @@ mod tests {
     async fn test_workspace_create() -> CoreResult<()> {
         let app = init_test().await;
         let svc = app.svc_reg.workspace.clone();
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
 
         let slug = format!("test-ws-{}", Uuid::new_v4());
         let mut params = WorkspaceCreateParams::default();
@@ -481,7 +505,7 @@ mod tests {
     async fn test_workspace_list() -> CoreResult<()> {
         let app = init_test().await;
         let svc = app.svc_reg.workspace.clone();
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
         ctx.extend_perms(&["workspace:create"])?;
 
         let mut params = WorkspaceCreateParams::default();
@@ -520,7 +544,7 @@ mod tests {
     async fn test_workspace_update() -> CoreResult<()> {
         let app = init_test().await;
         let svc = app.svc_reg.workspace.clone();
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
 
         // Setup: Create a workspace to update
         ctx.extend_perms(&["workspace:update", "workspace:create"])?;
@@ -555,7 +579,7 @@ mod tests {
     async fn test_workspace_delete() -> CoreResult<()> {
         let app = init_test().await;
         let svc = app.svc_reg.workspace.clone();
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
 
         ctx.extend_perms(&["workspace:create", "workspace:delete", "workspace:describe"])?;
 

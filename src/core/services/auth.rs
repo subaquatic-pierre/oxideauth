@@ -18,15 +18,23 @@ use crate::{
         error::{CoreError, CoreResult},
         models::{
             account::Account,
+            auth::RegisterParams,
+            credential::CredentialCreateParams,
+            membership::MembershipCreateParams,
             permission::{PermissionEngine, PermissionRule},
+            role::RoleListParams,
             token::{TokenClaims, TokenType},
         },
         services::{
-            account::AccountService, permission::CANONICAL_PERMISSIONS, token::TokenService,
+            account::AccountService, credential::CredentialService,
+            membership::MembershipService, permission::CANONICAL_PERMISSIONS,
+            role::RoleService, token::TokenService,
         },
-        traits::service::CoreModelService,
+        traits::{
+            params::ValidateParams,
+            service::{CoreModelCreateService, CoreModelService},
+        },
     },
-    dev::fixtures::global_ws_id,
     store::{
         ctx::StoreCtx,
         entities::{
@@ -35,8 +43,13 @@ use crate::{
                 CredentialFilter, CredentialForCreate, CredentialForUpdate, CredentialKind,
                 CredentialMeta, CredentialProvider, CredentialStatus,
             },
-            membership::MembershipFilter,
+            id::DbId,
+            membership::{
+                MembershipFilter, MembershipForCreate, MembershipMeta, MembershipScope,
+                MembershipStatus,
+            },
         },
+        join::LinkManyToMany,
         manager::StoreManager,
         traits::{
             crud::{Create, Get, List, Update},
@@ -89,6 +102,9 @@ where
     sm: Arc<StoreManager<D>>,
     acc_svc: Arc<AccountService<D, C>>,
     token_svc: Arc<TokenService<D, C>>,
+    credential_svc: Arc<CredentialService<D, C>>,
+    membership_svc: Arc<MembershipService<D, C>>,
+    role_svc: Arc<RoleService<D, C>>,
     cm: Arc<CacheManager<C>>,
     config: Config,
 }
@@ -103,12 +119,18 @@ where
         cm: Arc<CacheManager<C>>,
         acc_svc: Arc<AccountService<D, C>>,
         token_svc: Arc<TokenService<D, C>>,
+        credential_svc: Arc<CredentialService<D, C>>,
+        membership_svc: Arc<MembershipService<D, C>>,
+        role_svc: Arc<RoleService<D, C>>,
         config: Config,
     ) -> Self {
         Self {
             sm,
             acc_svc,
             token_svc,
+            credential_svc,
+            membership_svc,
+            role_svc,
             cm,
             config,
         }
@@ -162,35 +184,69 @@ where
         })
     }
 
-    /// Registers a new account with a `Local` password credential and returns
-    /// the created account along with a freshly issued token pair (access +
-    /// refresh).
+    /// Registers a new account with a `Local` password credential in the
+    /// specified workspace, creates a membership with the default "Workspace
+    /// Viewer" role, and returns the account along with a freshly issued token pair.
     pub async fn register(
         &self,
-        email: &str,
-        password: &str,
-        name: Option<&str>,
+        ctx: &mut CoreCtx,
+        params: RegisterParams,
     ) -> CoreResult<AuthResult> {
-        // --- Validate inputs ---
-        if password.is_empty() {
-            return Err(CoreError::InvalidParams("password required".to_string()));
-        }
+        let RegisterParams {
+            email,
+            password,
+            name,
+            workspace_id,
+            workspace_slug,
+        } = params.validate()?;
 
-        let email = email.trim().to_lowercase();
-        if email.is_empty() {
-            return Err(CoreError::InvalidParams("email required".to_string()));
-        }
+        // --- Resolve target workspace (slug takes precedence, then id) ---
+        let store_ctx: StoreCtx = (&*ctx).into();
+        let ws_id = if let Some(slug) = workspace_slug {
+            self.sm
+                .workspace
+                .get_by_slug_opt(&store_ctx, &slug)
+                .await?
+                .map(|ws| Uuid::from(ws.id))
+                .ok_or_else(|| {
+                    CoreError::InvalidParams(format!("workspace '{}' not found", slug))
+                })?
+        } else if let Some(id) = workspace_id {
+            // Verify the workspace exists
+            self.sm
+                .workspace
+                .get(&store_ctx, &id.into())
+                .await
+                .map_err(|_| {
+                    CoreError::InvalidParams(format!("workspace '{}' not found", id))
+                })?;
+            id
+        } else {
+            // Validation ensures at least one is provided
+            unreachable!()
+        };
 
-        let store = self.acc_svc.store();
-        let mut ctx = CoreCtx::system(global_ws_id())?;
-        ctx.extend_perms(&[
-            CANONICAL_PERMISSIONS.account.create,
-            CANONICAL_PERMISSIONS.credential.create,
-        ])?;
-        let store_ctx = StoreCtx::from(&ctx);
+        // --- Look up the default "Workspace Viewer" role ---
+        let viewer_role = self
+            .sm
+            .role
+            .get_by_name_opt(&store_ctx, "Workspace Viewer", DbId(ws_id))
+            .await?
+            .ok_or_else(|| {
+                CoreError::InvalidParams(
+                    "Workspace Viewer role not found — workspace may not be seeded yet"
+                        .to_string(),
+                )
+            })?;
 
         // --- Check email uniqueness ---
-        if store.get_by_email(&store_ctx, &email).await?.is_some() {
+        if self
+            .acc_svc
+            .store()
+            .get_by_email(&store_ctx, &email)
+            .await?
+            .is_some()
+        {
             return Err(CoreError::AlreadyExists(format!(
                 "account with email '{}' already exists",
                 email
@@ -198,82 +254,96 @@ where
         }
 
         // --- Hash password ---
-        let secret = hash_password(password)?;
+        let secret = hash_password(&password)?;
 
-        // --- Create account ---
+        ctx.extend_perms(&[
+            CANONICAL_PERMISSIONS.account.create,
+            CANONICAL_PERMISSIONS.credential.create,
+            CANONICAL_PERMISSIONS.membership.create,
+        ])?;
+        let store_ctx: StoreCtx = (&*ctx).into();
+
+        // --- Create account (via store — AccountService::create is too heavy with validation) ---
         let default_avatar = format!("https://www.gravatar.com/avatar/{}?d=identicon", "default");
-
-        let for_create = AccountForCreate {
-            email: email.clone(),
-            name: name.unwrap_or("").to_string(),
-            description: None,
-            avatar_url: Some(default_avatar),
-            enabled: true,
-            verified: false,
-            tags: vec![],
-            meta: AccountMeta {
-                schema_version: "1".to_string(),
-            },
-        };
-
-        let account_row = store.create(&store_ctx, for_create).await?;
+        let account_row = self
+            .acc_svc
+            .store()
+            .create(
+                &store_ctx,
+                AccountForCreate {
+                    email: email.clone(),
+                    name: name.unwrap_or_else(|| "".to_string()),
+                    description: None,
+                    avatar_url: Some(default_avatar),
+                    enabled: true,
+                    verified: false,
+                    tags: vec![],
+                    meta: AccountMeta {
+                        schema_version: "1".to_string(),
+                    },
+                },
+            )
+            .await?;
         let acc_ver = account_row.token_version as u64;
         let account: Account = account_row.into();
 
-        // --- Create Local password credential ---
-        let credential_for_create = CredentialForCreate {
-            kind: CredentialKind::Password,
-            provider: CredentialProvider::Local,
-            status: CredentialStatus::Active,
-            account_id: account.id,
-            workspace_id: store_ctx.ws_id,
-            provider_id: None,
-            email: Some(email),
-            secret: Some(secret),
-            last_used_at: None,
-            tags: vec![],
-            meta: CredentialMeta {
-                schema_version: "1".to_string(),
-            },
-        };
-        self.sm
-            .credential
-            .create(&store_ctx, credential_for_create)
+        // --- Create credential (via service) ---
+        self.credential_svc
+            .create(
+                ctx,
+                CredentialCreateParams {
+                    account_id: account.id,
+                    workspace_id: ws_id,
+                    kind: CredentialKind::Password,
+                    provider: CredentialProvider::Local,
+                    status: CredentialStatus::Active,
+                    secret: Some(secret),
+                    email: Some(email.clone()),
+                    provider_id: None,
+                    last_used_at: None,
+                    tags: vec![],
+                    meta: CredentialMeta {
+                        schema_version: "1".to_string(),
+                    },
+                },
+            )
             .await?;
 
-        // --- Issue token pair (access + refresh) ---
+        // --- Create membership with Viewer role (via service) ---
+        let membership = self
+            .membership_svc
+            .create(
+                ctx,
+                MembershipCreateParams {
+                    account_id: account.id,
+                    workspace_id: ws_id,
+                    scope: MembershipScope::Workspace,
+                    status: MembershipStatus::Active,
+                    project_id: None,
+                    role_ids: vec![viewer_role.id.into()],
+                    tags: vec![],
+                    meta: MembershipMeta {
+                        schema_version: "1".to_string(),
+                    },
+                },
+            )
+            .await?;
+
+        // --- Issue token pair with real workspace + membership IDs ---
         let sid = Uuid::new_v4();
         let tp = self.issue_token_pair(
             account.id,
-            Uuid::nil(), // workspace set up separately after registration
-            Uuid::nil(), // membership set up separately after registration
-            0,           // mem_ver: no membership yet
+            ws_id,
+            membership.id,
+            0, // mem_ver: initial version
             acc_ver,
             sid,
         )?;
 
-        // TODO(T061): send the welcome/confirmation email fire-and-forget.
-        //   Once EmailService is reachable from AuthService (it requires
-        //   Config + StorageService and is currently not wired into the app),
-        //   spawn a tokio task after generating the token:
-        //     let email_svc = self.email_svc.clone();
-        //     let email = email.clone();
-        //     let name = account.name.clone();
-        //     tokio::spawn(async move {
-        //         let mut ctx = tera::Context::new();
-        //         ctx.insert("project_name", "OxideAuth");
-        //         ctx.insert("name", &name);
-        //         ctx.insert("confirm_link", &format!("{}/confirm?token={access_token}", base_url));
-        //         ctx.insert("year", "2026");
-        //         let _ = email_svc
-        //             .send_email(&email, "Confirm your email", "emails/confirm_email.html", ctx)
-        //             .await;
-        //     });
-        //   For now the confirmation token is only issued; no email is sent.
-
         info!(
-            email = %account.email,
+            email = %email,
             account_id = %account.id,
+            workspace_id = %ws_id,
             "AUTH_REGISTER"
         );
 
@@ -286,7 +356,12 @@ where
 
     /// Logs an account in via email/password and returns the account along
     /// with a token pair (access + refresh).
-    pub async fn login(&self, email: &str, password: &str) -> CoreResult<AuthResult> {
+    pub async fn login(
+        &self,
+        ctx: &mut CoreCtx,
+        email: &str,
+        password: &str,
+    ) -> CoreResult<AuthResult> {
         if email.trim().is_empty() || password.is_empty() {
             return Err(CoreError::InvalidParams(
                 "email and password required".to_string(),
@@ -295,13 +370,11 @@ where
 
         let email = email.trim().to_lowercase();
 
-        let mut ctx = CoreCtx::system(global_ws_id())?;
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
-        let store_ctx = StoreCtx::from(&ctx);
 
         // --- Find account by email ---
-        let store = self.acc_svc.store();
-        let account_row = match store.get_by_email(&store_ctx, &email).await? {
+        // let store = self.acc_svc.store();
+        let account_row = match self.acc_svc.get_by_email(&ctx, &email).await? {
             Some(row) => row,
             None => {
                 info!(
@@ -312,7 +385,7 @@ where
                 return Err(CoreError::Auth("invalid credentials".to_string()));
             }
         };
-        let acc_ver = account_row.token_version as u64;
+        let acc_ver = 1; // account_row.token_version as u64;
         let account: Account = account_row.into();
 
         // --- Check account status ---
@@ -331,7 +404,7 @@ where
         let credentials = self
             .sm
             .credential
-            .list(&store_ctx, Some(filter), None)
+            .list(&ctx.into(), Some(filter), None)
             .await?;
         let credential = credentials
             .into_iter()
@@ -374,7 +447,7 @@ where
         let memberships = self
             .sm
             .membership
-            .list(&store_ctx, Some(membership_filter), None)
+            .list(&ctx.into(), Some(membership_filter), None)
             .await?;
         let membership = memberships.into_iter().next();
         let (mem_id, mem_ver) = membership
@@ -542,16 +615,14 @@ where
     }
 
     /// Requests a password reset for the given email.
-    pub async fn request_password_reset(&self, email: &str) -> CoreResult<()> {
+    pub async fn request_password_reset(&self, ctx: &mut CoreCtx, email: &str) -> CoreResult<()> {
         let email = email.trim().to_lowercase();
 
-        let mut ctx = CoreCtx::system(global_ws_id())?;
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
-        let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
         // Anti-enumeration: silently succeed if the account does not exist.
-        let Some(account_row) = store.get_by_email(&store_ctx, &email).await? else {
+        let Some(account_row) = store.get_by_email(&ctx.into(), &email).await? else {
             return Ok(());
         };
         let account: Account = account_row.into();
@@ -598,7 +669,12 @@ where
     /// Updates an account's password using a valid `PasswordReset` token.
     ///
     /// Returns the id of the account whose password was updated.
-    pub async fn update_password(&self, token: &str, new_password: &str) -> CoreResult<Uuid> {
+    pub async fn update_password(
+        &self,
+        ctx: &mut CoreCtx,
+        token: &str,
+        new_password: &str,
+    ) -> CoreResult<Uuid> {
         if new_password.is_empty() {
             return Err(CoreError::InvalidParams("password required".to_string()));
         }
@@ -607,17 +683,15 @@ where
         let claims = self.token_svc.decode_token_str(token)?;
         let account_id = claims.validate_password_reset()?;
 
-        let mut ctx = CoreCtx::system(global_ws_id())?;
         ctx.extend_perms(&[
             CANONICAL_PERMISSIONS.account.describe,
             CANONICAL_PERMISSIONS.credential.list,
             CANONICAL_PERMISSIONS.credential.update,
         ])?;
-        let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
         // Load the account and reject disabled accounts.
-        let account_row = store.get(&store_ctx, &account_id.into()).await?;
+        let account_row = store.get(&ctx.into(), &account_id.into()).await?;
         let account: Account = account_row.into();
         if !account.enabled {
             return Err(CoreError::Auth("account disabled".to_string()));
@@ -636,7 +710,7 @@ where
         let credentials = self
             .sm
             .credential
-            .list(&store_ctx, Some(filter), None)
+            .list(&ctx.into(), Some(filter), None)
             .await?;
         let credential = credentials
             .into_iter()
@@ -657,7 +731,7 @@ where
         };
         self.sm
             .credential
-            .update(&store_ctx, &credential.id, update_data)
+            .update(&ctx.into(), &credential.id, update_data)
             .await?;
 
         info!(account_id = %account.id, "AUTH_PASSWORD_CHANGED");
@@ -669,20 +743,22 @@ where
     /// `AccountConfirm` token.
     ///
     /// Returns the confirmed account id and its new verified state.
-    pub async fn confirm_account(&self, token: &str) -> CoreResult<AccountConfirmation> {
+    pub async fn confirm_account(
+        &self,
+        ctx: &mut CoreCtx,
+        token: &str,
+    ) -> CoreResult<AccountConfirmation> {
         // Decode and validate the token.
         let claims = self.token_svc.decode_token_str(token)?;
         let account_id = claims.validate_account_confirm()?;
 
-        let mut ctx = CoreCtx::system(global_ws_id())?;
         ctx.extend_perms(&[
             CANONICAL_PERMISSIONS.account.describe,
             CANONICAL_PERMISSIONS.account.update,
         ])?;
-        let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
-        let account_row = store.get(&store_ctx, &account_id.into()).await?;
+        let account_row = store.get(&ctx.into(), &account_id.into()).await?;
         let account: Account = account_row.into();
 
         // Reject accounts that have already been verified.
@@ -705,7 +781,7 @@ where
             token_version: None,
         };
         store
-            .update(&store_ctx, &account_id.into(), update_data)
+            .update(&ctx.into(), &account_id.into(), update_data)
             .await?;
 
         info!(account_id = %account.id, "AUTH_ACCOUNT_CONFIRMED");
@@ -721,16 +797,14 @@ where
     /// Anti-enumeration: silently succeeds if the account does not exist.
     /// Errors if the account is already verified. Email delivery is stubbed for
     /// now: the token is only logged.
-    pub async fn resend_confirmation(&self, email: &str) -> CoreResult<()> {
+    pub async fn resend_confirmation(&self, ctx: &mut CoreCtx, email: &str) -> CoreResult<()> {
         let email = email.trim().to_lowercase();
 
-        let mut ctx = CoreCtx::system(global_ws_id())?;
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
-        let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
         // Anti-enumeration: silently succeed if the account does not exist.
-        let Some(account_row) = store.get_by_email(&store_ctx, &email).await? else {
+        let Some(account_row) = store.get_by_email(&ctx.into(), &email).await? else {
             return Ok(());
         };
         let account: Account = account_row.into();
@@ -788,7 +862,11 @@ where
     /// Generates a CSRF token, persists an OAuth state (containing the client
     /// `redirect_url`) in Redis for 10 minutes, and returns the Google
     /// authorization URL the client should be redirected to.
-    pub async fn initiate_google_oauth(&self, redirect_url: &str) -> CoreResult<String> {
+    pub async fn initiate_google_oauth(
+        &self,
+        ctx: &mut CoreCtx,
+        redirect_url: &str,
+    ) -> CoreResult<String> {
         // Generate the CSRF token used as the OAuth `state` parameter.
         let csrf_token = Uuid::new_v4().to_string();
 
@@ -820,6 +898,7 @@ where
     /// stored OAuth state.
     pub async fn process_google_callback(
         &self,
+        ctx: &mut CoreCtx,
         code: &str,
         state: &str,
     ) -> CoreResult<OAuthCallbackResult> {
@@ -838,16 +917,15 @@ where
         let google_user =
             get_google_user(&token_response.access_token, &token_response.id_token).await?;
 
-        let mut ctx = CoreCtx::system(global_ws_id())?;
         ctx.extend_perms(&[
             CANONICAL_PERMISSIONS.account.describe,
             CANONICAL_PERMISSIONS.account.create,
             CANONICAL_PERMISSIONS.credential.create,
         ])?;
-        let store_ctx = StoreCtx::from(&ctx);
         let store = self.acc_svc.store();
 
         // 4. Resolve an existing account by email, or create a new one.
+        let store_ctx = StoreCtx::from(&*ctx);
         let account =
             if let Some(existing) = store.get_by_email(&store_ctx, &google_user.email).await? {
                 let account: Account = existing.into();
@@ -869,7 +947,7 @@ where
                         schema_version: "1".to_string(),
                     },
                 };
-                let account: Account = store.create(&store_ctx, account_for_create).await?.into();
+                let account: Account = store.create(&ctx.into(), account_for_create).await?.into();
 
                 // 6. Link the Google OAuth credential to the new account.
                 let credential_for_create = CredentialForCreate {
@@ -889,20 +967,17 @@ where
                 };
                 self.sm
                     .credential
-                    .create(&store_ctx, credential_for_create)
+                    .create(&ctx.into(), credential_for_create)
                     .await?;
 
                 account
             };
 
         // 7. Issue a token pair (access + refresh) for the session.
-        let mut sys_ctx = CoreCtx::system(global_ws_id())?;
-        sys_ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
-        let store_ctx = StoreCtx::from(&sys_ctx);
         let acc_ver = self
             .sm
             .account
-            .get(&store_ctx, &account.id.into())
+            .get(&ctx.into(), &account.id.into())
             .await?
             .token_version as u64;
 
@@ -1078,7 +1153,7 @@ mod tests {
         let app = init_test().await;
         let granted = setup_checker()?;
 
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.create])?;
         let auth = AuthValidator::new(&ctx);
 

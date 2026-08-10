@@ -48,7 +48,8 @@ VALUES
   (
     '40000000-0000-0000-0000-000000000002',
     '50000000-0000-0000-0000-000000000007'
-  );
+  )
+ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- member: no special permissions (can inherit defaults via app logic)
 -- viewer: no special permissions (read-only enforced via RLS/policy)

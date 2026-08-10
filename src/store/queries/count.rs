@@ -222,7 +222,6 @@ mod tests {
     use serial_test::serial;
     use uuid::Uuid;
 
-    use crate::core::models::workspace::Workspace;
     use crate::store::entities::id::DbId;
     use crate::store::entities::permission::{
         PermissionFilter, PermissionForCreate, PermissionRow,
@@ -436,8 +435,12 @@ mod tests {
         let meta = store.read_meta();
 
         // 1. Define two distinct workspace IDs
-        let ws_a = Workspace::global_ws_id();
-        let ws_b = Workspace::default_ws_id();
+        let ws_store = WorkspaceStore::new(dbx.clone());
+        let root_ctx = StoreCtx::new_root();
+        let ws_a_row = ws_store.create(&root_ctx, WorkspaceForCreate::default()).await?;
+        let ws_b_row = ws_store.create(&root_ctx, WorkspaceForCreate::default()).await?;
+        let ws_a: Uuid = ws_a_row.id.into();
+        let ws_b: Uuid = ws_b_row.id.into();
         let tag = "COUNT_SCOPED_PASS";
 
         // 2. Create 3 entities in WS_A (Target)
@@ -486,8 +489,12 @@ mod tests {
         let meta = store.read_meta();
 
         // 1. Define workspace IDs
-        let ws_enforced = Workspace::global_ws_id(); // User's actual scope
-        let ws_target = Workspace::default_ws_id(); // Target workspace user is trying to count
+        let ws_store = WorkspaceStore::new(dbx.clone());
+        let root_ctx = StoreCtx::new_root();
+        let ws_enforced_row = ws_store.create(&root_ctx, WorkspaceForCreate::default()).await?;
+        let ws_target_row = ws_store.create(&root_ctx, WorkspaceForCreate::default()).await?;
+        let ws_enforced: Uuid = ws_enforced_row.id.into(); // User's actual scope
+        let ws_target: Uuid = ws_target_row.id.into(); // Target workspace user is trying to count
         let tag = "COUNT_SCOPED_FAIL";
 
         // 2. Create 3 entities in WS_Target

@@ -55,4 +55,5 @@ VALUES
     '20000000-0000-0000-0000-000000000002', -- acme-demo project
     'active',
     '00000000-0000-0000-0000-000000000002'
-  );
+  )
+ON CONFLICT (id) DO NOTHING;

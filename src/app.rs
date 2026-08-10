@@ -7,9 +7,11 @@ use sqlx::Pool;
 use crate::cache::manager::CacheManager;
 use crate::cache::redis::RedisChx;
 use crate::cache::traits::CacheExecutor;
+use crate::core::ctx::{ContextFactory, CoreCtx};
+use crate::core::error::CoreResult;
 use crate::core::services::registry::ServiceRegistry;
 use crate::core::services::token::TokenService;
-use crate::dev::init::init_dev;
+use crate::dev::db::init_dev_db;
 use crate::store::dbx::PgDbx;
 use crate::store::manager::StoreManager;
 use crate::store::traits::dbx::DbExecutor;
@@ -48,6 +50,18 @@ where
     pub sm: Arc<StoreManager<D>>,
     pub cm: Arc<CacheManager<C>>,
     pub svc_reg: Arc<ServiceRegistry<D, C>>,
+    pub ctx_factory: Arc<ContextFactory>,
+}
+
+impl<D: DbExecutor, C: CacheExecutor> AppState<D, C> {
+    /// Creates a system-level `CoreCtx` scoped to the global workspace, using
+    /// the cached global workspace UUID from the `ContextFactory`.
+    ///
+    /// Used by unauthenticated flows (registration, login, password reset, OAuth)
+    /// that need a properly scoped context without a pre-existing user session.
+    pub fn system_context(&self) -> CoreResult<CoreCtx> {
+        CoreCtx::system(self.ctx_factory.global_ws_id())
+    }
 }
 
 pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
@@ -62,12 +76,10 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
             let dbx = Arc::new(PgDbx::new(db.clone()));
             let sm = Arc::new(StoreManager::new(dbx.clone()));
 
-            debug!(
-                "{:<12} - new_app_data()",
-                "Application started in DEVELOPMENT mode",
-            );
-
-            init_dev(&dbx.pool()).await;
+            // debug!(
+            //     "{:<12} - new_app_data()",
+            //     "Application started in DEVELOPMENT mode",
+            // );
 
             let chx = Arc::new(RedisChx::new(&config.redis_url).await);
             let cm = Arc::new(CacheManager::new(chx.clone()));
@@ -109,18 +121,35 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
         }
     };
 
+    let ctx_factory = Arc::new(ContextFactory::new());
     let svc_reg = Arc::new(ServiceRegistry::new(&config, sm.clone(), cm.clone()));
 
     // debug!("App Config config: {:?}", config);
 
-    AppState {
+    let app = AppState {
         dbx: dbx.clone(),
         config,
         chx,
         cm,
         sm,
         svc_reg,
+        ctx_factory,
+    };
+
+    // TODO: Ensure this is never run in production
+    match app_env {
+        AppEnv::Development => {
+            init_dev_db(&app).await;
+
+            debug!("Running init_dev_db, database is reset and seeded");
+        }
+        _ => {
+
+            // debug!("App Config config: {:?}", config);
+        }
     }
+
+    app
 }
 
 pub type App = Arc<AppState<PgDbx, RedisChx>>;

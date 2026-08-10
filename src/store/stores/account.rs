@@ -130,7 +130,10 @@ mod tests {
         dev::init::init_test,
         store::{
             ctx::StoreCtx,
-            entities::credential::{CredentialForCreate, CredentialProvider},
+            entities::{
+                credential::{CredentialForCreate, CredentialKind, CredentialProvider},
+                workspace::WorkspaceForCreate,
+            },
             error::StoreError,
             traits::{contains::FilterByContains, crud::*, join::GetOneToMany},
         },
@@ -271,16 +274,27 @@ mod tests {
             )
             .await?;
 
+        // Create a valid workspace to scope the credentials under (StoreCtx::new_root()
+        // uses a nil workspace_id, which no longer references a seeded workspace).
+        let workspace = app
+            .sm
+            .workspace
+            .create(&ctx, WorkspaceForCreate::default())
+            .await?;
+
         // Manually insert related credentials
         let mut n_cred = CredentialForCreate::default();
         n_cred.account_id = account.id.into();
-        n_cred.workspace_id = ctx.ws_id;
+        n_cred.workspace_id = workspace.id.into();
+        // Google is an OAuth provider; keep it out of the unique active-password
+        // index (one active password credential per workspace+account).
+        n_cred.kind = CredentialKind::OAuth;
         n_cred.provider = CredentialProvider::Google;
         app.sm.credential.create(&ctx, n_cred).await?;
 
         let mut n_cred = CredentialForCreate::default();
         n_cred.account_id = account.id.into();
-        n_cred.workspace_id = ctx.ws_id;
+        n_cred.workspace_id = workspace.id.into();
         n_cred.provider = CredentialProvider::Local;
         app.sm.credential.create(&ctx, n_cred).await?;
 

@@ -331,6 +331,52 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_multiple_projects_unique_defaults() -> Result<()> {
+        // -- Setup
+        let app = init_test().await;
+        let dbx = app.sm.dbx().clone();
+        let store = ProjectStore::new(dbx);
+        let ctx = StoreCtx::new_root();
+        let workspace_id = seed_prerequisite(&ctx, &app).await?;
+
+        // -- Execute: create 3 projects using Default::default() with same workspace
+        let proj1 = store
+            .create(&ctx, ProjectForCreate { workspace_id, ..Default::default() })
+            .await?;
+        let proj2 = store
+            .create(&ctx, ProjectForCreate { workspace_id, ..Default::default() })
+            .await?;
+        let proj3 = store
+            .create(&ctx, ProjectForCreate { workspace_id, ..Default::default() })
+            .await?;
+
+        // -- Assert: all 3 projects persisted with unique names/codes and valid IDs
+        assert_ne!(proj1.id, proj2.id);
+        assert_ne!(proj2.id, proj3.id);
+        assert_ne!(proj1.id, proj3.id);
+        assert_ne!(proj1.name, proj2.name, "Default project names should be unique");
+        assert_ne!(proj2.name, proj3.name, "Default project names should be unique");
+        assert_ne!(proj1.name, proj3.name, "Default project names should be unique");
+        assert_ne!(proj1.code, proj2.code, "Default project codes should be unique");
+        assert_ne!(proj2.code, proj3.code, "Default project codes should be unique");
+        assert_ne!(proj1.code, proj3.code, "Default project codes should be unique");
+        assert_eq!(proj1.workspace_id, workspace_id);
+        assert_eq!(proj2.workspace_id, workspace_id);
+        assert_eq!(proj3.workspace_id, workspace_id);
+
+        // Verify all 3 are retrievable
+        let fetched1 = store.get(&ctx, &proj1.id).await?;
+        let fetched2 = store.get(&ctx, &proj2.id).await?;
+        let fetched3 = store.get(&ctx, &proj3.id).await?;
+        assert_eq!(fetched1.name, proj1.name);
+        assert_eq!(fetched2.name, proj2.name);
+        assert_eq!(fetched3.name, proj3.name);
+
+        Ok(())
+    }
 }
 // -----------------------------------------------------------------------------
 // endregion: --- Tests

@@ -10,7 +10,7 @@ use serde::Deserialize;
 use crate::{
     app::App,
     cache::redis::RedisChx,
-    core::{ctx::CoreCtx, services::token::TokenService},
+    core::{ctx::CoreCtx, models::auth::RegisterParams, services::token::TokenService},
     store::dbx::PgDbx,
     web::{
         dtos::auth::{
@@ -31,14 +31,10 @@ pub async fn register(
     body: JsonReqResult<AuthRegisterReq>,
 ) -> JsonResResult<WebResponse<AuthRegisterRes>> {
     let Json(body) = body?;
+    let params: RegisterParams = body.into();
+    let mut ctx = app.system_context()?;
     let svc = app.svc_reg.auth.clone();
-    let result = svc
-        .register(
-            &body.email,
-            body.password.as_deref().unwrap_or(""),
-            body.name.as_deref(),
-        )
-        .await?;
+    let result = svc.register(&mut ctx, params).await?;
     WebResponse::json(AuthRegisterRes {
         account: result.account,
         access_token: result.access_token,
@@ -53,8 +49,9 @@ pub async fn login(
     body: JsonReqResult<AuthLoginReq>,
 ) -> JsonResResult<WebResponse<AuthLoginRes>> {
     let Json(body) = body?;
+    let mut ctx = app.system_context()?;
     let svc = app.svc_reg.auth.clone();
-    let result = svc.login(&body.email, &body.password).await?;
+    let result = svc.login(&mut ctx, &body.email, &body.password).await?;
     WebResponse::json(AuthLoginRes {
         account: result.account,
         access_token: result.access_token,
@@ -85,8 +82,9 @@ pub async fn reset_password(
     body: JsonReqResult<AuthResetPasswordReq>,
 ) -> JsonResResult<WebResponse<AuthResetPasswordRes>> {
     let Json(body) = body?;
+    let mut ctx = app.system_context()?;
     let svc = app.svc_reg.auth.clone();
-    svc.request_password_reset(&body.email).await?;
+    svc.request_password_reset(&mut ctx, &body.email).await?;
     WebResponse::json(AuthResetPasswordRes {
         message: "if the account exists, a password reset email has been sent".to_string(),
     })
@@ -99,8 +97,11 @@ pub async fn update_password(
     body: JsonReqResult<AuthUpdatePasswordReq>,
 ) -> JsonResResult<WebResponse<AuthUpdatePasswordRes>> {
     let Json(body) = body?;
+    let mut ctx = app.system_context()?;
     let svc = app.svc_reg.auth.clone();
-    let account_id = svc.update_password(&body.token, &body.password).await?;
+    let account_id = svc
+        .update_password(&mut ctx, &body.token, &body.password)
+        .await?;
     WebResponse::json(AuthUpdatePasswordRes { account_id })
 }
 
@@ -111,8 +112,9 @@ pub async fn confirm_account(
     body: JsonReqResult<AuthConfirmAccountReq>,
 ) -> JsonResResult<WebResponse<AuthConfirmAccountRes>> {
     let Json(body) = body?;
+    let mut ctx = app.system_context()?;
     let svc = app.svc_reg.auth.clone();
-    let result = svc.confirm_account(&body.token).await?;
+    let result = svc.confirm_account(&mut ctx, &body.token).await?;
     WebResponse::json(AuthConfirmAccountRes {
         account_id: result.account_id,
         verified: result.was_already_verified,
@@ -126,8 +128,9 @@ pub async fn resend_confirm(
     body: JsonReqResult<AuthResendConfirmReq>,
 ) -> JsonResResult<WebResponse<AuthResendConfirmRes>> {
     let Json(body) = body?;
+    let mut ctx = app.system_context()?;
     let svc = app.svc_reg.auth.clone();
-    svc.resend_confirmation(&body.email).await?;
+    svc.resend_confirmation(&mut ctx, &body.email).await?;
     WebResponse::json(AuthResendConfirmRes {
         message: "if the account exists, a confirmation email has been sent".to_string(),
     })
@@ -154,8 +157,11 @@ pub async fn oauth_google_initiate(
     body: JsonReqResult<AuthOAuthInitiateReq>,
 ) -> JsonResResult<WebResponse<AuthOAuthInitiateRes>> {
     let Json(body) = body?;
+    let mut ctx = app.system_context()?;
     let svc = app.svc_reg.auth.clone();
-    let auth_url = svc.initiate_google_oauth(&body.redirect_url).await?;
+    let auth_url = svc
+        .initiate_google_oauth(&mut ctx, &body.redirect_url)
+        .await?;
     WebResponse::json(AuthOAuthInitiateRes { auth_url })
 }
 
@@ -171,9 +177,10 @@ pub async fn oauth_google_callback(
     app: Extension<App>,
     Query(query): Query<GoogleOAuthCallbackQuery>,
 ) -> Result<Redirect, WebError> {
+    let mut ctx = app.system_context()?;
     let svc = app.svc_reg.auth.clone();
     let result = svc
-        .process_google_callback(&query.code, &query.state)
+        .process_google_callback(&mut ctx, &query.code, &query.state)
         .await?;
     let redirect = format!(
         "{}?token={}&refresh_token={}",

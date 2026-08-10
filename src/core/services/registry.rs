@@ -40,24 +40,7 @@ pub struct ServiceRegistry<D: DbExecutor, C: CacheExecutor> {
 
 impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
     /// Creates every service in topological dependency order.
-    ///
-    /// # Dependency order
-    ///
-    /// ```text
-    /// Workspace ────────────────────────────── (leaf — only needs sm)
-    ///   ├── Permission ─────────────────────── (needs ws)
-    ///   │     └── Role ─────────────────────── (needs ws + perm)
-    ///   │           └── Membership ─────────── (needs ws + account + role)
-    ///   ├── Account ────────────────────────── (needs ws)
-    ///   │     ├── Credential ───────────────── (needs ws + account)
-    ///   │     └── Auth ─────────────────────── (needs account + token)
-    ///   ├── Project ────────────────────────── (needs ws)
-    ///   ├── Token ──────────────────────────── (needs ws + config)
-    ///   └── Client ─────────────────────────── (needs ws)
-    /// ```
     pub fn new(config: &Config, sm: Arc<StoreManager<D>>, cm: Arc<CacheManager<C>>) -> Self {
-        // TODO: get config from storage, first check cache, then database.
-        // let config = Config::from_env();
         let token_config = TokenServiceConfig::new(
             config.jwt_secret.clone(),
             config.access_token_max_age,
@@ -106,6 +89,9 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             cm.clone(),
             account.clone(),
             token.clone(),
+            credential.clone(),
+            membership.clone(),
+            role.clone(),
             config.clone(),
         ));
 

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, todo};
+use std::{collections::HashMap, sync::Arc};
 
 use uuid::Uuid;
 
@@ -78,13 +78,36 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
         }
     }
 
-    // TODO: implement default roles for workspaces
-    pub fn create_workspace_viewer_role(&self, ws_id: Uuid) -> CoreResult<Role> {
-        todo!()
+    /// Creates the default "Workspace Viewer" role with the given permissions.
+    pub async fn create_workspace_viewer_role(
+        &self,
+        ctx: &mut CoreCtx,
+        ws_id: Uuid,
+        perm_ids: Vec<Uuid>,
+    ) -> CoreResult<Role> {
+        let params = RoleCreateParams::new_workspace_system_role(
+            ws_id,
+            "Workspace Viewer",
+            Some("Default read-only workspace viewer role"),
+            perm_ids,
+        );
+        self.create(ctx, params).await
     }
 
-    pub fn create_workspace_admin_role(&self, ws_id: Uuid) -> CoreResult<Role> {
-        todo!()
+    /// Creates the default "Workspace Admin" role with the given permissions.
+    pub async fn create_workspace_admin_role(
+        &self,
+        ctx: &mut CoreCtx,
+        ws_id: Uuid,
+        perm_ids: Vec<Uuid>,
+    ) -> CoreResult<Role> {
+        let params = RoleCreateParams::new_workspace_system_role(
+            ws_id,
+            "Workspace Admin",
+            Some("Default workspace administrator role"),
+            perm_ids,
+        );
+        self.create(ctx, params).await
     }
 
     /// Invalidates the account-level auth cache for every membership that carries

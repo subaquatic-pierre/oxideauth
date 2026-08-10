@@ -45,30 +45,22 @@ CREATE TABLE IF NOT EXISTS
     -- (meta also constrained if needed in a follow-up migration)
   );
 
--- TODO: Make sure to re-enable workspace-user-credential unique constraints
 -- =========================
 -- Indexes
 -- =========================
 -- Password lookup:
--- Enforce uniqueness of one active password credential per workspace/email.
--- CREATE INDEX IF NOT EXISTS cred_password_lookup_idx ON credential (workspace_id, lower(email))
--- WHERE
---   kind = 'password'
---   AND status = 'active'
---   AND email IS NOT NULL;
--- CREATE UNIQUE INDEX cred_pw_unique_ns_email ON credential (workspace_id, lower(email))
--- WHERE
---   kind = 'password'
---   AND status = 'active'
---   AND email IS NOT NULL;
+-- Enforce uniqueness: one active password credential per workspace + account.
+CREATE UNIQUE INDEX IF NOT EXISTS cred_unique_active_password
+ON credential (workspace_id, account_id)
+WHERE
+  kind = 'password'
+  AND status = 'active';
+
 -- OAuth/SSO lookup:
--- Uniqueness enforced by provider + provider_id per workspace.
--- CREATE UNIQUE INDEX IF NOT EXISTS cred_oauth_lookup_idx ON credential (workspace_id, provider, provider_id)
--- WHERE
---   kind IN ('oauth', 'sso')
---   AND status = 'active'
---   AND provider_id IS NOT NULL;
--- CREATE UNIQUE INDEX cred_oauth_unique_ns ON credential (workspace_id, provider, provider_id)
--- WHERE
---   kind IN ('oauth', 'sso')
---   AND provider_id IS NOT NULL;
+-- Enforce uniqueness: one active OAuth/SSO credential per workspace + provider + provider_id.
+CREATE UNIQUE INDEX IF NOT EXISTS cred_unique_active_provider
+ON credential (workspace_id, provider, provider_id)
+WHERE
+  kind IN ('oauth', 'sso')
+  AND status = 'active'
+  AND provider_id IS NOT NULL;

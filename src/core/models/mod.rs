@@ -11,3 +11,6 @@ pub mod project;
 pub mod role;
 pub mod token;
 pub mod workspace;
+
+// Params-only modules (no dependency on web layer)
+pub mod auth;

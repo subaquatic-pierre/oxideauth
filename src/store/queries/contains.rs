@@ -221,9 +221,12 @@ mod tests {
         dev::init::init_test,
         store::{
             ctx::StoreCtx,
-            entities::permission::{
-                PermissionFilter, PermissionForCreate, PermissionIden, PermissionMeta,
-                PermissionRow,
+            entities::{
+                permission::{
+                    PermissionFilter, PermissionForCreate, PermissionIden, PermissionMeta,
+                    PermissionRow,
+                },
+                workspace::WorkspaceForCreate,
             },
             queries::crud::create,
             stores::permission::PermissionStore,
@@ -247,8 +250,9 @@ mod tests {
         // scope queries to it, so the exact-count assertions are unaffected by
         // other rows in the shared test DB (e.g. canonical permissions that are
         // seeded into every workspace created via the workspace service).
-        let ws_id = Uuid::try_parse("10000000-0000-0000-0000-000000000002").unwrap();
         let mut ctx = StoreCtx::new_root();
+        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_id: Uuid = ws.id.into();
         ctx.set_workspace_scope(Some(ws_id));
 
         let c_perm = |i| {
@@ -318,8 +322,9 @@ mod tests {
         // queries to it, so the exact-count assertions are unaffected by other
         // rows in the shared test DB (e.g. canonical permissions that are seeded
         // into every workspace created via the workspace service).
-        let ws_id = Uuid::try_parse("10000000-0000-0000-0000-000000000003").unwrap();
         let mut ctx = StoreCtx::new_root();
+        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_id: Uuid = ws.id.into();
         ctx.set_workspace_scope(Some(ws_id));
 
         // -- Create test data with different tags
@@ -422,8 +427,14 @@ mod tests {
 
         // 1. Setup Contexts and Data
 
+        // Create two real workspaces to use as the scoping fixtures.
+        let ctx = StoreCtx::new_root();
+        let ws_a = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_id_a: Uuid = ws_a.id.into();
+        let ws_b = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_id_b: Uuid = ws_b.id.into();
+
         // Context 1: Scoped to ws_id_a (Root context is usually used for ws_id, but we'll scope explicitly)
-        let ws_id_a = Uuid::try_parse("10000000-0000-0000-0000-000000000002").unwrap();
         let mut ctx_a = StoreCtx {
             ws_id: ws_id_a,
             ..StoreCtx::new_root()
@@ -433,7 +444,6 @@ mod tests {
         ctx_a.set_workspace_scope(Some(ws_id_a));
 
         // Context 2: Scoped to ws_id_b
-        let ws_id_b = Uuid::try_parse("10000000-0000-0000-0000-000000000003").unwrap();
         let mut ctx_b = StoreCtx {
             ws_id: ws_id_b,
             ..StoreCtx::new_root()
@@ -553,6 +563,10 @@ mod tests {
         let store = PermissionStore::new(dbx.clone());
         let ctx = StoreCtx::new_root(); // Use unscoped context for simplicity
 
+        // FK prerequisite: permissions reference a real workspace.
+        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_id: Uuid = ws.id.into();
+
         // 1. Setup Data
 
         // Helper to create permissions with different 'name' values for ordering
@@ -560,7 +574,7 @@ mod tests {
             let name = format!("{}_{:03}", name_prefix, i);
 
             PermissionForCreate {
-                workspace_id: ctx.ws_id,
+                workspace_id: ws_id,
                 name, // e.g., "P_005", "P_001"
                 meta: PermissionMeta {
                     schema_version: "test_opts".to_string(), // Common meta for filtering

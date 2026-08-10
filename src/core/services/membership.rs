@@ -524,7 +524,7 @@ mod tests {
         let cm = Arc::new(CacheManager::new(mock_cache));
         let svc_reg = ServiceRegistry::new(&app.config, app.sm.clone(), cm);
         let svc = svc_reg.membership.clone();
-        let mut ctx = CoreCtx::new_test()?;
+        let mut ctx = CoreCtx::new_root()?;
 
         // Setup Workspace and Account
         let (workspace_id, account_id) = setup_membership_deps(app, &mut ctx).await?;

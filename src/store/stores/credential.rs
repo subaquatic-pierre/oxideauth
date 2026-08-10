@@ -91,12 +91,14 @@ impl<D: DbExecutor> ContainsFilterStore for CredentialStore<D> {
 mod tests {
     use super::*;
     use crate::{
+        cache::redis::RedisChx,
         dev::init::init_test,
         store::{
             ctx::StoreCtx,
             entities::{
                 account::AccountForCreate,
-                credential::{CredentialProvider, CredentialStatus},
+                credential::{CredentialKind, CredentialProvider, CredentialStatus},
+                workspace::WorkspaceForCreate,
             },
             error::StoreError,
             traits::{contains::FilterByContains, crud::*},
@@ -105,6 +107,25 @@ mod tests {
     use anyhow::Result;
     use serde_json::json;
     use serial_test::serial;
+    use uuid::Uuid;
+
+    /// Helper function to seed the necessary Account and Workspace for a Credential.
+    async fn seed_prerequisites(
+        ctx: &StoreCtx,
+        app: &crate::app::AppState<PgDbx, RedisChx>,
+    ) -> Result<(Uuid, Uuid)> {
+        let account = app
+            .sm
+            .account
+            .create(ctx, AccountForCreate::default())
+            .await?;
+        let workspace = app
+            .sm
+            .workspace
+            .create(ctx, WorkspaceForCreate::default())
+            .await?;
+        Ok((account.id.into(), workspace.id.into()))
+    }
 
     #[tokio::test]
     #[serial]
@@ -115,16 +136,12 @@ mod tests {
         let store = CredentialStore::new(dbx);
         let ctx = StoreCtx::new_root();
 
-        // Prerequisite: Create an account to link the credential to.
-        let account = app
-            .sm
-            .account
-            .create(&ctx, AccountForCreate::default())
-            .await?;
+        // Prerequisite: Create an account and workspace to link the credential to.
+        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 
         let mut data = CredentialForCreate::default();
-        data.account_id = account.id.into();
-        data.workspace_id = ctx.ws_id;
+        data.account_id = account_id;
+        data.workspace_id = workspace_id;
 
         data.provider = CredentialProvider::Google;
 
@@ -133,7 +150,8 @@ mod tests {
         let fetched_cred = store.get(&ctx, &created_cred.id).await?;
 
         // -- Assert
-        assert_eq!(created_cred.account_id, account.id);
+        assert_eq!(created_cred.account_id, account_id.into());
+        assert_eq!(created_cred.workspace_id, workspace_id.into());
         assert_eq!(created_cred.provider, CredentialProvider::Google);
         assert_eq!(fetched_cred.id, created_cred.id);
         assert_eq!(fetched_cred.provider, created_cred.provider);
@@ -150,14 +168,10 @@ mod tests {
         let store = CredentialStore::new(dbx);
         let ctx = StoreCtx::new_root();
 
-        let account = app
-            .sm
-            .account
-            .create(&ctx, AccountForCreate::default())
-            .await?;
+        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
         let mut data = CredentialForCreate::default();
-        data.account_id = account.id.into();
-        data.workspace_id = ctx.ws_id;
+        data.account_id = account_id;
+        data.workspace_id = workspace_id;
         let created_cred = store.create(&ctx, data).await?;
 
         let update_data = CredentialForUpdate {
@@ -185,14 +199,10 @@ mod tests {
         let store = CredentialStore::new(dbx);
         let ctx = StoreCtx::new_root();
 
-        let account = app
-            .sm
-            .account
-            .create(&ctx, AccountForCreate::default())
-            .await?;
+        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
         let mut data = CredentialForCreate::default();
-        data.account_id = account.id.into();
-        data.workspace_id = ctx.ws_id;
+        data.account_id = account_id;
+        data.workspace_id = workspace_id;
         let created_cred = store.create(&ctx, data).await?;
 
         // -- Execute
@@ -218,22 +228,19 @@ mod tests {
         let store = CredentialStore::new(dbx);
         let ctx = StoreCtx::new_root();
 
-        let account = app
-            .sm
-            .account
-            .create(&ctx, AccountForCreate::default())
-            .await?;
+        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 
         let creds_to_create = vec![
             CredentialForCreate {
-                account_id: account.id.into(),
-                workspace_id: ctx.ws_id,
+                account_id,
+                workspace_id,
                 provider: CredentialProvider::Local,
+                kind: CredentialKind::ApiKey,
                 ..Default::default()
             },
             CredentialForCreate {
-                account_id: account.id.into(),
-                workspace_id: ctx.ws_id,
+                account_id,
+                workspace_id,
                 secret: Some("cool".to_string()),
                 provider: CredentialProvider::Google,
                 ..Default::default()
@@ -263,22 +270,19 @@ mod tests {
         let store = CredentialStore::new(dbx);
         let ctx = StoreCtx::new_root();
 
-        let account = app
-            .sm
-            .account
-            .create(&ctx, AccountForCreate::default())
-            .await?;
+        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 
         let creds_to_create = vec![
             CredentialForCreate {
-                account_id: account.id.into(),
-                workspace_id: ctx.ws_id,
+                account_id,
+                workspace_id,
                 tags: vec!["primary".into(), "oauth".into()],
+                kind: CredentialKind::ApiKey,
                 ..Default::default()
             },
             CredentialForCreate {
-                account_id: account.id.into(),
-                workspace_id: ctx.ws_id,
+                account_id,
+                workspace_id,
                 tags: vec!["secondary".into(), "mfa".into()],
                 ..Default::default()
             },

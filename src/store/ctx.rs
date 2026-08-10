@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -18,16 +16,22 @@ impl StoreCtx {
         }
     }
 
-    pub fn new_root() -> Self {
-        let root_user_id: Uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
-        let root_workspace_id: Uuid =
-            Uuid::parse_str("10000000-0000-0000-0000-000000000001").unwrap();
-
+    /// Creates a bootstrap context with nil UUIDs — no pre-existing DB data required.
+    ///
+    /// Used during seeding/initialization before any accounts or workspaces exist.
+    /// All queries run with `workspace_scope: None` (no row-level filtering).
+    pub fn bootstrap() -> Self {
         Self {
-            user_id: root_user_id,
-            ws_id: root_workspace_id,
+            user_id: Uuid::nil(),
+            ws_id: Uuid::nil(),
             workspace_scope: None,
         }
+    }
+
+    /// Alias for `bootstrap()`. Kept for backward compatibility with existing
+    /// test and system-level code that uses "root" terminology.
+    pub fn new_root() -> Self {
+        Self::bootstrap()
     }
 
     pub fn workspace_scope(&self) -> Option<Uuid> {

@@ -14,7 +14,7 @@ use oxideauth_macros::HasId;
 
 use crate::store::entities::audit::AuditFields;
 use crate::store::error::{StoreError, StoreResult};
-use crate::store::utils::{json_to_sea_value, time_to_sea_value};
+use crate::store::utils::{gen_rand_str, json_to_sea_value, time_to_sea_value};
 
 #[derive(Iden, Copy, Clone)]
 pub enum RoleIden {
@@ -157,7 +157,7 @@ impl Default for RoleForCreate {
     fn default() -> Self {
         Self {
             workspace_id: Uuid::new_v4(),
-            name: "default-role".to_string(),
+            name: format!("role-{}", gen_rand_str(8)),
             description: Some("A default role for testing.".to_string()),
             tags: vec![],
             meta: RoleMeta {
