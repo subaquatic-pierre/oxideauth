@@ -1,4 +1,5 @@
 use std::time::Duration;
+use std::sync::Arc;
 use tracing::debug;
 
 use axum::http::{HeaderMap, header::AUTHORIZATION};
@@ -53,12 +54,12 @@ impl TokenServiceConfig {
 }
 
 pub struct TokenService<D: DbExecutor, C: CacheExecutor> {
-    ws_svc: WorkspaceService<D, C>,
+    ws_svc: Arc<WorkspaceService<D, C>>,
     config: TokenServiceConfig,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> TokenService<D, C> {
-    pub fn new(ws_svc: WorkspaceService<D, C>, config: TokenServiceConfig) -> Self {
+    pub fn new(ws_svc: Arc<WorkspaceService<D, C>>, config: TokenServiceConfig) -> Self {
         Self { config, ws_svc }
     }
 

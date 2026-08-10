@@ -87,8 +87,8 @@ where
     C: CacheExecutor,
 {
     sm: Arc<StoreManager<D>>,
-    acc_svc: AccountService<D, C>,
-    token_svc: TokenService<D, C>,
+    acc_svc: Arc<AccountService<D, C>>,
+    token_svc: Arc<TokenService<D, C>>,
     cm: Arc<CacheManager<C>>,
     config: Config,
 }
@@ -101,8 +101,8 @@ where
     pub fn new(
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
-        acc_svc: AccountService<D, C>,
-        token_svc: TokenService<D, C>,
+        acc_svc: Arc<AccountService<D, C>>,
+        token_svc: Arc<TokenService<D, C>>,
         config: Config,
     ) -> Self {
         Self {

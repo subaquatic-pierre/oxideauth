@@ -7,7 +7,7 @@ use sqlx::Pool;
 use crate::cache::manager::CacheManager;
 use crate::cache::redis::RedisChx;
 use crate::cache::traits::CacheExecutor;
-use crate::core::services::factory::ServiceFactory;
+use crate::core::services::registry::ServiceRegistry;
 use crate::core::services::token::TokenService;
 use crate::dev::init::init_dev;
 use crate::store::dbx::PgDbx;
@@ -47,7 +47,7 @@ where
     pub chx: Arc<C>,
     pub sm: Arc<StoreManager<D>>,
     pub cm: Arc<CacheManager<C>>,
-    pub svc_factory: Arc<ServiceFactory<D, C>>,
+    pub svc_reg: Arc<ServiceRegistry<D, C>>,
 }
 
 pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
@@ -109,7 +109,7 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
         }
     };
 
-    let svc_factory = Arc::new(ServiceFactory::new(sm.clone(), cm.clone()));
+    let svc_reg = Arc::new(ServiceRegistry::new(sm.clone(), cm.clone()));
 
     // debug!("App Config config: {:?}", config);
 
@@ -119,7 +119,7 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
         chx,
         cm,
         sm,
-        svc_factory,
+        svc_reg,
     }
 }
 

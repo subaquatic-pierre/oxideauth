@@ -31,7 +31,7 @@ pub async fn register(
     body: JsonReqResult<AuthRegisterReq>,
 ) -> JsonResResult<WebResponse<AuthRegisterRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.auth();
+    let svc = app.svc_reg.auth.clone();
     let result = svc
         .register(
             &body.email,
@@ -53,7 +53,7 @@ pub async fn login(
     body: JsonReqResult<AuthLoginReq>,
 ) -> JsonResResult<WebResponse<AuthLoginRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.auth();
+    let svc = app.svc_reg.auth.clone();
     let result = svc.login(&body.email, &body.password).await?;
     WebResponse::json(AuthLoginRes {
         account: result.account,
@@ -70,7 +70,7 @@ pub async fn refresh(
 ) -> JsonResResult<WebResponse<AuthRefreshRes>> {
     let raw_token = TokenService::<PgDbx, RedisChx>::token_str_from_headers(&headers)
         .ok_or(WebError::Unauthorized)?;
-    let svc = app.svc_factory.auth();
+    let svc = app.svc_reg.auth.clone();
     let tp = svc.refresh_token(raw_token).await?;
     WebResponse::json(AuthRefreshRes {
         access_token: tp.access_token,
@@ -85,7 +85,7 @@ pub async fn reset_password(
     body: JsonReqResult<AuthResetPasswordReq>,
 ) -> JsonResResult<WebResponse<AuthResetPasswordRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.auth();
+    let svc = app.svc_reg.auth.clone();
     svc.request_password_reset(&body.email).await?;
     WebResponse::json(AuthResetPasswordRes {
         message: "if the account exists, a password reset email has been sent".to_string(),
@@ -99,7 +99,7 @@ pub async fn update_password(
     body: JsonReqResult<AuthUpdatePasswordReq>,
 ) -> JsonResResult<WebResponse<AuthUpdatePasswordRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.auth();
+    let svc = app.svc_reg.auth.clone();
     let account_id = svc.update_password(&body.token, &body.password).await?;
     WebResponse::json(AuthUpdatePasswordRes { account_id })
 }
@@ -111,7 +111,7 @@ pub async fn confirm_account(
     body: JsonReqResult<AuthConfirmAccountReq>,
 ) -> JsonResResult<WebResponse<AuthConfirmAccountRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.auth();
+    let svc = app.svc_reg.auth.clone();
     let result = svc.confirm_account(&body.token).await?;
     WebResponse::json(AuthConfirmAccountRes {
         account_id: result.account_id,
@@ -126,7 +126,7 @@ pub async fn resend_confirm(
     body: JsonReqResult<AuthResendConfirmReq>,
 ) -> JsonResResult<WebResponse<AuthResendConfirmRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.auth();
+    let svc = app.svc_reg.auth.clone();
     svc.resend_confirmation(&body.email).await?;
     WebResponse::json(AuthResendConfirmRes {
         message: "if the account exists, a confirmation email has been sent".to_string(),
@@ -142,7 +142,7 @@ pub async fn revoke(
 ) -> JsonResResult<WebResponse<AuthRevokeRes>> {
     let raw_token = TokenService::<PgDbx, RedisChx>::token_str_from_headers(&headers)
         .ok_or(WebError::Unauthorized)?;
-    let svc = app.svc_factory.auth();
+    let svc = app.svc_reg.auth.clone();
     svc.revoke_token(&ctx, raw_token).await?;
     WebResponse::json(AuthRevokeRes { revoked: true })
 }
@@ -154,7 +154,7 @@ pub async fn oauth_google_initiate(
     body: JsonReqResult<AuthOAuthInitiateReq>,
 ) -> JsonResResult<WebResponse<AuthOAuthInitiateRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.auth();
+    let svc = app.svc_reg.auth.clone();
     let auth_url = svc.initiate_google_oauth(&body.redirect_url).await?;
     WebResponse::json(AuthOAuthInitiateRes { auth_url })
 }
@@ -171,7 +171,7 @@ pub async fn oauth_google_callback(
     app: Extension<App>,
     Query(query): Query<GoogleOAuthCallbackQuery>,
 ) -> Result<Redirect, WebError> {
-    let svc = app.svc_factory.auth();
+    let svc = app.svc_reg.auth.clone();
     let result = svc
         .process_google_callback(&query.code, &query.state)
         .await?;

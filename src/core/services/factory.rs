@@ -38,22 +38,22 @@ where
     }
 
     pub fn account(&self) -> AccountService<D, C> {
-        let svc = AccountService::new(self.sm.clone(), self.cm.clone(), self.workspace());
+        let svc = AccountService::new(self.sm.clone(), self.cm.clone(), Arc::new(self.workspace()));
         svc
     }
 
     pub fn role(&self) -> RoleService<D, C> {
         let svc = RoleService::new(
             self.sm.clone(),
-            self.workspace(),
-            self.permission(),
+            Arc::new(self.workspace()),
+            Arc::new(self.permission()),
             self.cm.clone(),
         );
         svc
     }
 
     pub fn permission(&self) -> PermissionService<D, C> {
-        let svc = PermissionService::new(self.sm.clone(), self.workspace(), self.cm.clone());
+        let svc = PermissionService::new(self.sm.clone(), Arc::new(self.workspace()), self.cm.clone());
         svc
     }
 
@@ -67,7 +67,7 @@ where
     }
 
     pub fn project(&self) -> ProjectService<D, C> {
-        let svc = ProjectService::new(self.sm.clone(), self.workspace());
+        let svc = ProjectService::new(self.sm.clone(), Arc::new(self.workspace()));
         svc
     }
 
@@ -75,15 +75,15 @@ where
         let svc = MembershipService::new(
             self.sm.clone(),
             self.cm.clone(),
-            self.workspace(),
-            self.account(),
-            self.role(),
+            Arc::new(self.workspace()),
+            Arc::new(self.account()),
+            Arc::new(self.role()),
         );
         svc
     }
 
     pub fn credential(&self) -> CredentialService<D, C> {
-        let svc = CredentialService::new(self.sm.clone(), self.workspace(), self.account());
+        let svc = CredentialService::new(self.sm.clone(), Arc::new(self.workspace()), Arc::new(self.account()));
         svc
     }
 
@@ -91,14 +91,14 @@ where
         AuthService::new(
             self.sm.clone(),
             self.cm.clone(),
-            self.account(),
-            self.token(),
+            Arc::new(self.account()),
+            Arc::new(self.token()),
             Config::from_env(), // TODO: hold Config in ServiceFactory instead of re-reading from env
         )
     }
 
     pub fn client(&self) -> ClientService<D, C> {
-        let svc = ClientService::new(self.sm.clone(), self.workspace(), self.cm.clone());
+        let svc = ClientService::new(self.sm.clone(), Arc::new(self.workspace()), self.cm.clone());
         svc
     }
 
@@ -114,7 +114,7 @@ where
             config.access_token_max_age,
             config.refresh_token_max_age,
         );
-        let svc = TokenService::new(self.workspace(), token_config);
+        let svc = TokenService::new(Arc::new(self.workspace()), token_config);
         svc
     }
 }

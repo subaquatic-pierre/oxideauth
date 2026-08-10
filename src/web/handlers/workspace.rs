@@ -44,7 +44,7 @@ pub async fn describe_workspace(
     body: JsonReqResult<WorkspaceDescribeReq>,
 ) -> JsonResResult<WebResponse<WorkspaceDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.workspace();
+    let svc = app.svc_reg.workspace.clone();
 
     let params: WorkspaceDescribeParams = body.into();
 
@@ -64,7 +64,7 @@ pub async fn list_workspaces(
     body: JsonReqResult<WorkspaceListReq>,
 ) -> JsonResResult<WebResponse<WorkspaceListRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.workspace();
+    let svc = app.svc_reg.workspace.clone();
 
     let params: WorkspaceListParams = body.into();
     let res = svc.list(&mut ctx, params).await?;
@@ -92,7 +92,7 @@ pub async fn create_workspace(
     body: JsonReqResult<WorkspaceCreateReq>,
 ) -> JsonResResult<WebResponse<WorkspaceDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.workspace();
+    let svc = app.svc_reg.workspace.clone();
 
     let params: WorkspaceCreateParams = body.into();
 
@@ -112,7 +112,7 @@ pub async fn update_workspace(
     body: JsonReqResult<WorkspaceUpdateReq>,
 ) -> JsonResResult<WebResponse<WorkspaceDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.workspace();
+    let svc = app.svc_reg.workspace.clone();
 
     let params: WorkspaceUpdateParams = body.into();
 
@@ -132,7 +132,7 @@ pub async fn delete_workspace(
     body: JsonReqResult<WorkspaceDeleteReq>,
 ) -> JsonResResult<WebResponse<WorkspaceDeleteRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.workspace();
+    let svc = app.svc_reg.workspace.clone();
 
     let params: WorkspaceDeleteParams = body.into();
 

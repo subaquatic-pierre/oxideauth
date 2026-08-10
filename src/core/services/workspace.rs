@@ -19,7 +19,6 @@ use crate::{
         services::{
             auth::AuthValidator,
             permission::{CANONICAL_PERMISSIONS, PermissionService},
-            role::RoleService,
         },
         traits::{
             list::RequestListParams,
@@ -389,7 +388,7 @@ mod tests {
     #[serial]
     async fn test_workspace_describe() -> CoreResult<()> {
         let app = init_test().await;
-        let svc = app.svc_factory.workspace();
+        let svc = app.svc_reg.workspace.clone();
         let mut ctx = CoreCtx::new_test()?;
 
         let mut params = WorkspaceDescribeParams::default();
@@ -411,7 +410,7 @@ mod tests {
     #[serial]
     async fn test_workspace_create() -> CoreResult<()> {
         let app = init_test().await;
-        let svc = app.svc_factory.workspace();
+        let svc = app.svc_reg.workspace.clone();
         let mut ctx = CoreCtx::new_test()?;
 
         let slug = format!("test-ws-{}", Uuid::new_v4());
@@ -444,7 +443,7 @@ mod tests {
     #[serial]
     async fn test_workspace_list() -> CoreResult<()> {
         let app = init_test().await;
-        let svc = app.svc_factory.workspace();
+        let svc = app.svc_reg.workspace.clone();
         let mut ctx = CoreCtx::new_test()?;
         ctx.extend_perms(&["workspace:create"])?;
 
@@ -483,7 +482,7 @@ mod tests {
     #[serial]
     async fn test_workspace_update() -> CoreResult<()> {
         let app = init_test().await;
-        let svc = app.svc_factory.workspace();
+        let svc = app.svc_reg.workspace.clone();
         let mut ctx = CoreCtx::new_test()?;
 
         // Setup: Create a workspace to update
@@ -518,7 +517,7 @@ mod tests {
     #[serial]
     async fn test_workspace_delete() -> CoreResult<()> {
         let app = init_test().await;
-        let svc = app.svc_factory.workspace();
+        let svc = app.svc_reg.workspace.clone();
         let mut ctx = CoreCtx::new_test()?;
 
         ctx.extend_perms(&["workspace:create", "workspace:delete", "workspace:describe"])?;

@@ -46,8 +46,8 @@ use crate::{
 pub struct RoleService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
-    ws_svc: WorkspaceService<D, C>,
-    perm_svc: PermissionService<D, C>,
+    ws_svc: Arc<WorkspaceService<D, C>>,
+    perm_svc: Arc<PermissionService<D, C>>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for RoleService<D, C> {
@@ -59,15 +59,15 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for RoleService<D, 
     }
 
     fn ws_svc(&self) -> &WorkspaceService<D, C> {
-        &self.ws_svc
+        self.ws_svc.as_ref()
     }
 }
 
 impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
-        ws_svc: WorkspaceService<D, C>,
-        perm_svc: PermissionService<D, C>,
+        ws_svc: Arc<WorkspaceService<D, C>>,
+        perm_svc: Arc<PermissionService<D, C>>,
         cm: Arc<CacheManager<C>>,
     ) -> Self {
         Self {

@@ -43,15 +43,15 @@ use std::{collections::HashMap, sync::Arc};
 
 pub struct CredentialService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
-    ws_svc: WorkspaceService<D, C>,
-    acc_svc: AccountService<D, C>,
+    ws_svc: Arc<WorkspaceService<D, C>>,
+    acc_svc: Arc<AccountService<D, C>>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
-        ws_svc: WorkspaceService<D, C>,
-        acc_svc: AccountService<D, C>,
+        ws_svc: Arc<WorkspaceService<D, C>>,
+        acc_svc: Arc<AccountService<D, C>>,
     ) -> Self {
         Self {
             sm,
@@ -144,7 +144,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for CredentialServi
     }
 
     fn ws_svc(&self) -> &WorkspaceService<D, C> {
-        &self.ws_svc
+        self.ws_svc.as_ref()
     }
 }
 

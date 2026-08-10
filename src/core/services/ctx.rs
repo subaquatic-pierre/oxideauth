@@ -16,7 +16,7 @@ use crate::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
         models::token::TokenClaims,
-        services::{factory::ServiceFactory, token::TokenService},
+        services::{registry::ServiceRegistry, token::TokenService},
     },
     dev::fixtures::{global_ws_id, root_user_id},
     store::{
@@ -41,7 +41,7 @@ where
 {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
-    svc_factory: Arc<ServiceFactory<D, C>>,
+        svc_reg: Arc<ServiceRegistry<D, C>>,
     config: Config,
 }
 
@@ -53,13 +53,13 @@ where
     pub fn new(
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
-        svc_factory: Arc<ServiceFactory<D, C>>,
+    svc_reg: Arc<ServiceRegistry<D, C>>,
         config: Config,
     ) -> Self {
         Self {
             sm,
             cm,
-            svc_factory,
+            svc_reg,
             config,
         }
     }
@@ -80,7 +80,7 @@ where
         let token_str = TokenService::<D, C>::token_str_from_headers(headers)
             .ok_or_else(|| CoreError::Auth("missing authorization header".into()))?;
 
-        let token_svc = self.svc_factory.token();
+        let token_svc = self.svc_reg.token.clone();
         let claims = token_svc.decode_token_str(token_str)?;
 
         let mem_id = claims.mem_id()?;

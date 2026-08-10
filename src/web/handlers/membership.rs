@@ -35,7 +35,7 @@ pub async fn describe_membership(
     body: JsonReqResult<MembershipDescribeReq>,
 ) -> JsonResResult<WebResponse<MembershipDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.membership();
+    let svc = app.svc_reg.membership.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: MembershipDescribeParams = body.into_params(ws_id)?;
@@ -54,7 +54,7 @@ pub async fn list_memberships(
     body: JsonReqResult<MembershipListReq>,
 ) -> JsonResResult<WebResponse<MembershipListRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.membership();
+    let svc = app.svc_reg.membership.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: MembershipListParams = body.into_params(ws_id)?;
@@ -82,7 +82,7 @@ pub async fn create_membership(
     body: JsonReqResult<MembershipCreateReq>,
 ) -> JsonResResult<WebResponse<MembershipDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.membership();
+    let svc = app.svc_reg.membership.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: MembershipCreateParams = body.into_params(ws_id)?;
@@ -101,7 +101,7 @@ pub async fn update_membership(
     body: JsonReqResult<MembershipUpdateReq>,
 ) -> JsonResResult<WebResponse<MembershipDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.membership();
+    let svc = app.svc_reg.membership.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: MembershipUpdateParams = body.into_params(ws_id)?;
@@ -120,7 +120,7 @@ pub async fn delete_membership(
     body: JsonReqResult<MembershipDeleteReq>,
 ) -> JsonResResult<WebResponse<MembershipDeleteRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.membership();
+    let svc = app.svc_reg.membership.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: MembershipDeleteParams = body.into_params(ws_id)?;

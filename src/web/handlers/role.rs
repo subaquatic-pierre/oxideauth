@@ -35,7 +35,7 @@ pub async fn describe_role(
     body: JsonReqResult<RoleDescribeReq>,
 ) -> JsonResResult<WebResponse<RoleDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.role();
+    let svc = app.svc_reg.role.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: RoleDescribeParams = body.into_params(ws_id)?;
@@ -54,7 +54,7 @@ pub async fn list_roles(
     body: JsonReqResult<RoleListReq>,
 ) -> JsonResResult<WebResponse<RoleListRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.role();
+    let svc = app.svc_reg.role.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: RoleListParams = body.into_params(ws_id)?;
@@ -82,7 +82,7 @@ pub async fn create_role(
     body: JsonReqResult<RoleCreateReq>,
 ) -> JsonResResult<WebResponse<RoleDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.role();
+    let svc = app.svc_reg.role.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: RoleCreateParams = body.into_params(ws_id)?;
@@ -101,7 +101,7 @@ pub async fn update_role(
     body: JsonReqResult<RoleUpdateReq>,
 ) -> JsonResResult<WebResponse<RoleDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.role();
+    let svc = app.svc_reg.role.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: RoleUpdateParams = body.into_params(ws_id)?;
@@ -120,7 +120,7 @@ pub async fn delete_role(
     body: JsonReqResult<RoleDeleteReq>,
 ) -> JsonResResult<WebResponse<RoleDeleteRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.role();
+    let svc = app.svc_reg.role.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: RoleDeleteParams = body.into_params(ws_id)?;

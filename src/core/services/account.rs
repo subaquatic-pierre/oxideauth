@@ -47,7 +47,7 @@ use crate::{
 pub struct AccountService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
-    ws_svc: WorkspaceService<D, C>,
+    ws_svc: Arc<WorkspaceService<D, C>>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for AccountService<D, C> {
@@ -59,7 +59,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for AccountService<
     }
 
     fn ws_svc(&self) -> &WorkspaceService<D, C> {
-        &self.ws_svc
+        self.ws_svc.as_ref()
     }
 
     fn should_remove_workspace_from_store_ctx(&self) -> bool {
@@ -77,7 +77,7 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
-        ws_svc: WorkspaceService<D, C>,
+        ws_svc: Arc<WorkspaceService<D, C>>,
     ) -> Self {
         Self { sm, cm, ws_svc }
     }
@@ -307,7 +307,7 @@ mod tests {
         app::{AppEnv, new_app_data},
         cache::{manager::CacheManager, mock::MockChx, redis::RedisChx},
         config::Config,
-        core::services::factory::ServiceFactory,
+        core::services::registry::ServiceRegistry,
         create_dbx_mock_unsafe,
         dev::{
             fixtures::{global_ws_id, root_user_id},
@@ -338,7 +338,7 @@ mod tests {
     #[serial]
     async fn test_account_create() -> CoreResult<()> {
         let app = init_test().await;
-        let acc_svc = app.svc_factory.account();
+        let acc_svc = app.svc_reg.account.clone();
         let mut ctx = CoreCtx::new_test()?;
         ctx.extend_perms(&["account:create"])?;
 
@@ -356,7 +356,7 @@ mod tests {
     #[serial]
     async fn test_account_list() -> CoreResult<()> {
         let app = init_test().await;
-        let acc_svc = app.svc_factory.account();
+        let acc_svc = app.svc_reg.account.clone();
         let mut ctx = CoreCtx::new_test()?;
         ctx.extend_perms(&["account:list"])?;
 
@@ -401,8 +401,8 @@ mod tests {
         // build cache manager with mock (no real Redis connection needed)
         let mock_cache = Arc::new(MockChx::default());
         let cm = Arc::new(CacheManager::new(mock_cache));
-        let svc_factory = ServiceFactory::new(sm, cm);
-        let svc = svc_factory.account();
+        let svc_reg = ServiceRegistry::new(sm, cm);
+        let svc = svc_reg.account.clone();
         let mut ctx = CoreCtx::new_test()?;
         ctx.extend_perms(&["account:create"])?;
 
@@ -458,8 +458,8 @@ mod tests {
         // build cache manager with mock (no real Redis connection needed)
         let mock_cache = Arc::new(MockChx::default());
         let cm = Arc::new(CacheManager::new(mock_cache));
-        let svc_factory = ServiceFactory::new(sm, cm);
-        let svc = svc_factory.account();
+        let svc_reg = ServiceRegistry::new(sm, cm);
+        let svc = svc_reg.account.clone();
 
         let mut ctx = CoreCtx::new_test()?;
         ctx.extend_perms(&["account:create"])?;

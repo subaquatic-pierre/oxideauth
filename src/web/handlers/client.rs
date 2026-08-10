@@ -37,7 +37,7 @@ pub async fn create_client(
     body: JsonReqResult<ClientCreateReq>,
 ) -> JsonResResult<WebResponse<ClientCreateRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.client();
+    let svc = app.svc_reg.client.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: ClientCreateParams = body.into_params(ws_id)?;
@@ -58,7 +58,7 @@ pub async fn list_clients(
     body: JsonReqResult<ClientListReq>,
 ) -> JsonResResult<WebResponse<ClientListRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.client();
+    let svc = app.svc_reg.client.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: ClientListParams = body.into_params(ws_id)?;
@@ -87,7 +87,7 @@ pub async fn validate_client(
     body: JsonReqResult<ClientValidateReq>,
 ) -> JsonResResult<WebResponse<ClientValidateRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.client();
+    let svc = app.svc_reg.client.clone();
     let ws_id = ctx.scoped_ws_id();
     let authorized = svc
         .validate(
@@ -111,7 +111,7 @@ pub async fn describe_client(
     body: JsonReqResult<ClientDescribeReq>,
 ) -> JsonResResult<WebResponse<ClientDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.client();
+    let svc = app.svc_reg.client.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: ClientDescribeParams = body.into_params(ws_id)?;
@@ -130,7 +130,7 @@ pub async fn update_client(
     body: JsonReqResult<ClientUpdateReq>,
 ) -> JsonResResult<WebResponse<ClientDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.client();
+    let svc = app.svc_reg.client.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: ClientUpdateParams = body.into_params(ws_id)?;
@@ -149,7 +149,7 @@ pub async fn delete_client(
     body: JsonReqResult<ClientDeleteReq>,
 ) -> JsonResResult<WebResponse<ClientDeleteRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.client();
+    let svc = app.svc_reg.client.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: ClientDeleteParams = body.into_params(ws_id)?;
@@ -169,7 +169,7 @@ pub async fn regenerate_secret_client(
     body: JsonReqResult<ClientRegenerateSecretReq>,
 ) -> JsonResResult<WebResponse<ClientRegenerateSecretRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.client();
+    let svc = app.svc_reg.client.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let client_secret = svc

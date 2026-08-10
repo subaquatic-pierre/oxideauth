@@ -30,7 +30,7 @@ impl CtxLayer {
         let ctx_svc = Arc::new(CtxService::new(
             app_state.sm.clone(),
             app_state.cm.clone(),
-            app_state.svc_factory.clone(),
+            app_state.svc_reg.clone(),
             app_state.config.clone(),
         ));
         Self { ctx_svc }

@@ -55,7 +55,7 @@ pub struct SecretHash {
 
 pub struct ClientService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
-    ws_svc: WorkspaceService<D, C>,
+    ws_svc: Arc<WorkspaceService<D, C>>,
     cm: Arc<CacheManager<C>>,
 }
 
@@ -68,14 +68,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for ClientService<D
     }
 
     fn ws_svc(&self) -> &WorkspaceService<D, C> {
-        &self.ws_svc
+        self.ws_svc.as_ref()
     }
 }
 
 impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
-        ws_svc: WorkspaceService<D, C>,
+        ws_svc: Arc<WorkspaceService<D, C>>,
         cm: Arc<CacheManager<C>>,
     ) -> Self {
         Self { sm, ws_svc, cm }

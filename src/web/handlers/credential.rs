@@ -35,7 +35,7 @@ pub async fn describe_credential(
     body: JsonReqResult<CredentialDescribeReq>,
 ) -> JsonResResult<WebResponse<CredentialDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.credential();
+    let svc = app.svc_reg.credential.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: CredentialDescribeParams = body.into_params(ws_id)?;
@@ -54,7 +54,7 @@ pub async fn list_credentials(
     body: JsonReqResult<CredentialListReq>,
 ) -> JsonResResult<WebResponse<CredentialListRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.credential();
+    let svc = app.svc_reg.credential.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: CredentialListParams = body.into_params(ws_id)?;
@@ -82,7 +82,7 @@ pub async fn update_credential(
     body: JsonReqResult<CredentialUpdateReq>,
 ) -> JsonResResult<WebResponse<CredentialDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.credential();
+    let svc = app.svc_reg.credential.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: CredentialUpdateParams = body.into_params(ws_id)?;
@@ -101,7 +101,7 @@ pub async fn delete_credential(
     body: JsonReqResult<CredentialDeleteReq>,
 ) -> JsonResResult<WebResponse<CredentialDeleteRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.credential();
+    let svc = app.svc_reg.credential.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: CredentialDeleteParams = body.into_params(ws_id)?;

@@ -55,9 +55,9 @@ use crate::{
 pub struct MembershipService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
-    ws_svc: WorkspaceService<D, C>,
-    acc_svc: AccountService<D, C>,
-    role_svc: RoleService<D, C>,
+    ws_svc: Arc<WorkspaceService<D, C>>,
+    acc_svc: Arc<AccountService<D, C>>,
+    role_svc: Arc<RoleService<D, C>>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for MembershipService<D, C> {
@@ -70,7 +70,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for MembershipServi
     }
 
     fn ws_svc(&self) -> &WorkspaceService<D, C> {
-        &self.ws_svc
+        self.ws_svc.as_ref()
     }
 }
 
@@ -78,9 +78,9 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
-        ws_svc: WorkspaceService<D, C>,
-        acc_svc: AccountService<D, C>,
-        role_svc: RoleService<D, C>,
+        ws_svc: Arc<WorkspaceService<D, C>>,
+        acc_svc: Arc<AccountService<D, C>>,
+        role_svc: Arc<RoleService<D, C>>,
     ) -> Self {
         Self {
             sm,
@@ -476,7 +476,7 @@ mod tests {
         app::AppState,
         cache::{mock::MockChx, redis::RedisChx},
         config::Config,
-        core::services::factory::ServiceFactory,
+        core::services::registry::ServiceRegistry,
         create_dbx_mock_unsafe,
         dev::init::init_test,
         store::{
@@ -511,8 +511,9 @@ mod tests {
 
         // 1. Create a Workspace
         let ws = app
-            .svc_factory
-            .workspace()
+            .svc_reg
+            .workspace
+            .clone()
             .create(
                 ctx,
                 crate::core::models::workspace::WorkspaceCreateParams {
@@ -525,8 +526,9 @@ mod tests {
 
         // 2. Create an Account
         let acc = app
-            .svc_factory
-            .account()
+            .svc_reg
+            .account
+            .clone()
             .create(
                 ctx,
                 crate::core::models::account::AccountCreateParams {
@@ -547,8 +549,8 @@ mod tests {
         let app = init_test().await;
         let mock_cache = Arc::new(MockChx::default());
         let cm = Arc::new(CacheManager::new(mock_cache));
-        let svc_factory = ServiceFactory::new(app.sm.clone(), cm);
-        let svc = svc_factory.membership();
+        let svc_reg = ServiceRegistry::new(app.sm.clone(), cm);
+        let svc = svc_reg.membership.clone();
         let mut ctx = CoreCtx::new_test()?;
 
         // Setup Workspace and Account
@@ -654,8 +656,8 @@ mod tests {
         // build cache manager with mock (no real Redis connection needed)
         let mock_cache = Arc::new(MockChx::default());
         let cm = Arc::new(CacheManager::new(mock_cache));
-        let svc_factory = ServiceFactory::new(sm, cm);
-        let svc = svc_factory.membership();
+        let svc_reg = ServiceRegistry::new(sm, cm);
+        let svc = svc_reg.membership.clone();
 
         Ok(())
     }

@@ -35,7 +35,7 @@ pub async fn describe_permission(
     body: JsonReqResult<PermissionDescribeReq>,
 ) -> JsonResResult<WebResponse<PermissionDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.permission();
+    let svc = app.svc_reg.permission.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: PermissionDescribeParams = body.into_params(ws_id)?;
@@ -54,7 +54,7 @@ pub async fn list_permissions(
     body: JsonReqResult<PermissionListReq>,
 ) -> JsonResResult<WebResponse<PermissionListRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.permission();
+    let svc = app.svc_reg.permission.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: PermissionListParams = body.into_params(ws_id)?;
@@ -82,7 +82,7 @@ pub async fn create_permission(
     body: JsonReqResult<PermissionCreateReq>,
 ) -> JsonResResult<WebResponse<PermissionDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.permission();
+    let svc = app.svc_reg.permission.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: PermissionCreateParams = body.into_params(ws_id)?;
@@ -101,7 +101,7 @@ pub async fn update_permission(
     body: JsonReqResult<PermissionUpdateReq>,
 ) -> JsonResResult<WebResponse<PermissionDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.permission();
+    let svc = app.svc_reg.permission.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: PermissionUpdateParams = body.into_params(ws_id)?;
@@ -120,7 +120,7 @@ pub async fn delete_permission(
     body: JsonReqResult<PermissionDeleteReq>,
 ) -> JsonResResult<WebResponse<PermissionDeleteRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.permission();
+    let svc = app.svc_reg.permission.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: PermissionDeleteParams = body.into_params(ws_id)?;

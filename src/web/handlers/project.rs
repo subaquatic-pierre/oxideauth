@@ -35,7 +35,7 @@ pub async fn describe_project(
     body: JsonReqResult<ProjectDescribeReq>,
 ) -> JsonResResult<WebResponse<ProjectDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.project();
+    let svc = app.svc_reg.project.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: ProjectDescribeParams = body.into_params(ws_id)?;
@@ -56,7 +56,7 @@ pub async fn list_projects(
     body: JsonReqResult<ProjectListReq>,
 ) -> JsonResResult<WebResponse<ProjectListRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.project();
+    let svc = app.svc_reg.project.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: ProjectListParams = body.into_params(ws_id)?;
@@ -81,7 +81,7 @@ pub async fn create_project(
     body: JsonReqResult<ProjectCreateReq>,
 ) -> JsonResResult<WebResponse<ProjectDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.project();
+    let svc = app.svc_reg.project.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: ProjectCreateParams = body.into_params(ws_id)?;
@@ -102,7 +102,7 @@ pub async fn update_project(
     body: JsonReqResult<ProjectUpdateReq>,
 ) -> JsonResResult<WebResponse<ProjectDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.project();
+    let svc = app.svc_reg.project.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: ProjectUpdateParams = body.into_params(ws_id)?;
@@ -123,7 +123,7 @@ pub async fn delete_project(
     body: JsonReqResult<ProjectDeleteReq>,
 ) -> JsonResResult<WebResponse<ProjectDeleteRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.project();
+    let svc = app.svc_reg.project.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: ProjectDeleteParams = body.into_params(ws_id)?;

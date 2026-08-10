@@ -49,7 +49,7 @@ pub async fn describe_account(
     body: JsonReqResult<AccountDescribeReq>,
 ) -> JsonResResult<WebResponse<AccountDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.account();
+    let svc = app.svc_reg.account.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: AccountDescribeParams = body.into_params(ws_id)?;
@@ -68,7 +68,7 @@ pub async fn list_accounts(
     body: JsonReqResult<AccountListReq>,
 ) -> JsonResResult<WebResponse<AccountListRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.account();
+    let svc = app.svc_reg.account.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: AccountListParams = body.into_params(ws_id)?;
@@ -89,7 +89,7 @@ pub async fn create_account(
     body: JsonReqResult<AccountCreateReq>,
 ) -> JsonResResult<WebResponse<AccountDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.account();
+    let svc = app.svc_reg.account.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: AccountCreateParams = body.into_params(ws_id)?;
@@ -110,7 +110,7 @@ pub async fn delete_account(
     body: JsonReqResult<AccountDeleteReq>,
 ) -> JsonResResult<WebResponse<AccountDeleteRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.account();
+    let svc = app.svc_reg.account.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: AccountDeleteParams = body.into_params(ws_id)?;
@@ -130,7 +130,7 @@ pub async fn update_account(
     body: JsonReqResult<AccountUpdateReq>,
 ) -> JsonResResult<WebResponse<AccountDescribeRes>> {
     let Json(body) = body?;
-    let svc = app.svc_factory.account();
+    let svc = app.svc_reg.account.clone();
 
     let ws_id = ctx.scoped_ws_id();
     let params: AccountUpdateParams = body.into_params(ws_id)?;
