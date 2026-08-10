@@ -271,7 +271,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D,C> for AccountService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountService<D, C> {
     type DeleteParams = AccountDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.account.delete;
 

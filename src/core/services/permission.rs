@@ -308,7 +308,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Permissio
         .await
     }
 }
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D,C> for PermissionService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for PermissionService<D, C> {
     type DeleteParams = PermissionDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.permission.delete;
 

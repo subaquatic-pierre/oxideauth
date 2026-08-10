@@ -63,7 +63,11 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         // ps_svc: PermissionService<D, C>,
     ) -> Self {
         // Self { sm, rs_svc, ps_svc }
-        Self { sm, s: PhantomData }
+        Self {
+            sm,
+            // rs_svc,
+            s: PhantomData,
+        }
     }
 
     async fn get_workspace_id(
@@ -138,7 +142,7 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D,C> for WorkspaceService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for WorkspaceService<D, C> {
     type CoreModel = Workspace;
 
     type ServiceStore = WorkspaceStore<D>;
@@ -156,7 +160,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D,C> for WorkspaceService
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D,C> for WorkspaceService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for WorkspaceService<D, C> {
     type CreateParams = WorkspaceCreateParams;
     const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.create;
 
@@ -211,7 +215,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D,C> for WorkspaceS
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D,C> for WorkspaceService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for WorkspaceService<D, C> {
     type DescribeParams = WorkspaceDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.describe;
 
@@ -239,7 +243,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D,C> for Workspac
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D,C> for WorkspaceService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for WorkspaceService<D, C> {
     type ListParams = WorkspaceListParams;
     const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.list;
 
@@ -283,7 +287,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D,C> for WorkspaceSer
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D,C> for WorkspaceService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for WorkspaceService<D, C> {
     type UpdateParams = WorkspaceUpdateParams;
     const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.update;
 
@@ -324,7 +328,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D,C> for WorkspaceS
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D,C> for WorkspaceService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for WorkspaceService<D, C> {
     type DeleteParams = WorkspaceDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.delete;
 

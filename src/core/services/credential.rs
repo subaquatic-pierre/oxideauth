@@ -2,7 +2,10 @@ use uuid::Uuid;
 
 use crate::{
     cache::traits::CacheExecutor,
-    core::models::{permission::PermissionRule, workspace::Workspace},
+    core::models::{
+        permission::PermissionRule,
+        workspace::{Workspace, WorkspaceDescribeParams},
+    },
     store::{
         entities::credential::{CredentialForCreate, CredentialForUpdate, CredentialRow},
         manager::StoreManager,
@@ -95,7 +98,16 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
             let workspace = match workspaces.get(&workspace_id) {
                 Some(ws) => ws,
                 None => {
-                    let ws = self.get_workspace(ctx, workspace_id).await?;
+                    let ws = self
+                        .ws_svc
+                        .describe(
+                            ctx,
+                            WorkspaceDescribeParams {
+                                id: Some(workspace_id),
+                                slug: None,
+                            },
+                        )
+                        .await?;
                     let ws_id = ws.id;
                     workspaces.insert(ws_id, ws);
                     // SAFETY: can unwrap as insert occurs directly above
@@ -192,7 +204,16 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Credent
         let acc = self
             .get_account(ctx, params.account_id, params.workspace_id)
             .await?;
-        let ws = self.get_workspace(ctx, params.workspace_id).await?;
+        let ws = self
+            .ws_svc
+            .describe(
+                ctx,
+                WorkspaceDescribeParams {
+                    id: Some(params.workspace_id),
+                    slug: None,
+                },
+            )
+            .await?;
 
         let credential = Credential::from_row_with_entities(row, acc, ws)?;
 
@@ -277,7 +298,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Credentia
 }
 
 // --- Delete ---
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D,C> for CredentialService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for CredentialService<D, C> {
     type DeleteParams = CredentialDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.credential.delete;
 
