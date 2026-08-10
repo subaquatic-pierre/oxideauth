@@ -57,13 +57,17 @@ where
         svc
     }
 
-    pub fn workspace(&self) -> WorkspaceService<D> {
-        let svc = WorkspaceService::new(self.sm.clone());
+    pub fn workspace(&self) -> WorkspaceService<D, C> {
+        let svc = WorkspaceService::new(
+            self.sm.clone(),
+            // self.role(),
+            // self.permission()
+        );
         svc
     }
 
-    pub fn project(&self) -> ProjectService<D> {
-        let svc = ProjectService::new(self.sm.clone());
+    pub fn project(&self) -> ProjectService<D, C> {
+        let svc = ProjectService::new(self.sm.clone(), self.workspace());
         svc
     }
 
@@ -86,23 +90,19 @@ where
     pub fn auth(&self) -> AuthService<D, C> {
         AuthService::new(
             self.sm.clone(),
+            self.cm.clone(),
             self.account(),
             self.token(),
-            self.cm.clone(),
             Config::from_env(), // TODO: hold Config in ServiceFactory instead of re-reading from env
         )
     }
 
     pub fn client(&self) -> ClientService<D, C> {
-        let svc = ClientService::new(
-            self.sm.clone(),
-            self.workspace(),
-            self.cm.clone(),
-        );
+        let svc = ClientService::new(self.sm.clone(), self.workspace(), self.cm.clone());
         svc
     }
 
-    pub fn token(&self) -> TokenService<D> {
+    pub fn token(&self) -> TokenService<D, C> {
         // TODO: get config from storage, first check cache,
         // if not found then check database and update cache
         // the reason for holding config in storage is to allow

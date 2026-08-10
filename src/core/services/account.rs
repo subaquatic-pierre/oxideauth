@@ -47,10 +47,10 @@ use crate::{
 pub struct AccountService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
-    ws_svc: WorkspaceService<D>,
+    ws_svc: WorkspaceService<D, C>,
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for AccountService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for AccountService<D, C> {
     type CoreModel = Account;
     type ServiceStore = AccountStore<D>;
 
@@ -58,7 +58,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for AccountService<D, 
         &self.sm.account
     }
 
-    fn ws_svc(&self) -> &WorkspaceService<D> {
+    fn ws_svc(&self) -> &WorkspaceService<D, C> {
         &self.ws_svc
     }
 
@@ -77,7 +77,7 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
-        ws_svc: WorkspaceService<D>,
+        ws_svc: WorkspaceService<D, C>,
     ) -> Self {
         Self { sm, cm, ws_svc }
     }
@@ -112,7 +112,7 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for AccountService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for AccountService<D, C> {
     type CreateParams = AccountCreateParams;
     const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.account.create;
 
@@ -149,7 +149,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for AccountServi
         Ok(new_account.into())
     }
 }
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for AccountService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for AccountService<D, C> {
     type DescribeParams = AccountDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.account.describe;
 
@@ -174,7 +174,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for AccountSer
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for AccountService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for AccountService<D, C> {
     type ListParams = AccountListParams;
     const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.account.list;
 
@@ -217,7 +217,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for AccountService
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for AccountService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountService<D, C> {
     type UpdateParams = AccountUpdateParams;
     const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.account.update;
 
@@ -271,7 +271,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for AccountServi
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for AccountService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D,C> for AccountService<D, C> {
     type DeleteParams = AccountDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.account.delete;
 

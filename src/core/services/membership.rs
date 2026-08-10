@@ -55,12 +55,12 @@ use crate::{
 pub struct MembershipService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
-    ws_svc: WorkspaceService<D>,
+    ws_svc: WorkspaceService<D, C>,
     acc_svc: AccountService<D, C>,
     role_svc: RoleService<D, C>,
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for MembershipService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for MembershipService<D, C> {
     type CoreModel = Membership;
 
     type ServiceStore = MembershipStore<D>;
@@ -69,7 +69,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for MembershipService<
         &self.sm.membership
     }
 
-    fn ws_svc(&self) -> &WorkspaceService<D> {
+    fn ws_svc(&self) -> &WorkspaceService<D, C> {
         &self.ws_svc
     }
 }
@@ -78,7 +78,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
-        ws_svc: WorkspaceService<D>,
+        ws_svc: WorkspaceService<D, C>,
         acc_svc: AccountService<D, C>,
         role_svc: RoleService<D, C>,
     ) -> Self {
@@ -224,7 +224,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for MembershipService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for MembershipService<D, C> {
     type CreateParams = MembershipCreateParams;
     const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.membership.create;
 
@@ -288,7 +288,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for MembershipSe
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for MembershipService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for MembershipService<D, C> {
     type DescribeParams = MembershipDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.membership.describe;
 
@@ -332,7 +332,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for Membership
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for MembershipService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for MembershipService<D, C> {
     type ListParams = MembershipListParams;
     const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.membership.list;
 
@@ -372,7 +372,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for MembershipServ
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for MembershipService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for MembershipService<D, C> {
     type UpdateParams = MembershipUpdateParams;
     const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.membership.update;
 
@@ -419,7 +419,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for MembershipSe
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for MembershipService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D,C> for MembershipService<D, C> {
     type DeleteParams = MembershipDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.membership.delete;
 

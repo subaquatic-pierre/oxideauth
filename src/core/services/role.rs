@@ -46,11 +46,11 @@ use crate::{
 pub struct RoleService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
-    ws_svc: WorkspaceService<D>,
+    ws_svc: WorkspaceService<D, C>,
     perm_svc: PermissionService<D, C>,
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for RoleService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for RoleService<D, C> {
     type CoreModel = Role;
     type ServiceStore = RoleStore<D>;
 
@@ -58,7 +58,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for RoleService<D, C> 
         &self.sm.role
     }
 
-    fn ws_svc(&self) -> &WorkspaceService<D> {
+    fn ws_svc(&self) -> &WorkspaceService<D, C> {
         &self.ws_svc
     }
 }
@@ -66,7 +66,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for RoleService<D, C> 
 impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
-        ws_svc: WorkspaceService<D>,
+        ws_svc: WorkspaceService<D, C>,
         perm_svc: PermissionService<D, C>,
         cm: Arc<CacheManager<C>>,
     ) -> Self {
@@ -78,7 +78,12 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
         }
     }
 
-    pub fn create_workspace_default_role(&self, ws_id: Uuid) -> CoreResult<Role> {
+    // TODO: implement default roles for workspaces
+    pub fn create_workspace_viewer_role(&self, ws_id: Uuid) -> CoreResult<Role> {
+        todo!()
+    }
+
+    pub fn create_workspace_admin_role(&self, ws_id: Uuid) -> CoreResult<Role> {
         todo!()
     }
 
@@ -162,7 +167,7 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for RoleService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for RoleService<D, C> {
     type CreateParams = RoleCreateParams;
     const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.role.create;
 
@@ -209,7 +214,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for RoleService<
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for RoleService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for RoleService<D, C> {
     type DescribeParams = RoleDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.role.describe;
 
@@ -235,7 +240,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for RoleServic
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for RoleService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for RoleService<D, C> {
     type ListParams = RoleListParams;
     const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.role.list;
 
@@ -272,7 +277,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for RoleService<D,
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for RoleService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for RoleService<D, C> {
     type UpdateParams = RoleUpdateParams;
     const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.role.update;
 
@@ -310,7 +315,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for RoleService<
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for RoleService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for RoleService<D, C> {
     type DeleteParams = RoleDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.role.delete;
 

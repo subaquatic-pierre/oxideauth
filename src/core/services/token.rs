@@ -5,6 +5,7 @@ use axum::http::{HeaderMap, header::AUTHORIZATION};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 
 use crate::{
+    cache::traits::CacheExecutor,
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -51,13 +52,13 @@ impl TokenServiceConfig {
     }
 }
 
-pub struct TokenService<D: DbExecutor> {
-    ws_svc: WorkspaceService<D>,
+pub struct TokenService<D: DbExecutor, C: CacheExecutor> {
+    ws_svc: WorkspaceService<D, C>,
     config: TokenServiceConfig,
 }
 
-impl<D: DbExecutor> TokenService<D> {
-    pub fn new(ws_svc: WorkspaceService<D>, config: TokenServiceConfig) -> Self {
+impl<D: DbExecutor, C: CacheExecutor> TokenService<D, C> {
+    pub fn new(ws_svc: WorkspaceService<D, C>, config: TokenServiceConfig) -> Self {
         Self { config, ws_svc }
     }
 

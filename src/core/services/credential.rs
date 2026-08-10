@@ -40,14 +40,14 @@ use std::{collections::HashMap, sync::Arc};
 
 pub struct CredentialService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
-    ws_svc: WorkspaceService<D>,
+    ws_svc: WorkspaceService<D, C>,
     acc_svc: AccountService<D, C>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
-        ws_svc: WorkspaceService<D>,
+        ws_svc: WorkspaceService<D, C>,
         acc_svc: AccountService<D, C>,
     ) -> Self {
         Self {
@@ -123,7 +123,7 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
 }
 
 // --- Base Model Service ---
-impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for CredentialService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for CredentialService<D, C> {
     type CoreModel = Credential;
     type ServiceStore = CredentialStore<D>;
 
@@ -131,13 +131,13 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for CredentialService<
         &self.sm.credential
     }
 
-    fn ws_svc(&self) -> &WorkspaceService<D> {
+    fn ws_svc(&self) -> &WorkspaceService<D, C> {
         &self.ws_svc
     }
 }
 
 // --- Create ---
-impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for CredentialService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for CredentialService<D, C> {
     type CreateParams = CredentialCreateParams;
     const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.credential.create;
 
@@ -172,7 +172,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for CredentialSe
 }
 
 // --- Describe (with Hydration) ---
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for CredentialService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for CredentialService<D, C> {
     type DescribeParams = CredentialDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.credential.describe;
 
@@ -201,7 +201,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for Credential
 }
 
 // --- List ---
-impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for CredentialService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for CredentialService<D, C> {
     type ListParams = CredentialListParams;
     const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.credential.list;
 
@@ -242,7 +242,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for CredentialServ
 }
 
 // --- Update ---
-impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for CredentialService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for CredentialService<D, C> {
     type UpdateParams = CredentialUpdateParams;
     const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.credential.update;
 
@@ -277,7 +277,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for CredentialSe
 }
 
 // --- Delete ---
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for CredentialService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D,C> for CredentialService<D, C> {
     type DeleteParams = CredentialDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.credential.delete;
 

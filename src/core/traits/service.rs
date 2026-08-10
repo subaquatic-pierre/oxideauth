@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 use crate::{
+    cache::traits::CacheExecutor,
     core::{
         ctx::CoreCtx,
         error::CoreResult,
@@ -16,12 +17,12 @@ use crate::{
     store::{ctx::StoreCtx, traits::dbx::DbExecutor},
 };
 
-pub trait CoreModelService<D: DbExecutor> {
+pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
     type CoreModel;
     type ServiceStore;
 
     fn store(&self) -> &Self::ServiceStore;
-    fn ws_svc(&self) -> &WorkspaceService<D>;
+    fn ws_svc(&self) -> &WorkspaceService<D, C>;
 
     async fn get_workspace(&self, ctx: &mut CoreCtx, workspace_id: Uuid) -> CoreResult<Workspace> {
         let params = WorkspaceDescribeParams {
@@ -62,7 +63,7 @@ pub trait CoreModelService<D: DbExecutor> {
     }
 }
 
-pub trait CoreModelCreateService<D: DbExecutor>: CoreModelService<D> {
+pub trait CoreModelCreateService<D: DbExecutor, C: CacheExecutor>: CoreModelService<D, C> {
     type CreateParams;
     const CREATE_PERMISSION: &'static str;
 
@@ -73,7 +74,9 @@ pub trait CoreModelCreateService<D: DbExecutor>: CoreModelService<D> {
     ) -> CoreResult<Self::CoreModel>;
 }
 
-pub trait CoreModelDescribeService<D: DbExecutor>: CoreModelService<D> {
+pub trait CoreModelDescribeService<D: DbExecutor, C: CacheExecutor>:
+    CoreModelService<D, C>
+{
     type DescribeParams;
     const DESCRIBE_PERMISSION: &'static str;
 
@@ -84,7 +87,7 @@ pub trait CoreModelDescribeService<D: DbExecutor>: CoreModelService<D> {
     ) -> CoreResult<Self::CoreModel>;
 }
 
-pub trait CoreModelListService<D: DbExecutor>: CoreModelService<D> {
+pub trait CoreModelListService<D: DbExecutor, C: CacheExecutor>: CoreModelService<D, C> {
     type ListParams;
     const LIST_PERMISSION: &'static str;
 
@@ -95,7 +98,7 @@ pub trait CoreModelListService<D: DbExecutor>: CoreModelService<D> {
     ) -> CoreResult<ListResponse<Self::CoreModel>>;
 }
 
-pub trait CoreModelUpdateService<D: DbExecutor>: CoreModelService<D> {
+pub trait CoreModelUpdateService<D: DbExecutor, C: CacheExecutor>: CoreModelService<D, C> {
     type UpdateParams;
     const UPDATE_PERMISSION: &'static str;
 
@@ -106,7 +109,7 @@ pub trait CoreModelUpdateService<D: DbExecutor>: CoreModelService<D> {
     ) -> CoreResult<Self::CoreModel>;
 }
 
-pub trait CoreModelDeleteService<D: DbExecutor>: CoreModelService<D> {
+pub trait CoreModelDeleteService<D: DbExecutor, C: CacheExecutor>: CoreModelService<D, C> {
     type DeleteParams;
     const DELETE_PERMISSION: &'static str;
 
@@ -118,21 +121,21 @@ pub trait CoreModelDeleteService<D: DbExecutor>: CoreModelService<D> {
 }
 
 /// A convenience trait that groups all CRUD operations.
-pub trait CoreModelCrudService<D: DbExecutor>:
-    CoreModelCreateService<D>
-    + CoreModelDescribeService<D>
-    + CoreModelListService<D>
-    + CoreModelUpdateService<D>
-    + CoreModelDeleteService<D>
+pub trait CoreModelCrudService<D: DbExecutor, C: CacheExecutor>:
+    CoreModelCreateService<D, C>
+    + CoreModelDescribeService<D, C>
+    + CoreModelListService<D, C>
+    + CoreModelUpdateService<D, C>
+    + CoreModelDeleteService<D, C>
 {
 }
 
 // Blanket implementation for any service that meets all criteria
-impl<T, D: DbExecutor> CoreModelCrudService<D> for T where
-    T: CoreModelCreateService<D>
-        + CoreModelDescribeService<D>
-        + CoreModelListService<D>
-        + CoreModelUpdateService<D>
-        + CoreModelDeleteService<D>
+impl<T, D: DbExecutor, C: CacheExecutor> CoreModelCrudService<D, C> for T where
+    T: CoreModelCreateService<D, C>
+        + CoreModelDescribeService<D, C>
+        + CoreModelListService<D, C>
+        + CoreModelUpdateService<D, C>
+        + CoreModelDeleteService<D, C>
 {
 }

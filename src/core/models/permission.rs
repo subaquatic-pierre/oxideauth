@@ -85,6 +85,18 @@ pub struct PermissionCreateParams {
     pub meta: PermissionMeta,
 }
 
+impl PermissionCreateParams {
+    pub fn new_system(ws_id: Uuid, name: &str, desc: Option<&str>) -> Self {
+        Self {
+            workspace_id: ws_id,
+            name: name.to_string(),
+            description: desc.map(|s| s.to_string()),
+            tags: vec!["system".to_string()],
+            meta: PermissionMeta::default(),
+        }
+    }
+}
+
 impl From<PermissionCreateParams> for PermissionForCreate {
     fn from(value: PermissionCreateParams) -> Self {
         PermissionForCreate {

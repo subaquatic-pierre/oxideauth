@@ -45,10 +45,10 @@ use crate::{
 pub struct PermissionService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
-    ws_svc: WorkspaceService<D>,
+    ws_svc: WorkspaceService<D, C>,
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for PermissionService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for PermissionService<D, C> {
     type CoreModel = Permission;
     type ServiceStore = PermissionStore<D>;
 
@@ -56,7 +56,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for PermissionService<
         &self.sm.permission
     }
 
-    fn ws_svc(&self) -> &WorkspaceService<D> {
+    fn ws_svc(&self) -> &WorkspaceService<D, C> {
         &self.ws_svc
     }
 }
@@ -64,7 +64,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for PermissionService<
 impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
-        ws_svc: WorkspaceService<D>,
+        ws_svc: WorkspaceService<D, C>,
         cm: Arc<CacheManager<C>>,
     ) -> Self {
         Self { sm, cm, ws_svc }
@@ -155,7 +155,7 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for PermissionService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for PermissionService<D, C> {
     type CreateParams = PermissionCreateParams;
     const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.permission.create;
 
@@ -184,7 +184,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for PermissionSe
         .await
     }
 }
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for PermissionService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for PermissionService<D, C> {
     type DescribeParams = PermissionDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.permission.describe;
 
@@ -223,7 +223,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for Permission
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for PermissionService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for PermissionService<D, C> {
     type ListParams = PermissionListParams;
     const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.permission.list;
 
@@ -263,7 +263,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for PermissionServ
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for PermissionService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for PermissionService<D, C> {
     type UpdateParams = PermissionUpdateParams;
     const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.permission.update;
 
@@ -308,7 +308,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for PermissionSe
         .await
     }
 }
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for PermissionService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D,C> for PermissionService<D, C> {
     type DeleteParams = PermissionDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.permission.delete;
 

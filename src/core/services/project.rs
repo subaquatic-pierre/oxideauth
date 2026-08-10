@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
 use crate::{
+    cache::traits::CacheExecutor,
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -39,12 +40,12 @@ use crate::{
     },
 };
 
-pub struct ProjectService<D: DbExecutor> {
+pub struct ProjectService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
-    ws_svc: WorkspaceService<D>,
+    ws_svc: WorkspaceService<D, C>,
 }
 
-impl<D: DbExecutor> CoreModelService<D> for ProjectService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for ProjectService<D, C> {
     type CoreModel = Project;
 
     type ServiceStore = ProjectStore<D>;
@@ -53,17 +54,14 @@ impl<D: DbExecutor> CoreModelService<D> for ProjectService<D> {
         &self.sm.project
     }
 
-    fn ws_svc(&self) -> &WorkspaceService<D> {
+    fn ws_svc(&self) -> &WorkspaceService<D, C> {
         &self.ws_svc
     }
 }
 
-impl<D: DbExecutor> ProjectService<D> {
-    pub fn new(sm: Arc<StoreManager<D>>) -> Self {
-        Self {
-            ws_svc: WorkspaceService::new(sm.clone()),
-            sm,
-        }
+impl<D: DbExecutor, C: CacheExecutor> ProjectService<D, C> {
+    pub fn new(sm: Arc<StoreManager<D>>, ws_svc: WorkspaceService<D, C>) -> Self {
+        Self { sm, ws_svc }
     }
 
     async fn hydrate_projects(
@@ -133,7 +131,7 @@ impl<D: DbExecutor> ProjectService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelCreateService<D> for ProjectService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ProjectService<D, C> {
     type CreateParams = ProjectCreateParams;
     const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.project.create;
 
@@ -174,7 +172,7 @@ impl<D: DbExecutor> CoreModelCreateService<D> for ProjectService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelDescribeService<D> for ProjectService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for ProjectService<D, C> {
     type DescribeParams = ProjectDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.project.describe;
 
@@ -199,7 +197,7 @@ impl<D: DbExecutor> CoreModelDescribeService<D> for ProjectService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelListService<D> for ProjectService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for ProjectService<D, C> {
     type ListParams = ProjectListParams;
     const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.project.list;
 
@@ -239,7 +237,7 @@ impl<D: DbExecutor> CoreModelListService<D> for ProjectService<D> {
         Ok(ListResponse::new(projects, total, list_options))
     }
 }
-impl<D: DbExecutor> CoreModelUpdateService<D> for ProjectService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for ProjectService<D, C> {
     type UpdateParams = ProjectUpdateParams;
     const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.project.update;
 
@@ -283,7 +281,7 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for ProjectService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelDeleteService<D> for ProjectService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for ProjectService<D, C> {
     type DeleteParams = ProjectDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.project.delete;
 

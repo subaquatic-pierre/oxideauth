@@ -1,9 +1,10 @@
-use std::sync::Arc;
+use std::{marker::PhantomData, sync::Arc};
 
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
+    cache::traits::CacheExecutor,
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -15,7 +16,11 @@ use crate::{
                 WorkspaceListParams, WorkspaceUpdateParams,
             },
         },
-        services::{auth::AuthValidator, permission::CANONICAL_PERMISSIONS},
+        services::{
+            auth::AuthValidator,
+            permission::{CANONICAL_PERMISSIONS, PermissionService},
+            role::RoleService,
+        },
         traits::{
             list::RequestListParams,
             service::{
@@ -44,13 +49,21 @@ use crate::{
     },
 };
 
-pub struct WorkspaceService<D: DbExecutor> {
+pub struct WorkspaceService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
+    s: PhantomData<C>,
+    // rs_svc: RoleService<D, C>,
+    // ps_svc: PermissionService<D, C>,
 }
 
-impl<D: DbExecutor> WorkspaceService<D> {
-    pub fn new(sm: Arc<StoreManager<D>>) -> Self {
-        Self { sm }
+impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
+    pub fn new(
+        sm: Arc<StoreManager<D>>,
+        // rs_svc: RoleService<D, C>,
+        // ps_svc: PermissionService<D, C>,
+    ) -> Self {
+        // Self { sm, rs_svc, ps_svc }
+        Self { sm, s: PhantomData }
     }
 
     async fn get_workspace_id(
@@ -95,35 +108,29 @@ impl<D: DbExecutor> WorkspaceService<D> {
         let permission_store = &self.sm.permission;
 
         for (name, description) in CANONICAL_PERMISSIONS.all() {
-            match permission_store
-                .create(
-                    store_ctx,
-                    PermissionForCreate {
-                        workspace_id,
-                        name: name.to_string(),
-                        description: Some(description.to_string()),
-                        tags: vec!["system".to_string(), "canonical".to_string()],
-                        meta: PermissionMeta::default(),
-                    },
-                )
-                .await
-            {
-                Ok(_) => {
-                    tracing::debug!(name = name, workspace_id = %workspace_id, "Seeded canonical permission");
-                }
-                Err(e) => {
-                    // If it's a unique constraint violation, skip (already exists).
-                    // Otherwise propagate the error.
-                    if e.to_string().contains("duplicate key") || e.to_string().contains("unique") {
-                        tracing::debug!(
-                            name = name,
-                            "Canonical permission already exists, skipping"
-                        );
-                        continue;
-                    }
-                    return Err(e.into());
-                }
-            }
+            // match permission_store
+            //     .create(
+            //         store_ctx,
+            //         PermissionForCreate::new_system_permission(workspace_id, name, description),
+            //     )
+            //     .await
+            // {
+            //     Ok(_) => {
+            //         tracing::debug!(name = name, workspace_id = %workspace_id, "Seeded canonical permission");
+            //     }
+            //     Err(e) => {
+            //         // If it's a unique constraint violation, skip (already exists).
+            //         // Otherwise propagate the error.
+            //         if e.to_string().contains("duplicate key") || e.to_string().contains("unique") {
+            //             tracing::debug!(
+            //                 name = name,
+            //                 "Canonical permission already exists, skipping"
+            //             );
+            //             continue;
+            //         }
+            //         return Err(e.into());
+            //     }
+            // }
         }
 
         tracing::info!(workspace_id = %workspace_id, "Canonical permissions seeded");
@@ -131,7 +138,7 @@ impl<D: DbExecutor> WorkspaceService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelService<D> for WorkspaceService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D,C> for WorkspaceService<D, C> {
     type CoreModel = Workspace;
 
     type ServiceStore = WorkspaceStore<D>;
@@ -140,7 +147,7 @@ impl<D: DbExecutor> CoreModelService<D> for WorkspaceService<D> {
         &self.sm.workspace
     }
 
-    fn ws_svc(&self) -> &WorkspaceService<D> {
+    fn ws_svc(&self) -> &WorkspaceService<D, C> {
         &self
     }
 
@@ -149,7 +156,7 @@ impl<D: DbExecutor> CoreModelService<D> for WorkspaceService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelCreateService<D> for WorkspaceService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D,C> for WorkspaceService<D, C> {
     type CreateParams = WorkspaceCreateParams;
     const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.create;
 
@@ -204,7 +211,7 @@ impl<D: DbExecutor> CoreModelCreateService<D> for WorkspaceService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelDescribeService<D> for WorkspaceService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D,C> for WorkspaceService<D, C> {
     type DescribeParams = WorkspaceDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.describe;
 
@@ -232,7 +239,7 @@ impl<D: DbExecutor> CoreModelDescribeService<D> for WorkspaceService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelListService<D> for WorkspaceService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D,C> for WorkspaceService<D, C> {
     type ListParams = WorkspaceListParams;
     const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.list;
 
@@ -276,7 +283,7 @@ impl<D: DbExecutor> CoreModelListService<D> for WorkspaceService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelUpdateService<D> for WorkspaceService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D,C> for WorkspaceService<D, C> {
     type UpdateParams = WorkspaceUpdateParams;
     const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.update;
 
@@ -317,7 +324,7 @@ impl<D: DbExecutor> CoreModelUpdateService<D> for WorkspaceService<D> {
     }
 }
 
-impl<D: DbExecutor> CoreModelDeleteService<D> for WorkspaceService<D> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D,C> for WorkspaceService<D, C> {
     type DeleteParams = WorkspaceDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.workspace.delete;
 

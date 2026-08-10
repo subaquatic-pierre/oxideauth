@@ -55,11 +55,11 @@ pub struct SecretHash {
 
 pub struct ClientService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
-    ws_svc: WorkspaceService<D>,
+    ws_svc: WorkspaceService<D, C>,
     cm: Arc<CacheManager<C>>,
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for ClientService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for ClientService<D, C> {
     type CoreModel = Client;
     type ServiceStore = ClientStore<D>;
 
@@ -67,7 +67,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for ClientService<D, C
         &self.sm.client
     }
 
-    fn ws_svc(&self) -> &WorkspaceService<D> {
+    fn ws_svc(&self) -> &WorkspaceService<D, C> {
         &self.ws_svc
     }
 }
@@ -75,7 +75,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D> for ClientService<D, C
 impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,
-        ws_svc: WorkspaceService<D>,
+        ws_svc: WorkspaceService<D, C>,
         cm: Arc<CacheManager<C>>,
     ) -> Self {
         Self { sm, ws_svc, cm }
@@ -342,7 +342,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for ClientService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ClientService<D, C> {
     type CreateParams = ClientCreateParams;
     const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.client.create;
 
@@ -377,7 +377,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D> for ClientServic
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for ClientService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for ClientService<D, C> {
     type ListParams = ClientListParams;
     const LIST_PERMISSION: &'static str = CANONICAL_PERMISSIONS.client.list;
 
@@ -423,7 +423,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for ClientService<
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for ClientService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for ClientService<D, C> {
     type DescribeParams = ClientDescribeParams;
     const DESCRIBE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.client.describe;
 
@@ -443,7 +443,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D> for ClientServ
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for ClientService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for ClientService<D, C> {
     type UpdateParams = ClientUpdateParams;
     const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.client.update;
 
@@ -468,7 +468,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for ClientServic
     }
 }
 
-impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for ClientService<D, C> {
+impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for ClientService<D, C> {
     type DeleteParams = ClientDeleteParams;
     const DELETE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.client.delete;
 
