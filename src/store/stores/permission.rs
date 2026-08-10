@@ -25,14 +25,27 @@ use crate::store::{
 /// The struct for our Permission store, holding the database connection wrapper.
 pub struct PermissionStore<D: DbExecutor> {
     dbx: Arc<D>,
+    has_audit: bool,
 }
 
 impl<D: DbExecutor> PermissionStore<D> {
     /// Creates a new `PermissionStore`.
     pub fn new(dbx: Arc<D>) -> Self {
-        Self { dbx }
+        Self {
+            dbx,
+            has_audit: true,
+        }
     }
 
+    pub fn find_many_by_name(&self) -> Vec<PermissionRow> {
+        let meta = ReadQueryMeta {
+            table: PermissionIden::Table,
+            pk: PermissionIden::Name,
+            has_audit: self.has_audit,
+        };
+
+        Vec::new()
+    }
 }
 
 // region:    --- Base Trait Implementations
@@ -56,7 +69,7 @@ impl<D: DbExecutor> ReadStore for PermissionStore<D> {
         ReadQueryMeta {
             table: PermissionIden::Table,
             pk: PermissionIden::Id,
-            has_audit: true,
+            has_audit: self.has_audit,
         }
     }
 }

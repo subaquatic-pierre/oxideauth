@@ -1,11 +1,11 @@
 use crate::store::entities::id::DbId;
 use crate::store::traits::meta::HasId;
-use oxideauth_macros::HasId;
 use modql::field::Fields;
 use modql::filter::{FilterNodes, OpValsString, OpValsValue};
+use oxideauth_macros::HasId;
 use sea_query::{Iden, Nullable, Value as SeaValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use sqlx::prelude::FromRow;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -21,6 +21,7 @@ pub enum PermissionIden {
     Id, // TABLE_PK
     Meta,
     Tags,
+    Name,
     WorkspaceId,
 }
 

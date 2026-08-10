@@ -6,18 +6,18 @@ use sea_query::{
 };
 use sea_query::{Iden, IntoIden, TableRef};
 use sea_query_binder::SqlxBinder;
-use sqlx::{postgres::PgRow, FromRow};
-use sqlx::{query_as_with, Postgres, QueryBuilder, Value};
+use sqlx::{FromRow, postgres::PgRow};
+use sqlx::{Postgres, QueryBuilder, Value, query_as_with};
 use uuid::Uuid;
 
 use crate::store::dbx::PgDbx;
 use crate::store::entities::workspace::WorkspaceIden;
 use crate::store::error::{StoreError, StoreResult};
-use crate::store::queries::meta::MutateQueryMeta;
+use crate::store::queries::meta::{FindManyWhereValueInKeyMeta, MutateQueryMeta, ReadQueryMeta};
 use crate::store::traits::dbx::DbExecutor;
 use crate::store::traits::meta::{Store, StoreId, StoreRow, TableIden};
+use crate::store::utils::{ListOptionsValidator, prepare_workspace_scope};
 use crate::store::utils::{pg_type_of, prepare_audit_fields, push_sq_value};
-use crate::store::utils::{prepare_workspace_scope, ListOptionsValidator};
 use crate::store::{ctx::StoreCtx, manager::StoreManager};
 
 /// Inserts multiple new entities into the database in a single batch operation
@@ -235,11 +235,41 @@ pub async fn delete_many<E: DbExecutor, T: StoreRow, I: TableIden>(
     Ok(ret)
 }
 
+pub async fn find_many_where_value_in_key<E: DbExecutor, T: StoreRow, I: TableIden>(
+    ctx: &StoreCtx,
+    dbx: &E,
+    values: Vec<String>,
+    meta: &ReadQueryMeta<I>,
+) -> StoreResult<Vec<T>> {
+    if values.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut query = Query::select();
+
+    query
+        .from(meta.table)
+        .column(Asterisk)
+        .and_where(Expr::col((meta.table, meta.pk)).is_in(values));
+
+    if let Some(ws_id) = ctx.workspace_scope() {
+        query.and_where(Expr::col((meta.table, WorkspaceIden::WorkspaceId)).eq(ws_id));
+    }
+
+    let (sql, values) = query.build_sqlx(PostgresQueryBuilder);
+
+    let sqlx = sqlx::query_as_with::<_, T, _>(&sql, values);
+
+    let ret = dbx.fetch_all(sqlx).await?;
+
+    Ok(ret)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
     use serial_test::serial;
-    use sqlx::{query_as, Postgres};
+    use sqlx::{Postgres, query_as};
     use uuid::Uuid;
 
     use crate::{

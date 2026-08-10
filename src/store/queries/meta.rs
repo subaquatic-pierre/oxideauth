@@ -89,3 +89,12 @@ pub struct ContainsFilterQueryMeta<I: TableIden> {
     /// Audit flag for the parent table.
     pub has_audit: bool,
 }
+
+pub struct FindManyWhereValueInKeyMeta<I: TableIden> {
+    /// The primary table identifier for the query.
+    pub table: I,
+    /// The identifier for the primary key column.
+    pub col: I,
+    /// Flag indicating if the table includes audit fields (e.g., `created_at`, `updated_at`).
+    pub has_audit: bool,
+}
