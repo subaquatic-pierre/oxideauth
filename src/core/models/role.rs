@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{
-        models::permission::{PermissionCheck, PermissionChecker},
+        models::permission::{PermissionEngine, PermissionRule},
         traits::params::ValidateParams,
     },
     store::entities::{audit::AuditMeta, permission::PermissionMeta, role::RoleForUpdate},
@@ -122,6 +122,21 @@ pub struct RoleCreateParams {
     pub meta: RoleMeta,
 }
 
+impl RoleCreateParams {
+    pub fn new_default_workspace_role(ws_id: Uuid, perm_ids: Vec<Uuid>) -> Self {
+        Self {
+            workspace_id: todo!(),
+            name: "Default Workspace Role".to_string(),
+            description: Some(
+                "Default role assigned to all memberships of a workspace".to_string(),
+            ),
+            permission_ids: perm_ids,
+            tags: vec!["system".to_string()],
+            meta: RoleMeta::default(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct RoleUpdateParams {
     pub id: Uuid,
@@ -186,7 +201,7 @@ pub struct RoleCheck {
 }
 
 impl RoleCheck {
-    pub fn new(name: &str, perms: &[PermissionCheck]) -> Self {
+    pub fn new(name: &str, perms: &[PermissionRule]) -> Self {
         Self {
             name: name.to_string(),
             permissions: RolePermissions::new(perms),
@@ -197,26 +212,26 @@ impl RoleCheck {
         &self.permissions
     }
 
-    pub fn extend_permissions(&mut self, perms: &[PermissionCheck]) {
+    pub fn extend_permissions(&mut self, perms: &[PermissionRule]) {
         self.permissions.extend(perms);
     }
 
-    pub fn remove_permissions(&mut self, perms: &[PermissionCheck]) {
+    pub fn remove_permissions(&mut self, perms: &[PermissionRule]) {
         self.permissions.remove(perms);
     }
 
-    pub fn build_permission_checker(&self) -> PermissionChecker {
+    pub fn build_permission_checker(&self) -> PermissionEngine {
         self.permissions.build_checker()
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RolePermissions {
-    perms: HashSet<PermissionCheck>,
+    perms: HashSet<PermissionRule>,
 }
 
 impl RolePermissions {
-    pub fn new(perms: &[PermissionCheck]) -> Self {
+    pub fn new(perms: &[PermissionRule]) -> Self {
         let mut _self = Self {
             perms: HashSet::new(),
         };
@@ -226,31 +241,31 @@ impl RolePermissions {
         _self
     }
 
-    pub fn extend(&mut self, perms: &[PermissionCheck]) {
+    pub fn extend(&mut self, perms: &[PermissionRule]) {
         for perm in perms {
             self.perms.insert(perm.clone());
         }
     }
 
-    pub fn remove(&mut self, perms: &[PermissionCheck]) {
+    pub fn remove(&mut self, perms: &[PermissionRule]) {
         for perm in perms {
             self.perms.remove(&perm);
         }
     }
 
-    pub fn build_checker(&self) -> PermissionChecker {
+    pub fn build_checker(&self) -> PermissionEngine {
         let size = self.perms.len();
-        let mut perms: Vec<PermissionCheck> = Vec::with_capacity(size);
+        let mut perms: Vec<PermissionRule> = Vec::with_capacity(size);
         for perm in self.perms.iter() {
             perms.push(perm.clone())
         }
 
-        PermissionChecker::new(perms)
+        PermissionEngine::new(perms)
     }
 }
 
 impl Iterator for RolePermissions {
-    type Item = PermissionCheck;
+    type Item = PermissionRule;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.perms.iter().next().cloned()

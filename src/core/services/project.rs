@@ -7,7 +7,7 @@ use crate::{
         error::{CoreError, CoreResult},
         models::{
             list::{ListResponse, RequestFilterParams},
-            permission::{PermissionCheck, PermissionChecker},
+            permission::{PermissionEngine, PermissionRule},
             project::{
                 Project, ProjectCreateParams, ProjectDeleteParams, ProjectDescribeParams,
                 ProjectFilter, ProjectListParams, ProjectUpdateParams,
@@ -118,14 +118,14 @@ impl<D: DbExecutor> ProjectService<D> {
                         return Err(CoreError::StoreError(StoreError::EntityNotFound {
                             entity: "project".to_string(),
                             id: format!("code:'{}' in ws:'{}'", code, workspace_id),
-                        }))
+                        }));
                     }
                 }
             }
             (None, None) => {
                 return Err(CoreError::InvalidParams(
                     "Project ID or code required for operation".to_string(),
-                ))
+                ));
             }
         };
 
@@ -223,7 +223,12 @@ impl<D: DbExecutor> CoreModelListService<D> for ProjectService<D> {
         let filter = tags_filter.filter();
 
         let data = store
-            .list_with_tags_and_filter(&store_ctx, tags.clone(), filter.clone(), Some(list_options.clone()))
+            .list_with_tags_and_filter(
+                &store_ctx,
+                tags.clone(),
+                filter.clone(),
+                Some(list_options.clone()),
+            )
             .await?;
         let total = store
             .count_with_tags_and_filter(&store_ctx, tags, filter)

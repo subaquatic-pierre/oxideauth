@@ -18,7 +18,7 @@ use crate::{
         error::{CoreError, CoreResult},
         models::{
             account::Account,
-            permission::{PermissionCheck, PermissionChecker},
+            permission::{PermissionEngine, PermissionRule},
             token::{TokenClaims, TokenType},
         },
         services::{
@@ -941,8 +941,8 @@ impl<'a> AuthValidator<'a> {
         Self { ctx }
     }
 
-    pub fn validate_perms<'b>(granted: &PermissionChecker, required: &[&str]) -> CoreResult<()> {
-        let required = PermissionCheck::perms_from_str_slice(required)?;
+    pub fn validate_perms<'b>(granted: &PermissionEngine, required: &[&str]) -> CoreResult<()> {
+        let required = PermissionRule::perms_from_str_slice(required)?;
         let all_required_match_granted = granted.has_subset(&required);
         if (all_required_match_granted) {
             Ok(())
@@ -953,7 +953,7 @@ impl<'a> AuthValidator<'a> {
 
     pub fn validate_ctx_perms<'b>(&self, required: &[&str]) -> CoreResult<()> {
         // info!("CTX in validate_ctx_perms: {:#?}", self.ctx);
-        let required = PermissionCheck::perms_from_str_slice(required)?;
+        let required = PermissionRule::perms_from_str_slice(required)?;
         let granted = self.ctx.permission_checker();
 
         let all_required_match_granted = granted.has_subset(&required);
@@ -1068,13 +1068,8 @@ mod tests {
 
     use super::*;
 
-    fn setup_checker() -> CoreResult<PermissionChecker> {
-        PermissionChecker::from_str_slice(&[
-            "project:read",
-            "project:create",
-            "account:*",
-            "*:read",
-        ])
+    fn setup_checker() -> CoreResult<PermissionEngine> {
+        PermissionEngine::from_str_slice(&["project:read", "project:create", "account:*", "*:read"])
     }
 
     #[tokio::test]

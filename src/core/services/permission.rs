@@ -13,7 +13,7 @@ use crate::{
         models::{
             list::ListResponse,
             permission::{
-                Permission, PermissionCheck, PermissionCreateParams, PermissionDeleteParams,
+                Permission, PermissionRule, PermissionCreateParams, PermissionDeleteParams,
                 PermissionDescribeParams, PermissionListParams, PermissionUpdateParams,
             },
             role::Role,

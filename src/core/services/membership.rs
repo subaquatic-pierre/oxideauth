@@ -17,7 +17,7 @@ use crate::{
                 Membership, MembershipCache, MembershipCreateParams, MembershipDeleteParams,
                 MembershipDescribeParams, MembershipListParams, MembershipUpdateParams,
             },
-            permission::PermissionCheck,
+            permission::PermissionRule,
             role::{Role, RoleDescribeParams, RoleFilter, RoleListParams},
             workspace::{Workspace, WorkspaceDescribeParams},
         },

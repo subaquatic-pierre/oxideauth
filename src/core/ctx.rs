@@ -6,7 +6,7 @@ use crate::{
     core::{
         error::CoreResult,
         models::{
-            permission::{PermissionCheck, PermissionChecker},
+            permission::{PermissionEngine, PermissionRule},
             workspace::Workspace,
         },
     },
@@ -25,13 +25,13 @@ use crate::{
 pub struct CoreCtx {
     pub(crate) auth_cache: AuthCache,
     scoped_ws_id: Uuid,
-    perm_checker: PermissionChecker,
+    perm_checker: PermissionEngine,
 }
 
 impl CoreCtx {
     pub fn new(auth_cache: AuthCache, scoped_ws_id: Uuid) -> CoreResult<Self> {
         let perm_checker =
-            PermissionChecker::from_string_vec(auth_cache.auth_scope.permissions.clone())?;
+            PermissionEngine::from_string_vec(auth_cache.auth_scope.permissions.clone())?;
         Ok(Self {
             auth_cache,
             scoped_ws_id,
@@ -41,7 +41,7 @@ impl CoreCtx {
 
     pub fn new_test() -> CoreResult<Self> {
         let auth_cache = AuthCache::root_cache();
-        let perm_checker = PermissionChecker::from_string_vec(vec![])?;
+        let perm_checker = PermissionEngine::from_string_vec(vec![])?;
         Ok(Self {
             auth_cache,
             scoped_ws_id: global_ws_id(),
@@ -53,10 +53,8 @@ impl CoreCtx {
     ///
     /// Used by unauthenticated flows (registration, login, password reset, OAuth)
     /// that need a properly scoped `StoreCtx` without a pre-existing user session.
-    /// The system account ID is `Uuid::nil()` and permissions start empty —
-    /// callers must use `extend_perms()` to grant operation-specific permissions.
     pub fn system(workspace_id: Uuid) -> CoreResult<Self> {
-        let perm_checker = PermissionChecker::from_string_vec(vec![])?;
+        let perm_checker = PermissionEngine::from_string_vec(vec![])?;
         let auth_cache = AuthCache::root_cache();
         Ok(Self {
             auth_cache,
@@ -65,12 +63,12 @@ impl CoreCtx {
         })
     }
 
-    pub fn permission_checker(&self) -> &PermissionChecker {
+    pub fn permission_checker(&self) -> &PermissionEngine {
         &self.perm_checker
     }
 
     pub fn extend_perms(&mut self, perms: &[&str]) -> CoreResult<()> {
-        let new_perms: Vec<PermissionCheck> = PermissionCheck::perms_from_str_slice(perms)?;
+        let new_perms: Vec<PermissionRule> = PermissionRule::perms_from_str_slice(perms)?;
         self.perm_checker.extend(new_perms);
         Ok(())
     }
@@ -133,13 +131,8 @@ mod tests {
 
     use super::*;
 
-    fn setup_checker() -> CoreResult<PermissionChecker> {
-        PermissionChecker::from_str_slice(&[
-            "project:read",
-            "project:create",
-            "account:*",
-            "*:read",
-        ])
+    fn setup_checker() -> CoreResult<PermissionEngine> {
+        PermissionEngine::from_str_slice(&["project:read", "project:create", "account:*", "*:read"])
     }
 
     #[tokio::test]
@@ -150,7 +143,7 @@ mod tests {
         ctx.extend_perms(&["account:create"])?;
 
         let checker = ctx.permission_checker();
-        let perms = PermissionCheck::perms_from_str_slice(&["account:create"])?;
+        let perms = PermissionRule::perms_from_str_slice(&["account:create"])?;
         let res = checker.has_subset(&perms);
 
         assert_eq!(res, true, "ctx should have account:create permission");

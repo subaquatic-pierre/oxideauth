@@ -1,15 +1,12 @@
 use std::{str::FromStr, sync::Arc};
 
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    cache::{
-        manager::CacheManager,
-        traits::CacheExecutor,
-    },
+    cache::{manager::CacheManager, traits::CacheExecutor},
     config::Config,
     core::{
         ctx::CoreCtx,
@@ -20,7 +17,7 @@ use crate::{
                 ClientListParams, ClientUpdateParams,
             },
             list::ListResponse,
-            permission::{PermissionCheck, PermissionChecker},
+            permission::{PermissionEngine, PermissionRule},
             token::{TokenClaims, TokenType},
         },
         services::{permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService},
@@ -81,11 +78,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         ws_svc: WorkspaceService<D>,
         cm: Arc<CacheManager<C>>,
     ) -> Self {
-        Self {
-            sm,
-            ws_svc,
-            cm,
-        }
+        Self { sm, ws_svc, cm }
     }
 
     /// Push a notification payload to a single client's endpoint via HTTP POST.
@@ -206,7 +199,10 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         let mut hasher = Sha256::new();
         hasher.update(plaintext.as_bytes());
         let hash = format!("{:x}", hasher.finalize());
-        SecretHash { plaintext, sha256_hash: hash }
+        SecretHash {
+            plaintext,
+            sha256_hash: hash,
+        }
     }
 
     /// Validates a client credential + user token pair.
@@ -282,19 +278,21 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
             return Ok(false);
         }
 
-        // --- 6. Build PermissionChecker from the user's cached auth scope ---
-        let mem_id = claims.mem_id().map_err(|_| CoreError::Auth("invalid token".into()))?;
+        // --- 6. Build PermissionEngine from the user's cached auth scope ---
+        let mem_id = claims
+            .mem_id()
+            .map_err(|_| CoreError::Auth("invalid token".into()))?;
         let Some(scope) = self.cm.auth.fetch_auth_scope(&mem_id).await? else {
             return Ok(false);
         };
-        let checker = match PermissionChecker::from_string_vec(scope.permissions) {
+        let checker = match PermissionEngine::from_string_vec(scope.permissions) {
             Ok(checker) => checker,
             Err(_) => return Ok(false),
         };
 
         // --- 7. Check required permissions against the user's grants ---
         if !required_permissions.is_empty() {
-            let required = match PermissionCheck::perms_from_string_slice(required_permissions) {
+            let required = match PermissionRule::perms_from_string_slice(required_permissions) {
                 Ok(perms) => perms,
                 Err(_) => return Ok(false),
             };
@@ -316,7 +314,11 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     ) -> CoreResult<ClientSecret> {
         // Validate permissions
         let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, workspace_id, &[CANONICAL_PERMISSIONS.client.regenerate_secret])
+            .scope_and_validate_ctx(
+                ctx,
+                workspace_id,
+                &[CANONICAL_PERMISSIONS.client.regenerate_secret],
+            )
             .await?;
 
         // Generate new secret
@@ -333,7 +335,10 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
             .await?;
 
         let client = Client::from_row_with_workspace(row, workspace);
-        Ok(ClientSecret { client, plaintext_secret: sh.plaintext })
+        Ok(ClientSecret {
+            client,
+            plaintext_secret: sh.plaintext,
+        })
     }
 }
 
@@ -398,7 +403,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for ClientService<
         let filter = tags_filter.filter();
 
         let rows = store
-            .list_with_tags_and_filter(&store_ctx, tags.clone(), filter.clone(), Some(list_options.clone()))
+            .list_with_tags_and_filter(
+                &store_ctx,
+                tags.clone(),
+                filter.clone(),
+                Some(list_options.clone()),
+            )
             .await?;
         let total = store
             .count_with_tags_and_filter(&store_ctx, tags, filter)
@@ -448,7 +458,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D> for ClientServic
 
         let id = params.id;
         let for_update = ClientForUpdate::from(params);
-        let row = self.store().update(&store_ctx, &id.into(), for_update).await?;
+        let row = self
+            .store()
+            .update(&store_ctx, &id.into(), for_update)
+            .await?;
         let client = Client::from_row_with_workspace(row, workspace);
 
         Ok(client)
@@ -479,7 +492,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D> for ClientServic
             )
             .await?;
 
-        let _ = self.store().delete(&store_ctx, &to_delete.id.into()).await?;
+        let _ = self
+            .store()
+            .delete(&store_ctx, &to_delete.id.into())
+            .await?;
 
         Ok(to_delete)
     }

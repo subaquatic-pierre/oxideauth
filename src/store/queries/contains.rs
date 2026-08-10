@@ -1,5 +1,5 @@
 use modql::filter::{FilterGroups, ListOptions};
-use sea_query::{Asterisk, Condition, Expr, Func, PostgresQueryBuilder, Query};
+use sea_query::{Alias, Asterisk, BinOper, Condition, Expr, Func, PostgresQueryBuilder, Query};
 use sea_query_binder::SqlxBinder;
 use serde_json::Value as JsonValue;
 use tracing::debug;
@@ -181,10 +181,11 @@ where
 
     // --- Tags containment (@>) ---
     if let Some(tags) = tags.filter(|t| !t.is_empty()) {
-        let tags_values: Vec<JsonValue> = tags.into_iter().map(JsonValue::String).collect();
-        let expr =
-            Expr::cust_with_values(format!(r#""{}" @> $"#, meta.col.to_string()), [tags_values]);
-        query.cond_where(expr);
+        let expr = Expr::col((meta.table, Alias::new("tags"))).binary(
+            BinOper::Custom("@>"),
+            Expr::val(tags).cast_as(Alias::new("text[]")),
+        );
+        query.and_where(expr);
     }
 
     // --- Field-based filter ---

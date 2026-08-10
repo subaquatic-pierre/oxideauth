@@ -1,11 +1,11 @@
 use axum::{
+    Json,
+    Router,
     // HTTP status codes and routing setup
     http::StatusCode,
     // Core response traits and JSON extractor
     response::{IntoResponse, Response},
     routing::get,
-    Json,
-    Router,
 };
 use serde::{Deserialize, Serialize};
 
@@ -36,12 +36,6 @@ impl<T: Serialize> WebResponse<T> {
     }
 
     pub fn json_flat(data: T) -> JsonResResult<T> {
-        // let data = Self {
-        //     success: true,
-        //     status: StatusCode::OK.as_u16(),
-        //     data,
-        // };
-
         Ok(Json(data))
     }
 

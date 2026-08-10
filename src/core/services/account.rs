@@ -13,7 +13,7 @@ use crate::{
                 AccountListParams, AccountUpdateParams,
             },
             list::{ListResponse, ListResponseMeta},
-            permission::PermissionCheck,
+            permission::PermissionRule,
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{

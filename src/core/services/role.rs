@@ -9,7 +9,7 @@ use crate::{
         error::{CoreError, CoreResult},
         models::{
             list::ListResponse,
-            permission::PermissionCheck,
+            permission::PermissionRule,
             role::{
                 Role, RoleCreateParams, RoleDeleteParams, RoleDescribeParams, RoleListParams,
                 RoleUpdateParams,

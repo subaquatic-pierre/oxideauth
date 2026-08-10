@@ -6,7 +6,7 @@ use crate::{
         error::CoreResult,
         models::{
             list::ListResponse,
-            permission::PermissionCheck,
+            permission::PermissionRule,
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{

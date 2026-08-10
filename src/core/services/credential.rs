@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use crate::{
     cache::traits::CacheExecutor,
-    core::models::{permission::PermissionCheck, workspace::Workspace},
+    core::models::{permission::PermissionRule, workspace::Workspace},
     store::{
         entities::credential::{CredentialForCreate, CredentialForUpdate, CredentialRow},
         manager::StoreManager,
@@ -224,7 +224,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D> for CredentialServ
         let filter = tags_filter.filter();
 
         let data = store
-            .list_with_tags_and_filter(&store_ctx, tags.clone(), filter.clone(), Some(list_options.clone()))
+            .list_with_tags_and_filter(
+                &store_ctx,
+                tags.clone(),
+                filter.clone(),
+                Some(list_options.clone()),
+            )
             .await?;
         let total = store
             .count_with_tags_and_filter(&store_ctx, tags, filter)

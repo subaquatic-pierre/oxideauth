@@ -1,4 +1,5 @@
 use modql::filter::{FilterGroups, ListOptions};
+use sea_query::{Alias, BinOper};
 use sea_query::{
     Asterisk, CommonTableExpression, Condition, Expr, Func, Iden, JoinType, OnConflict,
     PostgresQueryBuilder, Query, SelectStatement, SimpleExpr, Value,
@@ -520,10 +521,11 @@ pub async fn list_many_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: Ta
 
     // --- Tags containment (@>) ---
     if let Some(tags) = tags.filter(|t| !t.is_empty()) {
-        let tags_values: Vec<JsonValue> = tags.into_iter().map(JsonValue::String).collect();
-        let expr =
-            Expr::cust_with_values(format!(r#""{}" @> $"#, "tags".to_string()), [tags_values]);
-        main_query.cond_where(expr);
+        let expr = Expr::col((meta.single_table, Alias::new("tags"))).binary(
+            BinOper::Custom("@>"),
+            Expr::val(tags).cast_as(Alias::new("text[]")),
+        );
+        main_query.and_where(expr);
     }
 
     // --- Workspace scoping ---
