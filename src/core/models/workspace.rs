@@ -16,7 +16,7 @@ use crate::{
     },
     store::entities::workspace::{
         WorkspaceConfig as StoreWorkspaceConfig, WorkspaceFilter as StoreWorkspaceFilter,
-        WorkspaceMeta as StoreWorkspaceMeta, WorkspaceRow,
+        WorkspaceForCreate, WorkspaceMeta as StoreWorkspaceMeta, WorkspaceRow,
     },
 };
 
@@ -100,6 +100,29 @@ pub struct WorkspaceCreateParams {
     pub config: WorkspaceConfig,
     pub tags: Vec<String>,
     pub meta: WorkspaceMeta,
+}
+
+impl From<WorkspaceConfig> for StoreWorkspaceConfig {
+    fn from(value: WorkspaceConfig) -> Self {
+        // Self {
+        //     schema_version: "".to_string(),
+        // }
+        let config = StoreWorkspaceConfig::default();
+        config
+    }
+}
+
+impl From<WorkspaceCreateParams> for WorkspaceForCreate {
+    fn from(value: WorkspaceCreateParams) -> Self {
+        Self {
+            name: value.name,
+            slug: value.slug,
+            description: value.description,
+            config: value.config.into(),
+            tags: value.tags,
+            meta: value.meta,
+        }
+    }
 }
 
 #[derive(Default, Clone, Debug)]

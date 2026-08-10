@@ -14,6 +14,7 @@ use crate::{
         models::{
             account::Account,
             list::ListResponse,
+            permission::PermissionCreateParams,
             workspace::{
                 Workspace, WorkspaceCreateParams, WorkspaceDeleteParams, WorkspaceDescribeParams,
                 WorkspaceListParams, WorkspaceUpdateParams,
@@ -141,13 +142,23 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
     /// name + workspace_id), it is skipped silently.
     async fn seed_canonical_permissions(
         &self,
-        store_ctx: &StoreCtx,
+        ctx: &mut CoreCtx,
         workspace_id: Uuid,
     ) -> CoreResult<()> {
         let perm_svc = self.perm_svc();
 
+        let perms: Vec<PermissionCreateParams> = CANONICAL_PERMISSIONS
+            .all()
+            .into_iter()
+            .map(|(name, description)| {
+                PermissionCreateParams::new_system(workspace_id, name, Some(description))
+            })
+            .collect();
+        let created = perm_svc.create_many(ctx, workspace_id, perms).await?;
+
         for (name, description) in CANONICAL_PERMISSIONS.all() {
-            // perm_svc
+            // let perms =
+            // perm_svc.create_many(ctx, ws_id, perms)
 
             // match permission_store
             //     .create(
@@ -228,25 +239,13 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Workspace
             ));
         }
 
-        let config = StoreWorkspaceConfig::default();
-
-        // 2. Map Core Params to Store ForCreate struct
-        let n_ws = WorkspaceForCreate {
-            name: params.name,
-            slug: params.slug,
-            description: params.description,
-            config: config,
-            tags: params.tags,
-            meta: params.meta,
-        };
-
         // 3. Execute store creation
-        let new_workspace = store.create(&store_ctx, n_ws).await?;
+        let new_workspace = store.create(&store_ctx, params.into()).await?;
 
         // 4. Seed canonical permissions into the new workspace
         let workspace_id: Uuid = new_workspace.id.into();
-        self.seed_canonical_permissions(&store_ctx, workspace_id)
-            .await?;
+        ctx.extend_perms(&[CANONICAL_PERMISSIONS.permission.create]);
+        self.seed_canonical_permissions(ctx, workspace_id).await?;
 
         Ok(new_workspace.into())
     }

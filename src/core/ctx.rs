@@ -85,7 +85,7 @@ impl CoreCtx {
 
     /// Whether the token is scoped to the global/root workspace (admin).
     pub fn is_global_workspace(&self) -> CoreResult<bool> {
-        Ok(self.auth_cache.auth_scope.workspace_id == global_ws_id())
+        Ok(self.auth_cache.auth_scope.workspace_slug == "global")
     }
 
     // --- Operational target (may differ from token scope for root tokens) ---

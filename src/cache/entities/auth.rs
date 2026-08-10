@@ -19,6 +19,7 @@ use crate::{
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuthScopeCache {
     pub workspace_id: Uuid,
+    pub workspace_slug: String,
     pub project_id: Option<Uuid>,
     pub roles: Vec<Uuid>,
     pub permissions: Vec<String>,
@@ -27,7 +28,8 @@ pub struct AuthScopeCache {
 impl AuthScopeCache {
     pub fn root_scope() -> Self {
         Self {
-            workspace_id: global_ws_id(),
+            workspace_id: Uuid::nil(),
+            workspace_slug: "global".to_string(),
             project_id: None,
             roles: vec![],
             permissions: vec!["*:*".to_string()],
@@ -39,6 +41,7 @@ impl Default for AuthScopeCache {
     fn default() -> Self {
         Self {
             workspace_id: Uuid::nil(),
+            workspace_slug: "default".to_string(),
             project_id: None,
             roles: vec![],
             permissions: vec![],

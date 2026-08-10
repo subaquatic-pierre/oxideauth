@@ -41,7 +41,7 @@ where
 {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
-        svc_reg: Arc<ServiceRegistry<D, C>>,
+    svc_reg: Arc<ServiceRegistry<D, C>>,
     config: Config,
 }
 
@@ -53,7 +53,7 @@ where
     pub fn new(
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
-    svc_reg: Arc<ServiceRegistry<D, C>>,
+        svc_reg: Arc<ServiceRegistry<D, C>>,
         config: Config,
     ) -> Self {
         Self {
@@ -181,6 +181,11 @@ where
             .get_many_to_many(&store_ctx, &mem_id.into())
             .await?;
         let mem_row = mem_with_roles.membership;
+        let workspace_row = self
+            .sm
+            .workspace
+            .get(&store_ctx, &mem_row.workspace_id.into())
+            .await?;
 
         // Load the account.
         let acc_row = self.sm.account.get(&store_ctx, &acc_id.into()).await?;
@@ -192,15 +197,16 @@ where
             role_ids.push(role.id.into());
             let role_with_perms = self.sm.role.get_many_to_many(&store_ctx, &role.id).await?;
             for perm in role_with_perms.permissions.iter() {
-                let code = perm.name.clone();
-                if !permissions.contains(&code) {
-                    permissions.push(code);
+                let name = perm.name.clone();
+                if !permissions.contains(&name) {
+                    permissions.push(name);
                 }
             }
         }
 
         let auth_scope = AuthScopeCache {
             workspace_id: mem_row.workspace_id,
+            workspace_slug: workspace_row.slug,
             project_id: mem_row.project_id,
             roles: role_ids,
             permissions,
