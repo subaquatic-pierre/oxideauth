@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use crate::{
     app::App,
+    cache::redis::RedisChx,
     core::{ctx::CoreCtx, services::token::TokenService},
     store::dbx::PgDbx,
     web::{
@@ -67,8 +68,8 @@ pub async fn refresh(
     app: Extension<App>,
     headers: HeaderMap,
 ) -> JsonResResult<WebResponse<AuthRefreshRes>> {
-    let raw_token =
-        TokenService::<PgDbx>::token_str_from_headers(&headers).ok_or(WebError::Unauthorized)?;
+    let raw_token = TokenService::<PgDbx, RedisChx>::token_str_from_headers(&headers)
+        .ok_or(WebError::Unauthorized)?;
     let svc = app.svc_factory.auth();
     let tp = svc.refresh_token(raw_token).await?;
     WebResponse::json(AuthRefreshRes {
@@ -139,8 +140,8 @@ pub async fn revoke(
     app: Extension<App>,
     headers: HeaderMap,
 ) -> JsonResResult<WebResponse<AuthRevokeRes>> {
-    let raw_token =
-        TokenService::<PgDbx>::token_str_from_headers(&headers).ok_or(WebError::Unauthorized)?;
+    let raw_token = TokenService::<PgDbx, RedisChx>::token_str_from_headers(&headers)
+        .ok_or(WebError::Unauthorized)?;
     let svc = app.svc_factory.auth();
     svc.revoke_token(&ctx, raw_token).await?;
     WebResponse::json(AuthRevokeRes { revoked: true })
