@@ -1,4 +1,4 @@
-use oxideauth_macros::{HasActiveFilter, HasId};
+use oxideauth_macros::HasId;
 use modql::filter::{IntoFilterNodes, ListOptions, OpValString, OrderBys};
 use serde::{Deserialize, Serialize};
 

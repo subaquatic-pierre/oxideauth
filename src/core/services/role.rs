@@ -163,19 +163,16 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for RoleServi
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
             .await?;
 
-        let r_create = RoleForCreate {
-            workspace_id: params.workspace_id,
-            name: params.name,
-            description: params.description,
-            tags: params.tags,
-            meta: params.meta,
-        };
+        // Extract permission_ids before params is consumed by into()
+        let permission_ids = params.permission_ids.clone();
+        let workspace_id = params.workspace_id;
+
+        let r_create: RoleForCreate = params.into();
 
         let row = store.create(&store_ctx, r_create).await?;
 
         // Sync many-to-many permissions
-        let perm_db_ids: Vec<DbId> = params
-            .permission_ids
+        let perm_db_ids: Vec<DbId> = permission_ids
             .iter()
             .map(|id| DbId::from(*id))
             .collect();
@@ -188,7 +185,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for RoleServi
             ctx,
             RoleDescribeParams {
                 id: row.id.into(),
-                workspace_id: params.workspace_id,
+                workspace_id,
             },
         )
         .await

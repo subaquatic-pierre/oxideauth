@@ -87,6 +87,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
         let auth = Arc::new(AuthService::new(
             sm.clone(),
             cm.clone(),
+            workspace.clone(),
             account.clone(),
             token.clone(),
             credential.clone(),

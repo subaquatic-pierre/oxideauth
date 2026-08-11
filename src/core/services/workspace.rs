@@ -135,6 +135,21 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         Ok(id.into())
     }
 
+    pub async fn get_workspace_by_slug_or_id(
+        &self,
+        ctx: &CoreCtx,
+        slug_or_id: &str,
+    ) -> CoreResult<Option<Workspace>> {
+        let store = self.store();
+
+        let ws = match Uuid::parse_str(&slug_or_id) {
+            Ok(id) => store.get_opt(ctx.into(), &id.into()).await?,
+            Err(slug) => store.get_by_slug_opt(ctx.into(), &id.into()).await?,
+        };
+
+        Ok(ws.map(From))
+    }
+
     /// Seeds all canonical permissions into a workspace (idempotent).
     ///
     /// Inserts every permission from `CANONICAL_PERMISSIONS.all()` into the
@@ -261,7 +276,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Workspace
         self.populate_ws_perms(ctx, workspace_id).await?;
 
         // 5. Seed default roles (Viewer, Admin) into the new workspace
-        ctx.extend_perms(&[CANONICAL_PERMISSIONS.role.create, CANONICAL_PERMISSIONS.role.describe]);
+        ctx.extend_perms(&[
+            CANONICAL_PERMISSIONS.role.create,
+            CANONICAL_PERMISSIONS.role.describe,
+        ]);
         self.populate_ws_roles(ctx, workspace_id).await?;
 
         Ok(new_workspace.into())
@@ -364,16 +382,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
             .get_workspace_id(ctx, params.id, params.slug.clone())
             .await?;
 
-        let config = StoreWorkspaceConfig::default();
-
-        let update_data = WorkspaceForUpdate {
-            name: params.name,
-            slug: params.slug,
-            description: params.description,
-            config: Some(config),
-            tags: params.tags,
-            meta: params.meta,
-        };
+        let update_data: WorkspaceForUpdate = params.into();
 
         let res = store.update(&store_ctx, &id.into(), update_data).await?;
 

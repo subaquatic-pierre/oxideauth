@@ -156,15 +156,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ProjectSe
             }
         }
 
-        let n_project = ProjectForCreate {
-            workspace_id: params.workspace_id,
-            name: params.name,
-            code: params.code,
-            description: params.description,
-            config: params.config,
-            tags: params.tags,
-            meta: params.meta,
-        };
+        let n_project: ProjectForCreate = params.into();
 
         let project_row = store.create(&store_ctx, n_project).await?;
 
@@ -266,14 +258,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for ProjectSe
             }
         }
 
-        let update_data = ProjectForUpdate {
-            name: params.name,
-            code: params.new_code, // Use the potentially changed code
-            description: params.description,
-            config: params.config,
-            tags: params.tags,
-            meta: params.meta,
-        };
+        let update_data: ProjectForUpdate = params.into();
 
         let project_row = store.update(&store_ctx, &id_db, update_data).await?;
 

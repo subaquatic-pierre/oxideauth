@@ -222,20 +222,17 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
             .await?;
 
-        let m_create = MembershipForCreate {
-            account_id: params.account_id,
-            workspace_id: params.workspace_id,
-            scope: params.scope,
-            status: params.status,
-            project_id: params.project_id,
-            tags: params.tags,
-            meta: params.meta,
-        };
+        // Extract fields needed after params is consumed by into()
+        let account_id = params.account_id;
+        let workspace_id = params.workspace_id;
+        let role_ids = params.role_ids.clone();
+
+        let m_create: MembershipForCreate = params.into();
 
         // Guard: one membership per account per workspace
         let membership_filter: MembershipFilter = json!({
-            "account_id": params.account_id.to_string(),
-            "workspace_id": params.workspace_id.to_string()
+            "account_id": account_id.to_string(),
+            "workspace_id": workspace_id.to_string()
         })
         .try_into()?;
 
@@ -246,14 +243,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
         if !existing.is_empty() {
             return Err(CoreError::AlreadyExists(format!(
                 "membership already exists for account '{}' in workspace '{}'",
-                params.account_id, params.workspace_id
+                account_id, workspace_id
             )));
         }
 
         let membership_row = store.create(&store_ctx, m_create).await?;
 
         // Assign roles to the new membership
-        let role_db_ids: Vec<DbId> = params.role_ids.iter().map(|id| DbId::from(*id)).collect();
+        let role_db_ids: Vec<DbId> = role_ids.iter().map(|id| DbId::from(*id)).collect();
         self.sm
             .membership
             .set_many_to_many_links(&store_ctx, &membership_row.id, role_db_ids)

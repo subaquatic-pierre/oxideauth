@@ -18,6 +18,8 @@ use crate::store::error::{StoreError, StoreResult};
 use crate::store::traits::meta::HasId;
 use crate::store::utils::{gen_rand_str, json_to_sea_value, time_to_sea_value};
 
+pub const DEFAULT_JWT_MAX_AGE: u64 = 604800;
+
 #[derive(Iden, Copy, Clone)]
 pub enum CredentialIden {
     #[iden = "credential"]
@@ -42,6 +44,7 @@ pub struct CredentialRow {
     pub email: Option<String>,
     pub secret: Option<String>,
     pub last_used_at: Option<OffsetDateTime>,
+    #[sqlx(json)]
     pub config: CredentialConfig,
     pub tags: Vec<String>,
     #[sqlx(json)]
@@ -204,11 +207,17 @@ impl TryFrom<JsonValue> for CredentialFilter {
     }
 }
 
-#[derive(Debug, Default, Fields, Serialize, Deserialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Fields, Serialize, Deserialize, Clone)]
 pub struct CredentialConfig {
-    pub schema_version: String,
-    pub max_token_age: i64,
+    jwt_max_age: u64,
+}
+
+impl Default for CredentialConfig {
+    fn default() -> Self {
+        Self {
+            jwt_max_age: DEFAULT_JWT_MAX_AGE,
+        }
+    }
 }
 
 impl Nullable for CredentialConfig {
@@ -229,8 +238,8 @@ impl Default for CredentialForCreate {
     fn default() -> Self {
         let email = format!("{}@{}.com", gen_rand_str(5), gen_rand_str(5));
         Self {
-            account_id: Uuid::new_v4(),
-            workspace_id: Uuid::new_v4(),
+            account_id: Uuid::nil(),
+            workspace_id: Uuid::nil(),
             kind: CredentialKind::Password,
             provider: CredentialProvider::Local,
             status: CredentialStatus::Active,

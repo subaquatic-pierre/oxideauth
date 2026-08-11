@@ -73,6 +73,7 @@ pub struct WorkspaceCreateReq {
     pub name: String,
     pub slug: String,
     pub description: Option<String>,
+    pub owner: Uuid,
     // Must be provided, but can be the default value
     pub config: WorkspaceConfig,
     pub tags: Vec<String>,
@@ -86,6 +87,7 @@ impl From<WorkspaceCreateReq> for WorkspaceCreateParams {
             name: value.name,
             slug: value.slug,
             description: value.description,
+            owner: value.owner,
             config: value.config,
             tags: value.tags,
             meta: value.meta,

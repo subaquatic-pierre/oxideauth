@@ -13,8 +13,7 @@ pub struct RegisterParams {
     pub email: String,
     pub password: String,
     pub name: Option<String>,
-    pub workspace_id: Option<Uuid>,
-    pub workspace_slug: Option<String>,
+    pub workspace_id: String,
 }
 
 impl ValidateParams for RegisterParams {
@@ -26,14 +25,11 @@ impl ValidateParams for RegisterParams {
         if self.password.is_empty() {
             return Err(CoreError::InvalidParams("password required".to_string()));
         }
-        if self.workspace_id.is_none() && self.workspace_slug.is_none() {
+        if self.workspace_id.is_none() {
             return Err(CoreError::InvalidParams(
                 "workspaceId or workspaceSlug required".to_string(),
             ));
         }
-        Ok(Self {
-            email,
-            ..self
-        })
+        Ok(Self { email, ..self })
     }
 }

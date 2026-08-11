@@ -18,9 +18,9 @@ use crate::{
         },
     },
     store::entities::credential::{
-        CredentialFilter as StoreCredentialFilter, CredentialForCreate, CredentialForUpdate,
-        CredentialKind, CredentialMeta as StoreCredentialMeta, CredentialProvider, CredentialRow,
-        CredentialStatus,
+        CredentialConfig as StoreCredentialConfig, CredentialFilter as StoreCredentialFilter,
+        CredentialForCreate, CredentialForUpdate, CredentialKind,
+        CredentialMeta as StoreCredentialMeta, CredentialProvider, CredentialRow, CredentialStatus,
     },
 };
 
@@ -46,6 +46,7 @@ pub struct Credential {
     pub last_used_at: Option<OffsetDateTime>,
     pub tags: Vec<String>,
     pub meta: CredentialMeta,
+    pub config: CredentialConfig,
 
     pub audit: CoreAuditFields,
 }
@@ -64,6 +65,7 @@ impl Default for Credential {
             secret: Default::default(),
             last_used_at: Default::default(),
             tags: Default::default(),
+            config: CredentialConfig::default(),
             meta: Default::default(),
             audit: Default::default(),
         }
@@ -97,6 +99,7 @@ impl Credential {
             provider_id: row.provider_id,
             email: row.email,
             secret: row.secret,
+            config: row.config,
             last_used_at: row.last_used_at,
             tags: row.tags,
             meta: row.meta,
@@ -115,6 +118,7 @@ pub struct CredentialCreateParams {
     pub provider_id: Option<String>,
     pub email: Option<String>,
     pub secret: Option<String>,
+    pub config: CredentialConfig,
     pub last_used_at: Option<OffsetDateTime>,
     pub tags: Vec<String>,
     pub meta: CredentialMeta,
@@ -131,6 +135,7 @@ impl From<CredentialCreateParams> for CredentialForCreate {
             provider_id: params.provider_id,
             email: params.email,
             secret: params.secret,
+            config: params.config,
             last_used_at: params.last_used_at,
             tags: params.tags,
             meta: params.meta,
@@ -169,6 +174,7 @@ pub struct CredentialUpdateParams {
     pub new_email: Option<String>,
     pub secret: Option<String>,
     pub last_used_at: Option<OffsetDateTime>,
+    pub config: Option<CredentialConfig>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<CredentialMeta>,
 }
@@ -181,6 +187,7 @@ impl From<CredentialUpdateParams> for CredentialForUpdate {
             status: params.status,
             provider_id: params.new_provider_id,
             email: params.new_email,
+            config: params.config,
             secret: params.secret,
             last_used_at: params.last_used_at,
             tags: params.tags,
@@ -188,6 +195,8 @@ impl From<CredentialUpdateParams> for CredentialForUpdate {
         }
     }
 }
+
+pub type CredentialConfig = StoreCredentialConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct CredentialDeleteParams {

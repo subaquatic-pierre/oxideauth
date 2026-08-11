@@ -19,11 +19,39 @@ use crate::{
     store::{
         entities::project::{
             ProjectConfig as StoreProjectConfig, ProjectFilter as StoreProjectFilter,
-            ProjectMeta as StoreProjectMeta, ProjectRow,
+            ProjectForCreate, ProjectForUpdate, ProjectMeta as StoreProjectMeta, ProjectRow,
         },
         utils::ListOptionsValidator,
     },
 };
+
+impl From<ProjectCreateParams> for ProjectForCreate {
+    fn from(params: ProjectCreateParams) -> Self {
+        Self {
+            workspace_id: params.workspace_id,
+            name: params.name,
+            code: params.code,
+            description: params.description,
+            config: params.config,
+            tags: params.tags,
+            meta: params.meta,
+        }
+    }
+}
+
+impl From<ProjectUpdateParams> for ProjectForUpdate {
+    fn from(params: ProjectUpdateParams) -> Self {
+        Self {
+            name: params.name,
+            code: params.new_code,
+            description: params.description,
+            owner: None,
+            config: params.config,
+            tags: params.tags,
+            meta: params.meta,
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Project {

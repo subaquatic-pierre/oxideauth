@@ -3,6 +3,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::core::error::CoreResult;
+use crate::core::models::credential::CredentialConfig;
 use crate::core::models::{
     credential::{
         Credential, CredentialDeleteParams, CredentialDescribeParams, CredentialFilter,
@@ -89,6 +90,7 @@ pub struct CredentialUpdateReq {
     pub new_provider_id: Option<String>,
     pub new_email: Option<String>,
     pub secret: Option<String>,
+    pub config: Option<CredentialConfig>,
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub last_used_at: Option<OffsetDateTime>,
     pub tags: Option<Vec<String>>,
@@ -104,6 +106,7 @@ impl IntoParams<CredentialUpdateParams> for CredentialUpdateReq {
             account_id: self.account_id,
             workspace_id,
             kind: self.kind,
+            config: self.config,
             provider: self.provider,
             status: self.status,
             new_provider_id: self.new_provider_id,

@@ -1,5 +1,7 @@
 use std::{sync::Arc, vec};
 
+use uuid::Uuid;
+
 use crate::{
     app::AppState,
     cache::{redis::RedisChx, traits::CacheExecutor},
@@ -19,7 +21,7 @@ use crate::{
         ctx::StoreCtx,
         dbx::PgDbx,
         entities::{
-            credential::{CredentialKind, CredentialProvider, CredentialStatus},
+            credential::{CredentialConfig, CredentialKind, CredentialProvider, CredentialStatus},
             id::DbId,
             membership::{MembershipScope, MembershipStatus},
             workspace::WorkspaceMeta,
@@ -53,6 +55,7 @@ pub async fn seed_workspaces<D: DbExecutor, C: CacheExecutor>(
     let ws = WorkspaceCreateParams {
         name: "Global Workspace".to_string(),
         slug: "global".to_string(),
+        owner: Uuid::nil(),
         description: Some("Global Workspace used for root operations".to_string()),
         config: WorkspaceConfig::default(),
         tags: vec!["system".to_string()],
@@ -64,6 +67,7 @@ pub async fn seed_workspaces<D: DbExecutor, C: CacheExecutor>(
     let ws = WorkspaceCreateParams {
         name: "Registry Workspace".to_string(),
         slug: "registry".to_string(),
+        owner: Uuid::nil(),
         description: Some("Regisrty Workspace used for auditing".to_string()),
         config: WorkspaceConfig::default(),
         tags: vec!["system".to_string()],
@@ -75,12 +79,15 @@ pub async fn seed_workspaces<D: DbExecutor, C: CacheExecutor>(
     let ws = WorkspaceCreateParams {
         name: "Default Workspace".to_string(),
         slug: "default".to_string(),
+        owner: Uuid::nil(),
         description: Some("Default Workspace used for general permission access".to_string()),
         config: WorkspaceConfig::default(),
         tags: vec!["system".to_string()],
         meta: WorkspaceMeta::default(),
     };
     svc_reg.workspace.create(ctx, ws).await?;
+
+    // TODO: Only create system and default workspace
 
     Ok(())
 }
@@ -132,6 +139,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
                 secret: Some(hash_password("rootpass")?),
                 provider_id: None,
                 email: None,
+                config: CredentialConfig::default(),
                 last_used_at: None,
                 tags: vec!["system".to_string()],
                 meta: CredentialMeta {
@@ -171,6 +179,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
                 secret: Some(hash_password("ownerpass")?),
                 provider_id: None,
                 email: None,
+                config: CredentialConfig::default(),
                 last_used_at: None,
                 tags: vec!["system".to_string()],
                 meta: CredentialMeta {
@@ -208,6 +217,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
                 status: CredentialStatus::Active,
                 secret: Some(hash_password("testpass")?),
                 provider_id: None,
+                config: CredentialConfig::default(),
                 email: None,
                 last_used_at: None,
                 tags: vec!["system".to_string()],
@@ -219,6 +229,11 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         .await?;
 
     tracing::info!("Seed users created: root, owner, test");
+
+    // TODO: only create Owner and System account
+    // TODO: update workspace owners, system.owner = system, default.owner = owner
+    // TODO: Get owner information from app.config
+
     Ok(())
 }
 

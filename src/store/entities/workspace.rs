@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::store::entities::audit::{AuditFields, AuditMeta};
+use crate::store::entities::credential::{CredentialProvider, DEFAULT_JWT_MAX_AGE};
 use crate::store::entities::id::DbId;
 use crate::store::entities::project::{ProjectConfig, ProjectMeta};
 use crate::store::error::{StoreError, StoreResult};
@@ -37,6 +38,7 @@ pub struct WorkspaceRow {
     pub name: String,
     pub slug: String,
     pub description: Option<String>,
+    pub owner: DbId,
 
     // Config
     #[sqlx(json)]
@@ -96,6 +98,7 @@ pub struct WorkspaceForCreate {
     pub slug: String,
     pub description: Option<String>,
     pub config: WorkspaceConfig,
+    pub owner: DbId,
     pub tags: Vec<String>,
     pub meta: WorkspaceMeta,
 }
@@ -113,11 +116,25 @@ pub struct WorkspaceForUpdate {
     pub meta: Option<WorkspaceMeta>,
 }
 
-#[derive(Debug, Default, Fields, Serialize, Deserialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Fields, Serialize, Deserialize, Clone)]
 pub struct WorkspaceConfig {
-    pub schema_version: String,
+    pub allowed_auth_providers: Vec<String>,
+    pub jwt_max_age: u64,
+    pub jwt_secret: String,
     pub public: bool,
+}
+
+impl Default for WorkspaceConfig {
+    fn default() -> Self {
+        Self {
+            allowed_auth_providers: Default::default(),
+            jwt_max_age: DEFAULT_JWT_MAX_AGE,
+            // TODO: ensure jwt_secret set by service if blank
+            // use workspace jwt_secret for token generation
+            jwt_secret: "".to_string(),
+            public: false,
+        }
+    }
 }
 
 impl Nullable for WorkspaceConfig {
@@ -198,6 +215,7 @@ impl Default for WorkspaceForCreate {
             name: gen_rand_str(10),
             slug: gen_rand_str(10),
             description: Some("A default workspace for testing.".into()),
+            owner: Uuid::nil().into(),
             config: WorkspaceConfig::default(),
             tags: vec![],
             meta: WorkspaceMeta::default(),

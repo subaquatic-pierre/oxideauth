@@ -159,6 +159,7 @@ impl Default for ProjectForUpdate {
             name: None,
             code: None,
             description: None,
+            owner: None,
             config: None,
             tags: None,
             meta: None,

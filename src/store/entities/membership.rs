@@ -1,13 +1,13 @@
 use std::str::FromStr;
 
-use oxideauth_macros::{EnumTextType, HasId};
 use modql::field::Fields;
 use modql::filter::{FilterNodes, OpValsString, OpValsValue};
+use oxideauth_macros::{EnumTextType, HasId};
 use sea_query::{Iden, Nullable, Value as SeaValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
-use sqlx::prelude::FromRow;
+use serde_json::{Value as JsonValue, json};
 use sqlx::Type;
+use sqlx::prelude::FromRow;
 use std::fmt::{self, Display};
 use strum_macros::{Display, EnumString};
 use time::OffsetDateTime;
@@ -48,7 +48,7 @@ pub struct MembershipRow {
     pub scope: MembershipScope,
     pub status: MembershipStatus,
     pub project_id: Option<Uuid>,
-    pub token_version: i64,
+    pub version: i64,
     pub tags: Vec<String>,
     #[sqlx(json)]
     pub meta: MembershipMeta,
@@ -143,7 +143,7 @@ pub struct MembershipForUpdate {
     pub scope: Option<MembershipScope>,
     pub status: Option<MembershipStatus>,
     pub project_id: Option<Uuid>,
-    pub token_version: Option<i64>,
+    pub version: Option<i64>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<MembershipMeta>,
 }
@@ -227,7 +227,7 @@ impl Default for MembershipForUpdate {
             scope: None,
             project_id: None,
             status: None,
-            token_version: None,
+            version: None,
             tags: None,
             meta: None,
         }

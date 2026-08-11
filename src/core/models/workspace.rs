@@ -16,13 +16,9 @@ use crate::{
     },
     store::entities::workspace::{
         WorkspaceConfig as StoreWorkspaceConfig, WorkspaceFilter as StoreWorkspaceFilter,
-        WorkspaceForCreate, WorkspaceMeta as StoreWorkspaceMeta, WorkspaceRow,
+        WorkspaceForCreate, WorkspaceForUpdate, WorkspaceMeta as StoreWorkspaceMeta, WorkspaceRow,
     },
 };
-
-// TODO: better way to define global workspace id
-pub const GLOBAL_WS_ID: &'static str = "10000000-0000-0000-0000-000000000001";
-pub const DEFAULT_WS_ID: &'static str = "10000000-0000-0000-0000-000000000002";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Workspace {
@@ -32,6 +28,7 @@ pub struct Workspace {
     pub name: String,
     pub slug: String,
     pub description: Option<String>,
+    pub owner: Uuid,
 
     // Config
     pub config: WorkspaceConfig,
@@ -43,32 +40,7 @@ pub struct Workspace {
     pub audit: CoreAuditFields,
 }
 
-impl Workspace {
-    pub fn global_ws_id() -> Uuid {
-        Uuid::try_parse(GLOBAL_WS_ID).unwrap()
-    }
-
-    pub fn default_ws_id() -> Uuid {
-        Uuid::try_parse(DEFAULT_WS_ID).unwrap()
-    }
-}
-
-#[derive(Default, Clone, Debug, Serialize, Deserialize)]
-pub struct WorkspaceConfig {
-    allowed_auth_providers: Vec<AuthProvider>,
-    jwt_max_age: u64,
-    jwt_secret: String,
-}
-
-impl From<StoreWorkspaceConfig> for WorkspaceConfig {
-    fn from(value: StoreWorkspaceConfig) -> Self {
-        WorkspaceConfig {
-            allowed_auth_providers: vec![],
-            jwt_max_age: 6000,
-            jwt_secret: "secret".to_string(),
-        }
-    }
-}
+pub type WorkspaceConfig = StoreWorkspaceConfig;
 
 impl From<WorkspaceRow> for Workspace {
     fn from(row: WorkspaceRow) -> Self {
@@ -82,6 +54,7 @@ impl From<WorkspaceRow> for Workspace {
             name: row.name,
             slug: row.slug,
             description: row.description,
+            owner: row.owner.into(),
             config: config,
             tags: row.tags,
             meta: row.meta,
@@ -95,21 +68,10 @@ pub struct WorkspaceCreateParams {
     pub name: String,
     pub slug: String,
     pub description: Option<String>,
-
-    // Assuming these require values at creation based on store struct
+    pub owner: Uuid,
     pub config: WorkspaceConfig,
     pub tags: Vec<String>,
     pub meta: WorkspaceMeta,
-}
-
-impl From<WorkspaceConfig> for StoreWorkspaceConfig {
-    fn from(value: WorkspaceConfig) -> Self {
-        // Self {
-        //     schema_version: "".to_string(),
-        // }
-        let config = StoreWorkspaceConfig::default();
-        config
-    }
 }
 
 impl From<WorkspaceCreateParams> for WorkspaceForCreate {
@@ -118,6 +80,7 @@ impl From<WorkspaceCreateParams> for WorkspaceForCreate {
             name: value.name,
             slug: value.slug,
             description: value.description,
+            owner: value.owner.into(),
             config: value.config.into(),
             tags: value.tags,
             meta: value.meta,
@@ -159,6 +122,20 @@ pub struct WorkspaceUpdateParams {
     pub config: Option<WorkspaceConfig>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<WorkspaceMeta>,
+}
+
+impl From<WorkspaceUpdateParams> for WorkspaceForUpdate {
+    fn from(params: WorkspaceUpdateParams) -> Self {
+        Self {
+            name: params.name,
+            slug: None, // slug in params is an identifier, not an update field
+            owner: None,
+            description: params.description,
+            config: params.config,
+            tags: params.tags,
+            meta: params.meta,
+        }
+    }
 }
 
 #[derive(Default, Clone, Debug)]

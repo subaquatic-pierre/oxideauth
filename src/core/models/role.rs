@@ -7,7 +7,9 @@ use crate::{
         models::permission::{PermissionEngine, PermissionRule},
         traits::params::ValidateParams,
     },
-    store::entities::{audit::AuditMeta, permission::PermissionMeta, role::RoleForUpdate},
+    store::entities::{
+        audit::AuditMeta, permission::PermissionMeta, role::RoleForCreate, role::RoleForUpdate,
+    },
 };
 
 use modql::filter::OpValString;
@@ -111,6 +113,18 @@ pub struct RoleCreateParams {
     pub permission_ids: Vec<Uuid>,
     pub tags: Vec<String>,
     pub meta: RoleMeta,
+}
+
+impl From<RoleCreateParams> for RoleForCreate {
+    fn from(params: RoleCreateParams) -> Self {
+        Self {
+            workspace_id: params.workspace_id,
+            name: params.name,
+            description: params.description,
+            tags: params.tags,
+            meta: params.meta,
+        }
+    }
 }
 
 impl RoleCreateParams {

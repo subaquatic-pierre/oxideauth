@@ -32,7 +32,7 @@ use crate::{
         ctx::StoreCtx,
         dbx::PgDbx,
         entities::{
-            account::{AccountFilter, AccountForCreate, AccountForUpdate, AccountMeta},
+            account::{AccountFilter, AccountForCreate, AccountForUpdate, AccountKind, AccountMeta},
             id::DbId,
         },
         error::StoreError,
@@ -139,18 +139,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for AccountSe
             return Err(CoreError::AlreadyExists("email already exists".to_string()));
         }
 
-        let n_acc = AccountForCreate {
-            email: params.email,
-            name: "name".to_string(),
-            description: None,
-            avatar_url: None,
-            enabled: false,
-            verified: false,
-            tags: vec![],
-            meta: AccountMeta {
-                schema_version: "1".to_string(),
-            },
-        };
+        let n_acc = params.into_store_params(AccountKind::User, false, false);
 
         let new_account = store.create(&store_ctx, n_acc).await?;
 
@@ -233,7 +222,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
 
-        let id = self.get_account_id(&ctx, params.id, params.email).await?;
+        let id = self.get_account_id(&ctx, params.id, params.email.clone()).await?;
 
         // TODO: updating email constraints need to be enforced
         // if email is updated then need to set verified as false
@@ -246,21 +235,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
 
         let security_change = params.enabled.map_or(false, |e| e != current.enabled);
 
-        let update_data = AccountForUpdate {
-            email: None, // NOTE: read above for decision
-            name: params.name,
-            description: params.description,
-            avatar_url: params.avatar_url,
-            enabled: params.enabled,
-            token_version: if security_change {
-                Some(current.token_version + 1)
-            } else {
-                None
-            },
-            verified: params.verified,
-            tags: params.tags,
-            meta: params.meta,
-        };
+        let mut update_data: AccountForUpdate = params.into();
+        if security_change {
+            update_data.version = Some(current.version + 1);
+        }
 
         let updated_account = store.update(&store_ctx, &id, update_data).await?;
 

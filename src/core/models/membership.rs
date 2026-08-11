@@ -17,7 +17,7 @@ use crate::{
         },
     },
     store::entities::membership::{
-        MembershipFilter as StoreMembershipFilter, MembershipForUpdate,
+        MembershipFilter as StoreMembershipFilter, MembershipForCreate, MembershipForUpdate,
         MembershipMeta as StoreMembershipMeta, MembershipRow, MembershipScope, MembershipStatus,
         MembershipWithRoles,
     },
@@ -36,6 +36,7 @@ pub struct Membership {
     pub scope: MembershipScope,
     pub status: MembershipStatus,
     pub roles: Vec<Role>,
+    pub version: i64,
 
     pub tags: Vec<String>,
     pub meta: MembershipMeta,
@@ -50,6 +51,7 @@ impl From<(MembershipRow, Vec<Role>, Account)> for Membership {
             workspace_id: row.workspace_id,
             project_id: row.project_id,
             scope: row.scope,
+            version: row.version,
             status: row.status,
             roles,
             tags: row.tags,
@@ -69,6 +71,20 @@ pub struct MembershipCreateParams {
     pub role_ids: Vec<Uuid>,
     pub tags: Vec<String>,
     pub meta: MembershipMeta,
+}
+
+impl From<MembershipCreateParams> for MembershipForCreate {
+    fn from(params: MembershipCreateParams) -> Self {
+        Self {
+            account_id: params.account_id,
+            workspace_id: params.workspace_id,
+            scope: params.scope,
+            status: params.status,
+            project_id: params.project_id,
+            tags: params.tags,
+            meta: params.meta,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,7 +110,7 @@ impl From<MembershipUpdateParams> for MembershipForUpdate {
             status: value.status,
             scope: value.scope,
             project_id: value.project_id,
-            token_version: None,
+            version: None,
             tags: value.tags,
             meta: value.meta,
         }
@@ -147,11 +163,10 @@ impl Default for Membership {
             project_id: None,
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
+            version: 0,
             roles: vec![],
             tags: vec![],
-            meta: MembershipMeta {
-                schema_version: "1".to_string(),
-            },
+            meta: MembershipMeta::default(),
             audit: CoreAuditFields::default(),
         }
     }

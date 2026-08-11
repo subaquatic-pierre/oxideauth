@@ -17,18 +17,18 @@ use crate::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
         models::{
-            account::Account,
+            account::{Account, AccountKind},
             auth::RegisterParams,
-            credential::CredentialCreateParams,
+            credential::{CredentialConfig, CredentialCreateParams},
             membership::MembershipCreateParams,
             permission::{PermissionEngine, PermissionRule},
             role::RoleListParams,
             token::{TokenClaims, TokenType},
         },
         services::{
-            account::AccountService, credential::CredentialService,
-            membership::MembershipService, permission::CANONICAL_PERMISSIONS,
-            role::RoleService, token::TokenService,
+            account::AccountService, credential::CredentialService, membership::MembershipService,
+            permission::CANONICAL_PERMISSIONS, role::RoleService, token::TokenService,
+            workspace::WorkspaceService,
         },
         traits::{
             params::ValidateParams,
@@ -100,6 +100,7 @@ where
     C: CacheExecutor,
 {
     sm: Arc<StoreManager<D>>,
+    ws_svc: Arc<WorkspaceService<D, C>>,
     acc_svc: Arc<AccountService<D, C>>,
     token_svc: Arc<TokenService<D, C>>,
     credential_svc: Arc<CredentialService<D, C>>,
@@ -117,6 +118,7 @@ where
     pub fn new(
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
+        ws_svc: Arc<WorkspaceService<D, C>>,
         acc_svc: Arc<AccountService<D, C>>,
         token_svc: Arc<TokenService<D, C>>,
         credential_svc: Arc<CredentialService<D, C>>,
@@ -127,6 +129,7 @@ where
         Self {
             sm,
             acc_svc,
+            ws_svc,
             token_svc,
             credential_svc,
             membership_svc,
@@ -197,45 +200,27 @@ where
             password,
             name,
             workspace_id,
-            workspace_slug,
         } = params.validate()?;
 
         // --- Resolve target workspace (slug takes precedence, then id) ---
         let store_ctx: StoreCtx = (&*ctx).into();
-        let ws_id = if let Some(slug) = workspace_slug {
-            self.sm
-                .workspace
-                .get_by_slug_opt(&store_ctx, &slug)
-                .await?
-                .map(|ws| Uuid::from(ws.id))
-                .ok_or_else(|| {
-                    CoreError::InvalidParams(format!("workspace '{}' not found", slug))
-                })?
-        } else if let Some(id) = workspace_id {
-            // Verify the workspace exists
-            self.sm
-                .workspace
-                .get(&store_ctx, &id.into())
-                .await
-                .map_err(|_| {
-                    CoreError::InvalidParams(format!("workspace '{}' not found", id))
-                })?;
-            id
-        } else {
-            // Validation ensures at least one is provided
-            unreachable!()
-        };
+        let ws = self
+            .ws_svc
+            .get_workspace_by_slug_or_id(&ctx, &workspace_id)
+            .await?
+            .ok_or(CoreError::Auth(format!(
+                "Workspace does not exist {workspace_id}"
+            )))?;
 
         // --- Look up the default "Workspace Viewer" role ---
         let viewer_role = self
             .sm
             .role
-            .get_by_name_opt(&store_ctx, "Workspace Viewer", DbId(ws_id))
+            .get_by_name_opt(&store_ctx, "Workspace Viewer", ws.id.into())
             .await?
             .ok_or_else(|| {
                 CoreError::InvalidParams(
-                    "Workspace Viewer role not found — workspace may not be seeded yet"
-                        .to_string(),
+                    "Workspace Viewer role not found — workspace may not be seeded yet".to_string(),
                 )
             })?;
 
@@ -275,6 +260,7 @@ where
                     name: name.unwrap_or_else(|| "".to_string()),
                     description: None,
                     avatar_url: Some(default_avatar),
+                    kind: AccountKind::User,
                     enabled: true,
                     verified: false,
                     tags: vec![],
@@ -299,6 +285,8 @@ where
                     status: CredentialStatus::Active,
                     secret: Some(secret),
                     email: Some(email.clone()),
+                    // TODO: get default credential from workspace config
+                    config: CredentialConfig::default(),
                     provider_id: None,
                     last_used_at: None,
                     tags: vec![],
@@ -725,6 +713,7 @@ where
             provider_id: None,
             email: None,
             secret: Some(secret),
+            config: None,
             last_used_at: None,
             tags: None,
             meta: None,
@@ -776,9 +765,9 @@ where
             avatar_url: None,
             enabled: None,
             verified: Some(true),
+            version: None,
             tags: None,
             meta: None,
-            token_version: None,
         };
         store
             .update(&ctx.into(), &account_id.into(), update_data)
@@ -940,6 +929,7 @@ where
                     name: google_user.name,
                     description: None,
                     avatar_url: google_user.picture.clone(),
+                    kind: AccountKind::User,
                     enabled: true,
                     verified: google_user.verified_email,
                     tags: vec![],
@@ -958,6 +948,8 @@ where
                     workspace_id: store_ctx.ws_id,
                     provider_id: Some(google_user.id),
                     email: Some(google_user.email),
+                    // TODO: get default credential from workspace config
+                    config: CredentialConfig::default(),
                     secret: None,
                     last_used_at: Some(now_utc()),
                     tags: vec![],

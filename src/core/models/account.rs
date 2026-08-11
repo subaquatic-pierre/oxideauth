@@ -14,9 +14,12 @@ use crate::{
         },
     },
     store::entities::account::{
-        AccountFilter as StoreAccountFilter, AccountMeta as StoreAccountMeta, AccountRow,
+        AccountFilter as StoreAccountFilter, AccountForCreate, AccountForUpdate, AccountKind,
+        AccountKind as StoreAccountKind, AccountMeta as StoreAccountMeta, AccountRow,
     },
 };
+
+pub type AccountKind = StoreAccountKind;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Account {
@@ -27,6 +30,7 @@ pub struct Account {
     pub avatar_url: Option<String>,
     pub enabled: bool,
     pub verified: bool,
+    pub version: i64,
     pub tags: Vec<String>,
     pub meta: AccountMeta,
     #[serde(flatten)]
@@ -42,6 +46,7 @@ impl From<AccountRow> for Account {
             name: value.name,
             description: value.description,
             avatar_url: value.avatar_url,
+            version: value.version,
 
             enabled: value.enabled,
             verified: value.verified,
@@ -65,6 +70,7 @@ impl Default for Account {
             enabled: bool::default(),  // false
             verified: bool::default(), // false
             tags: Vec::default(),
+            version: 0,
             meta: AccountMeta::default(),
             audit: CoreAuditFields::default(),
         }
@@ -82,6 +88,29 @@ pub struct AccountCreateParams {
     pub avatar_url: Option<String>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<AccountMeta>,
+}
+
+impl AccountCreateParams {
+    /// Converts these core params into store-level create params,
+    /// accepting extra fields that are not part of the user-facing API.
+    pub fn into_store_params(
+        self,
+        kind: AccountKind,
+        enabled: bool,
+        verified: bool,
+    ) -> AccountForCreate {
+        AccountForCreate {
+            email: self.email,
+            name: self.name,
+            description: self.description,
+            avatar_url: self.avatar_url,
+            kind,
+            enabled,
+            verified,
+            tags: self.tags.unwrap_or_default(),
+            meta: self.meta.unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -105,12 +134,29 @@ pub struct AccountUpdateParams {
     pub name: Option<String>,
     pub description: Option<String>,
     pub avatar_url: Option<String>,
+    pub version: Option<i64>,
 
     pub enabled: Option<bool>,
     pub verified: Option<bool>,
 
     pub tags: Option<Vec<String>>,
     pub meta: Option<AccountMeta>,
+}
+
+impl From<AccountUpdateParams> for AccountForUpdate {
+    fn from(params: AccountUpdateParams) -> Self {
+        Self {
+            email: None, // email updates are intentionally blocked (see service notes)
+            name: params.name,
+            description: params.description,
+            avatar_url: params.avatar_url,
+            enabled: params.enabled,
+            version: params.version,
+            verified: params.verified,
+            tags: params.tags,
+            meta: params.meta,
+        }
+    }
 }
 pub struct AccountListParams {
     pub workspace_id: Uuid,

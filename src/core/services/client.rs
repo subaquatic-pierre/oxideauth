@@ -361,7 +361,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ClientSer
         let sh = self.generate_secret();
 
         // Build store params from core params + secret_hash
-        let for_create = ClientForCreate::from((params, sh.sha256_hash));
+        let for_create = params.into_store_params(sh.sha256_hash);
 
         let row = self.store().create(&store_ctx, for_create).await?;
         let client = Client::from_row_with_workspace(row, workspace);
