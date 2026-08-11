@@ -1,11 +1,11 @@
 use std::str::FromStr;
 
-use oxideauth_macros::{EnumTextType, HasId};
 use modql::field::Fields;
 use modql::filter::{FilterNodes, OpValsString, OpValsValue};
+use oxideauth_macros::{EnumTextType, HasId};
 use sea_query::{Iden, Nullable, Value as SeaValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use sqlx::prelude::FromRow;
 
 use strum_macros::{Display, EnumString};
@@ -42,6 +42,7 @@ pub struct CredentialRow {
     pub email: Option<String>,
     pub secret: Option<String>,
     pub last_used_at: Option<OffsetDateTime>,
+    pub config: CredentialConfig,
     pub tags: Vec<String>,
     #[sqlx(json)]
     pub meta: CredentialMeta,
@@ -127,6 +128,7 @@ pub struct CredentialForCreate {
     pub email: Option<String>,
     pub secret: Option<String>,
     pub last_used_at: Option<OffsetDateTime>,
+    pub config: CredentialConfig,
     pub tags: Vec<String>,
     pub meta: CredentialMeta,
 }
@@ -139,6 +141,7 @@ pub struct CredentialForUpdate {
     pub provider_id: Option<String>,
     pub email: Option<String>,
     pub secret: Option<String>,
+    pub config: Option<CredentialConfig>,
     pub last_used_at: Option<OffsetDateTime>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<CredentialMeta>,
@@ -201,6 +204,25 @@ impl TryFrom<JsonValue> for CredentialFilter {
     }
 }
 
+#[derive(Debug, Default, Fields, Serialize, Deserialize, Clone)]
+#[serde(default)]
+pub struct CredentialConfig {
+    pub schema_version: String,
+    pub max_token_age: i64,
+}
+
+impl Nullable for CredentialConfig {
+    fn null() -> SeaValue {
+        SeaValue::Json(None)
+    }
+}
+
+impl From<CredentialConfig> for SeaValue {
+    fn from(value: CredentialConfig) -> Self {
+        json_to_sea_value(serde_json::to_value(value).unwrap()).unwrap()
+    }
+}
+
 // --- Defaults for testing ---
 #[cfg(test)]
 impl Default for CredentialForCreate {
@@ -217,9 +239,8 @@ impl Default for CredentialForCreate {
             secret: Some("hashed_password_placeholder".to_string()),
             last_used_at: None,
             tags: vec![],
-            meta: CredentialMeta {
-                schema_version: "1".to_string(),
-            },
+            config: CredentialConfig::default(),
+            meta: CredentialMeta::default(),
         }
     }
 }
@@ -234,6 +255,7 @@ impl Default for CredentialForUpdate {
             email: None,
             secret: None,
             status: None,
+            config: None,
             last_used_at: None,
             tags: None,
             meta: None,

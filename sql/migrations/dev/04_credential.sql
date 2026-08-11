@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS
     status TEXT NOT NULL DEFAULT 'active', -- 'active','revoked','pending'
     -- Last time this credential was used for authentication
     last_used_at TIMESTAMPTZ,
+    config JSONB NOT NULL DEFAULT '{}'::jsonb,
     -- START Meta & Tags
     tags TEXT[] NOT NULL DEFAULT '{}',
     meta JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -41,7 +42,8 @@ CREATE TABLE IF NOT EXISTS
     CONSTRAINT cred_account_fk FOREIGN KEY (account_id) REFERENCES account (id) ON UPDATE CASCADE ON DELETE CASCADE,
     CONSTRAINT cred_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspace (id) ON UPDATE CASCADE ON DELETE CASCADE,
     -- Ensure audit JSON is always an object
-    CONSTRAINT cred_audit_is_object CHECK (jsonb_typeof(audit) = 'object')
+    CONSTRAINT cred_audit_is_object CHECK (jsonb_typeof(audit) = 'object'),
+    CONSTRAINT cred_config_is_object CHECK (jsonb_typeof(config) = 'object')
     -- (meta also constrained if needed in a follow-up migration)
   );
 
@@ -50,16 +52,14 @@ CREATE TABLE IF NOT EXISTS
 -- =========================
 -- Password lookup:
 -- Enforce uniqueness: one active password credential per workspace + account.
-CREATE UNIQUE INDEX IF NOT EXISTS cred_unique_active_password
-ON credential (workspace_id, account_id)
+CREATE UNIQUE INDEX IF NOT EXISTS cred_unique_active_password ON credential (workspace_id, account_id)
 WHERE
   kind = 'password'
   AND status = 'active';
 
 -- OAuth/SSO lookup:
 -- Enforce uniqueness: one active OAuth/SSO credential per workspace + provider + provider_id.
-CREATE UNIQUE INDEX IF NOT EXISTS cred_unique_active_provider
-ON credential (workspace_id, provider, provider_id)
+CREATE UNIQUE INDEX IF NOT EXISTS cred_unique_active_provider ON credential (workspace_id, provider, provider_id)
 WHERE
   kind IN ('oauth', 'sso')
   AND status = 'active'

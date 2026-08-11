@@ -63,6 +63,7 @@ pub struct ProjectForUpdate {
     pub name: Option<String>,
     pub code: Option<String>,
     pub description: Option<String>,
+    pub owner: Option<Uuid>,
     pub config: Option<ProjectConfig>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<ProjectMeta>,

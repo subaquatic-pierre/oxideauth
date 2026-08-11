@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS
     avatar_url TEXT,
     description TEXT,
     version BIGINT NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL, -- 'user', 'service',
     -- Global identity state flags:
     --   verified = identity confirmed (email/SMS/IdP), blocks login pre-tenant if false
     --   enabled  = global access switch; if false, user cannot authenticate anywhere

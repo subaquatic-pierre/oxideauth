@@ -8,6 +8,7 @@ use sea_query::{Iden, Nullable, Value as SeaValue, sea_value_to_json_value};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use sqlx::prelude::FromRow;
+use std::str::FromStr;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -61,10 +62,29 @@ pub struct AccountRow {
 
 #[derive(Debug, Serialize, Deserialize, Clone, EnumTextType)]
 pub enum AccountKind {
-    #[serde(rename = "password")]
+    #[serde(rename = "user")]
     User,
-    #[serde(rename = "oauth")]
+    #[serde(rename = "service")]
     Service,
+}
+
+impl Default for AccountKind {
+    fn default() -> Self {
+        AccountKind::User
+    }
+}
+
+impl From<AccountKind> for SeaValue {
+    fn from(value: AccountKind) -> Self {
+        let s = format!("{value}");
+        SeaValue::String(Some(Box::new(s)))
+    }
+}
+
+impl Nullable for AccountKind {
+    fn null() -> SeaValue {
+        SeaValue::Json(None)
+    }
 }
 
 // The struct to hold the combined result
@@ -202,6 +222,7 @@ impl Default for AccountForCreate {
             name: gen_rand_str(10),
             description: Some("Fixture account for create() test".into()),
             avatar_url: Some("avatar_url.com".into()),
+            kind: AccountKind::default(),
             verified: false,
             enabled: true,
             tags: vec![],
@@ -224,7 +245,7 @@ impl Default for AccountForUpdate {
             avatar_url: None,
             verified: None,
             enabled: None,
-            token_version: None,
+            version: None,
 
             // Free-form meta; keep structure present but empty
             meta: None,

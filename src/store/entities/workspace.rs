@@ -106,6 +106,7 @@ pub struct WorkspaceForCreate {
 pub struct WorkspaceForUpdate {
     pub name: Option<String>,
     pub slug: Option<String>,
+    pub owner: Option<Uuid>,
     pub description: Option<String>,
     pub config: Option<WorkspaceConfig>,
     pub tags: Option<Vec<String>>,
@@ -211,6 +212,7 @@ impl Default for WorkspaceForUpdate {
             name: None,
             slug: None,
             description: None,
+            owner: None,
             config: None,
             tags: None,
             meta: None,
