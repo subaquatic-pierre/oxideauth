@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use crate::cache::entities::auth::AuthCache;
+use crate::cache::entities::auth::{AuthCache, AuthScopeCache};
 use crate::store::stores::workspace::SYSTEM_CONST;
 use crate::{
     core::{
@@ -165,12 +165,18 @@ impl ContextFactory {
 
     /// Returns the cached system workspace UUID.
     pub fn system_ws_id(&self) -> Uuid {
-        *self.system_ws_id.get().unwrap_or(&Uuid::nil())
+        *self
+            .system_ws_id
+            .get()
+            .expect("System workspace not initialized")
     }
 
     /// Returns the cached root account UUID.
     pub fn system_user_id(&self) -> Uuid {
-        *self.system_user_id.get().unwrap_or(&Uuid::nil())
+        *self
+            .system_user_id
+            .get()
+            .expect("System account not initialized")
     }
 
     /// Creates a system-level `CoreCtx` authenticated as the system account.
@@ -196,7 +202,7 @@ impl ContextFactory {
             acc_version: 0,
             mem_active: true,
             acc_enabled: true,
-            auth_scope: AuthCache::system_cache().auth_scope,
+            auth_scope: AuthScopeCache::system(),
         };
         let perm_checker = PermissionEngine::from_string_vec(vec!["*:*".to_string()])?;
         Ok(CoreCtx {

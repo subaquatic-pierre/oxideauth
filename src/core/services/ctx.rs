@@ -80,7 +80,7 @@ where
         // debug!("HEADERS: {:#?}", headers);
 
         let token_str = TokenService::<D, C>::token_str_from_headers(headers)
-            .ok_or_else(|| CoreError::Auth("missing authorization header".into()))?;
+            .ok_or_else(|| CoreError::Auth("Missing authorization header".into()))?;
 
         let token_svc = self.svc_reg.token.clone();
         let claims = token_svc.decode_token_str(token_str)?;
@@ -100,8 +100,8 @@ where
         let ws_scope = auth_cache.auth_scope.workspace_id;
         let mut core_ctx = CoreCtx::new(auth_cache, ws_scope)?;
 
-        // scope global workspace if token is global scope
-        // this mutates ctx internal state and ensures header is set
+        // scope global workspace if token is system scope
+        // this mutates ctx internal state and ensures correct headers are set
         // for workspace in which to operate
         self.validate_and_scope_global_workspace(headers, &mut core_ctx)?;
         let ws_id = core_ctx.scoped_ws_id();
@@ -125,6 +125,7 @@ where
                     .await?;
                 self.cm
                     .auth
+                    // TODO: need to get workspace config for workspace max token age
                     .write(&hydrated, self.config.access_token_max_age)
                     .await?;
                 hydrated
@@ -151,10 +152,12 @@ where
                     scoped_ws
                 }
                 None => {
-                    error!("X-Workspace-Id header required for global-scope tokens");
-                    return Err(CoreError::Auth(
-                        "X-Workspace-Id header required for global-scope tokens".into(),
-                    ));
+                    let msg = format!(
+                        "{} header required for global-scope tokens",
+                        SYSTEM_CONST.workspace_header_key
+                    );
+                    error!(msg);
+                    return Err(CoreError::Auth(msg));
                 }
             }
         } else {

@@ -83,7 +83,7 @@ impl AuthCache {
         }
     }
 
-    pub fn system_cache() -> Self {
+    pub fn bootstrap_cache() -> Self {
         Self {
             mem_id: Uuid::nil(),
             acc_id: Uuid::nil(),
@@ -94,14 +94,6 @@ impl AuthCache {
             acc_enabled: true,
             auth_scope: AuthScopeCache::system(),
         }
-    }
-
-    /// Creates a bootstrap cache with nil UUIDs — no pre-existing DB data required.
-    ///
-    /// Used during seeding/initialization. Same as `system_cache()` but with an
-    /// explicit name to convey intent.
-    pub fn bootstrap_cache() -> Self {
-        Self::system_cache()
     }
 }
 
