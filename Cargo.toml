@@ -81,15 +81,15 @@ sqlx = { version = "0.8.6", features = [
     "runtime-tokio-rustls", # Tokio + rustls TLS
     "postgres",             # Postgres driver
     "uuid",                 # UUID (for id columns)
+    "time",                 # time crate date/time support (used with `with-time`)
     # "chrono",               # Date/Time support
     "migrate",               # Enable sqlx::migrate!(),
     "macros", 
     "json",
     "rust_decimal"
 ] }
-sea-query = { version= "0.32.7", features = ["backend-postgres", "with-uuid", "with-json","postgres-array"] }
-sea-query-binder = { version = "0.7", features = ["sqlx-postgres", "with-uuid", "with-time", "with-json", "postgres-array" ] }
-modql = { version = "0.4.1", features = ["with-sea-query"]}
+sea-query = { version = "=1.0.0-rc.34", features = ["backend-postgres", "with-uuid", "with-json", "with-time", "postgres-array"] }
+modql = { version = "0.5.0", features = ["with-sea-query"]}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Vendored OpenSSL (compile from source when system openssl is not available)

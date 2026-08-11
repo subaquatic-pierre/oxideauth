@@ -1,22 +1,11 @@
-use std::{
-    fmt::{Debug, Display},
-    ops::{Deref, DerefMut},
-};
-
-use sqlx::{
-    database::Database,
-    decode::Decode,
-    encode::{Encode, IsNull},
-    error::BoxDynError,
-    Type,
-};
-use std::fmt;
+use std::fmt::{self, Debug, Display};
+use std::ops::{Deref, DerefMut};
 
 use rand::Rng;
 use sea_query::{Nullable, Value as SeaValue};
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 use sha2::Digest;
+use sqlx::{decode::Decode, encode::Encode, error::BoxDynError, Type};
 use tracing::{error, warn};
 
 use crate::store::error::{StoreError, StoreResult};
@@ -96,7 +85,7 @@ impl Nullable for Sha256Hash {
 
 impl From<Sha256Hash> for SeaValue {
     fn from(value: Sha256Hash) -> Self {
-        SeaValue::Bytes(Some(Box::new(value.inner.to_vec())))
+        SeaValue::Bytes(Some(value.inner.to_vec()))
     }
 }
 impl<'r> sqlx::decode::Decode<'r, sqlx::Postgres> for Sha256Hash {

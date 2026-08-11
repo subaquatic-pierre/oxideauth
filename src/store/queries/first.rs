@@ -1,7 +1,7 @@
 use modql::filter::{FilterGroups, ListOptions};
 use sea_query::{Asterisk, Condition, PostgresQueryBuilder, Query};
-use sea_query::{Expr, Iden};
-use sea_query_binder::SqlxBinder;
+use sea_query::{Expr, Iden, ExprTrait};
+use crate::store::utils::pg_binder::PgBinder;
 use sqlx::{postgres::PgRow, FromRow};
 use sqlx::{query_as_with, Value};
 
@@ -59,7 +59,7 @@ pub async fn first_opt<E: DbExecutor, T: StoreRow, F: Into<FilterGroups>, I: Tab
     query.from(meta.table).column(Asterisk);
 
     if let Some(ws_id) = ctx.workspace_scope() {
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
@@ -82,7 +82,8 @@ pub async fn first_opt<E: DbExecutor, T: StoreRow, F: Into<FilterGroups>, I: Tab
     list_opts.apply_to_sea_query(&mut query);
 
     // build sql
-    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     // run query, expecting at most one row
     let sqlx = query_as_with::<_, T, _>(&sql, vals);

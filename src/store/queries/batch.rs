@@ -1,11 +1,11 @@
+use crate::store::utils::pg_binder::PgBinder;
 use modql::field::HasSeaFields;
 use modql::filter::{FilterGroups, ListOptions};
 use sea_query::{
-    Alias, Asterisk, CaseStatement, Condition, Expr, IdenList, IntoValueTuple,
-    PostgresQueryBuilder, Query, SeaRc, SimpleExpr, WithQuery,
+    Alias, Asterisk, CaseStatement, Condition, Expr, IntoValueTuple, PostgresQueryBuilder, Query,
+    SeaRc, SimpleExpr, WithQuery,
 };
-use sea_query::{Iden, IntoIden, TableRef};
-use sea_query_binder::SqlxBinder;
+use sea_query::{ExprTrait, Iden, IntoIden, TableRef};
 use sqlx::{FromRow, postgres::PgRow};
 use sqlx::{Postgres, QueryBuilder, Value, query_as_with};
 use uuid::Uuid;
@@ -98,7 +98,8 @@ pub async fn create_many<E: DbExecutor, T: StoreRow, D: HasSeaFields, I: TableId
 
     query.returning_all();
 
-    let (sql, values) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, values) = query.build(PostgresQueryBuilder);
+    let values = PgBinder(values.0);
     let sqlx_query = query_as_with::<_, T, _>(&sql, values);
 
     let ret = dbx.fetch_all(sqlx_query).await?;
@@ -162,10 +163,11 @@ pub async fn update_many<E: DbExecutor, T: StoreRow, D: HasSeaFields, I: TableId
         let query = query
             .table(meta.table)
             .values(fields)
-            .and_where(Expr::col(meta.pk).eq(id.clone()))
+            .and_where(Expr::col(meta.pk).eq(Expr::val(id.clone())))
             .returning_all();
 
-        let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+        let (sql, vals) = query.build(PostgresQueryBuilder);
+        let vals = PgBinder(vals.0);
 
         let query = sqlx::query_as_with::<_, T, _>(&sql, vals);
 
@@ -217,7 +219,7 @@ pub async fn delete_many<E: DbExecutor, T: StoreRow, I: TableIden>(
 
     if let Some(ws_id) = ctx.workspace_scope() {
         // Add WHERE clause for workspace_id
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
@@ -226,7 +228,8 @@ pub async fn delete_many<E: DbExecutor, T: StoreRow, I: TableIden>(
         .and_where(Expr::col(meta.pk).is_in(ids))
         .returning_all();
 
-    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let sqlx = sqlx::query_as_with::<_, T, _>(&sql, vals);
 
@@ -253,10 +256,11 @@ pub async fn find_many_where_value_in_key<E: DbExecutor, T: StoreRow, I: TableId
         .and_where(Expr::col((meta.table, meta.pk)).is_in(values));
 
     if let Some(ws_id) = ctx.workspace_scope() {
-        query.and_where(Expr::col((meta.table, WorkspaceIden::WorkspaceId)).eq(ws_id));
+        query.and_where(Expr::col((meta.table, WorkspaceIden::WorkspaceId)).eq(Expr::val(ws_id)));
     }
 
-    let (sql, values) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, values) = query.build(PostgresQueryBuilder);
+    let values = PgBinder(values.0);
 
     let sqlx = sqlx::query_as_with::<_, T, _>(&sql, values);
 

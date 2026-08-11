@@ -1,3 +1,4 @@
+use std::fmt::{self, Display};
 use std::str::FromStr;
 
 use modql::field::Fields;
@@ -5,10 +6,9 @@ use modql::filter::{FilterNodes, OpValsString, OpValsValue};
 use oxideauth_macros::{EnumTextType, HasId};
 use sea_query::{Iden, Nullable, Value as SeaValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value as JsonValue, json};
-use sqlx::Type;
+use serde_json::Value as JsonValue;
 use sqlx::prelude::FromRow;
-use std::fmt::{self, Display};
+use sqlx::Type;
 use strum_macros::{Display, EnumString};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -96,7 +96,7 @@ pub enum MembershipScope {
 impl From<MembershipScope> for SeaValue {
     fn from(value: MembershipScope) -> Self {
         let s = format!("{value}");
-        SeaValue::String(Some(Box::new(s)))
+        SeaValue::String(Some(s))
     }
 }
 
@@ -117,7 +117,7 @@ pub enum MembershipStatus {
 impl From<MembershipStatus> for SeaValue {
     fn from(value: MembershipStatus) -> Self {
         let s = format!("{value}");
-        SeaValue::String(Some(Box::new(s)))
+        SeaValue::String(Some(s))
     }
 }
 

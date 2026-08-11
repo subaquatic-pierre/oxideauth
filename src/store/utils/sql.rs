@@ -37,17 +37,17 @@ pub fn push_sq_value(qb: &mut QueryBuilder<Postgres>, v: &SeaValue) {
             qb.push_bind(s);
         }
         SeaValue::Uuid(Some(u)) => {
-            qb.push_bind(**u);
+            qb.push_bind(*u);
         }
         SeaValue::Json(Some(j)) => {
             qb.push_bind(sqlx::types::Json(j.clone()));
         }
         // Bytes
         SeaValue::Bytes(Some(b)) => {
-            qb.push_bind(*b.clone());
+            qb.push_bind(b.clone());
         }
         SeaValue::TimeDateTimeWithTimeZone(Some(t)) => {
-            qb.push_bind(**t);
+            qb.push_bind(*t);
         }
         SeaValue::Array(ArrayType::String, Some(items)) => {
             let arr: Vec<Option<String>> = items

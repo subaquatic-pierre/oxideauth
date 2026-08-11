@@ -1,19 +1,18 @@
 use modql::field::Fields;
 use modql::filter::{FilterNodes, OpValsString, OpValsValue};
+use oxideauth_macros::HasId;
 use sea_query::{Iden, Nullable, Value as SeaValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::Value as JsonValue;
 use sqlx::prelude::FromRow;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::store::entities::audit::AuditFields;
 use crate::store::entities::id::DbId;
 use crate::store::entities::permission::PermissionMeta;
-use crate::store::traits::meta::HasId;
-use oxideauth_macros::HasId;
-
-use crate::store::entities::audit::AuditFields;
 use crate::store::error::{StoreError, StoreResult};
+use crate::store::traits::meta::HasId;
 use crate::store::utils::{gen_rand_str, json_to_sea_value, time_to_sea_value};
 
 #[derive(Iden, Copy, Clone)]

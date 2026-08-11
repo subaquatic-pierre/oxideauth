@@ -1,27 +1,26 @@
-use crate::impl_has_active_filter;
-use crate::store::filter;
+use std::str::FromStr;
+
 use derive_more::Display;
 use modql::field::Fields;
 use modql::filter::{FilterNodes, OpValsString, OpValsValue};
 use oxideauth_macros::{EnumTextType, HasId};
-use sea_query::{Iden, Nullable, Value as SeaValue, sea_value_to_json_value};
+use sea_query::{Iden, Nullable, Value as SeaValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value as JsonValue, json};
+use serde_json::Value as JsonValue;
 use sqlx::prelude::FromRow;
-use std::str::FromStr;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::impl_has_active_filter;
 use crate::store::entities::audit::AuditFields;
-use crate::store::error::{StoreError, StoreResult};
-
 use crate::store::entities::credential::{
     CredentialKind, CredentialProvider, CredentialRow, CredentialStatus,
 };
 use crate::store::entities::id::DbId;
-use crate::store::utils::{json_to_sea_value, time_to_sea_value, to_sea_bool};
-
+use crate::store::error::{StoreError, StoreResult};
+use crate::store::filter;
 use crate::store::traits::meta::HasId;
+use crate::store::utils::{json_to_sea_value, time_to_sea_value, to_sea_bool};
 
 #[derive(Iden, Copy, Clone)]
 pub enum AccountIden {
@@ -77,7 +76,7 @@ impl Default for AccountKind {
 impl From<AccountKind> for SeaValue {
     fn from(value: AccountKind) -> Self {
         let s = format!("{value}");
-        SeaValue::String(Some(Box::new(s)))
+        SeaValue::String(Some(s))
     }
 }
 

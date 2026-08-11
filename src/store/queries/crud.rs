@@ -1,10 +1,10 @@
 use modql::field::HasSeaFields;
 use modql::filter::{FilterGroups, ListOptions};
 use sea_query::{
-    Alias, Asterisk, Condition, Expr, IdenList, IntoValueTuple, PostgresQueryBuilder, Query,
+    Alias, Asterisk, Condition, Expr, IntoValueTuple, PostgresQueryBuilder, Query,
 };
-use sea_query::{Iden, IntoIden, TableRef};
-use sea_query_binder::SqlxBinder;
+use sea_query::{Iden, IntoIden, TableRef, ExprTrait};
+use crate::store::utils::pg_binder::PgBinder;
 use sqlx::{postgres::PgRow, FromRow};
 use sqlx::{query_as_with, Value};
 use uuid::Uuid;
@@ -68,7 +68,8 @@ pub async fn create<E: DbExecutor, T: StoreRow, D: HasSeaFields, I: TableIden>(
         .values(vals)?
         .returning_all();
 
-    let (sql, values) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, values) = query.build(PostgresQueryBuilder);
+    let values = PgBinder(values.0);
     let sqlx_query = query_as_with::<_, T, _>(&sql, values);
 
     let ret = dbx.fetch_one(sqlx_query).await?;
@@ -110,16 +111,17 @@ pub async fn get_opt<E: DbExecutor, T: StoreRow, I: TableIden>(
 
     if let Some(ws_id) = ctx.workspace_scope() {
         // Add WHERE clause for workspace_id
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
     query
         .from(meta.table)
         .column(Asterisk)
-        .and_where(Expr::col(meta.pk).eq(id.clone()));
+        .and_where(Expr::col(meta.pk).eq(Expr::val(id.clone())));
 
-    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
     let sqlx_query = query_as_with::<_, T, _>(&sql, vals);
 
     let ret = dbx.fetch_optional(sqlx_query).await?;
@@ -220,7 +222,7 @@ pub async fn list<E: DbExecutor, T: StoreRow, F: Into<FilterGroups>, I: TableIde
         // The context clause acts as a secure, enforced prefix to the user-provided filter,
         // ensuring the security boundary is never breached. The clauses are **ANDed**, not overridden.
 
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
@@ -246,7 +248,8 @@ pub async fn list<E: DbExecutor, T: StoreRow, F: Into<FilterGroups>, I: TableIde
     list_options.apply_to_sea_query(&mut query);
 
     // build sql
-    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     // build sqlx query
     let sqlx = query_as_with::<_, T, _>(&sql, vals);
@@ -305,17 +308,18 @@ pub async fn update_opt<E: DbExecutor, T: StoreRow, D: HasSeaFields, I: TableIde
 
     if let Some(ws_id) = ctx.workspace_scope() {
         // Add WHERE clause for workspace_id
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
     let query = query
         .table(meta.table)
         .values(fields)
-        .and_where(Expr::col(meta.pk).eq(id.clone()))
+        .and_where(Expr::col(meta.pk).eq(Expr::val(id.clone())))
         .returning_all();
 
-    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let sqlx = sqlx::query_as_with::<_, T, _>(&sql, vals);
 
@@ -404,16 +408,17 @@ pub async fn delete_opt<E: DbExecutor, T: StoreRow, I: TableIden>(
 
     if let Some(ws_id) = ctx.workspace_scope() {
         // Add WHERE clause for workspace_id
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
     query
         .from_table(meta.table)
-        .and_where(Expr::col(meta.pk).eq(id.clone()))
+        .and_where(Expr::col(meta.pk).eq(Expr::val(id.clone())))
         .returning_all();
 
-    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let sqlx = sqlx::query_as_with::<_, T, _>(&sql, vals);
 

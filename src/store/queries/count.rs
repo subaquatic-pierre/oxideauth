@@ -1,7 +1,7 @@
 use modql::filter::{FilterGroups, ListOptions};
 use sea_query::{Asterisk, Condition, PostgresQueryBuilder, Query};
-use sea_query::{Expr, Func, Iden};
-use sea_query_binder::SqlxBinder;
+use sea_query::{Expr, Func, Iden, ExprTrait};
+use crate::store::utils::pg_binder::PgBinder;
 use sqlx::Row;
 use sqlx::{postgres::PgRow, FromRow};
 use sqlx::{query_as_with, query_scalar_with, query_with, Value};
@@ -65,7 +65,7 @@ pub async fn count<E: DbExecutor, F: Into<FilterGroups>, I: TableIden>(
 
     if let Some(ws_id) = ctx.workspace_scope() {
         // Add WHERE clause for workspace_id
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
@@ -77,7 +77,8 @@ pub async fn count<E: DbExecutor, F: Into<FilterGroups>, I: TableIden>(
     }
 
     // build SQL and values
-    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let query = sqlx::query_as_with(&sql, vals);
     let count: (i64,) = dbx.fetch_one(query).await?;
@@ -131,7 +132,7 @@ pub async fn count_many<E: DbExecutor, I: TableIden>(
 
     if let Some(ws_id) = ctx.workspace_scope() {
         // Add WHERE clause for workspace_id
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
@@ -139,9 +140,10 @@ pub async fn count_many<E: DbExecutor, I: TableIden>(
     query
         .expr(Func::count(Expr::col(Asterisk)))
         .from(meta.table)
-        .and_where(Expr::col(meta.fk).eq(id.clone())); // WHERE foreign_key = ?
+        .and_where(Expr::col(meta.fk).eq(Expr::val(id.clone()))); // WHERE foreign_key = ?
 
-    let (sql, values) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, values) = query.build(PostgresQueryBuilder);
+    let values = PgBinder(values.0);
 
     // Here we can't use `try_get("count")` as easily without an alias,
     // so we fetch into a tuple, which is very efficient.
@@ -177,7 +179,7 @@ where
 
     if let Some(ws_id) = ctx.workspace_scope() {
         // Add WHERE clause for workspace_id
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
@@ -202,7 +204,8 @@ where
     query.cond_where(expr);
 
     // build SQL and values
-    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     // Execute query
     let sqlx_query = sqlx::query_as_with(&sql, vals);

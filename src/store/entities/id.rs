@@ -24,7 +24,7 @@ impl Display for DbId {
 
 impl From<DbId> for sea_query::Value {
     fn from(value: DbId) -> Self {
-        sea_query::Value::Uuid(Some(Box::new(value.0)))
+        sea_query::Value::Uuid(Some(value.0))
     }
 }
 

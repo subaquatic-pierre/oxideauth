@@ -2,9 +2,9 @@ use modql::filter::{FilterGroups, ListOptions};
 use sea_query::{Alias, BinOper};
 use sea_query::{
     Asterisk, CommonTableExpression, Condition, Expr, Func, Iden, JoinType, OnConflict,
-    PostgresQueryBuilder, Query, SelectStatement, SimpleExpr, Value,
+    PostgresQueryBuilder, Query, SelectStatement, SimpleExpr, Value, ExprTrait,
 };
-use sea_query_binder::SqlxBinder;
+use crate::store::utils::pg_binder::PgBinder;
 use serde_json::Value as JsonValue;
 use serde_json::json;
 use sqlx::{FromRow, postgres::PgRow};
@@ -115,13 +115,14 @@ pub async fn get_one_to_many_opt<E: DbExecutor, T: StoreRow, I: TableIden>(
             ManyCte, // Join to the CTE, not the original table
             Expr::col((meta.single_table, meta.single_pk)).equals((ManyCte, meta.many_fk)),
         )
-        .and_where(Expr::col((meta.single_table, meta.single_pk)).eq(id.clone()))
+        .and_where(Expr::col((meta.single_table, meta.single_pk)).eq(Expr::val(id.clone())))
         .group_by_col((meta.single_table, meta.single_pk));
 
     // Attach the WithClause to the main query
     let final_query = main_query.with(common_table_expr.into());
 
-    let (sql, vals) = final_query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = final_query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let query = sqlx::query_as_with::<_, T, _>(&sql, vals);
 
@@ -251,7 +252,7 @@ pub async fn list_one_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: Tab
     // apply workspace scope
     if let Some(ws_id) = ctx.workspace_scope() {
         let workspace_id_expr =
-            Expr::col((meta.single_table, WorkspaceIden::WorkspaceId)).eq(ws_id);
+            Expr::col((meta.single_table, WorkspaceIden::WorkspaceId)).eq(Expr::val(ws_id));
         main_query.and_where(workspace_id_expr);
     }
 
@@ -278,7 +279,8 @@ pub async fn list_one_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: Tab
     // Attach the WithClause to the main query
     let final_query = main_query.with(common_table_expr.into());
 
-    let (sql, vals) = final_query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = final_query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let query = sqlx::query_as_with::<_, T, _>(&sql, vals);
 
@@ -370,13 +372,14 @@ pub async fn get_many_to_many_opt<T: StoreRow, I: TableIden>(
             // meta.many_fk: correlates to CTE "primary_key", ie. role_permission.permission_id
             Expr::col((meta.join_table, meta.many_fk)).equals((ManyCte, meta.many_pk)),
         )
-        .and_where(Expr::col((meta.single_table, meta.single_pk)).eq(id.clone()))
+        .and_where(Expr::col((meta.single_table, meta.single_pk)).eq(Expr::val(id.clone())))
         .group_by_col((meta.single_table, meta.single_pk));
 
     // Attach the WithClause to the main query
     let final_query = main_query.with(common_table_expr.into());
 
-    let (sql, vals) = final_query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = final_query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let query = sqlx::query_as_with::<_, T, _>(&sql, vals);
 
@@ -531,7 +534,7 @@ pub async fn list_many_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: Ta
     // --- Workspace scoping ---
     if let Some(ws_id) = ctx.workspace_scope() {
         let workspace_id_expr =
-            Expr::col((meta.single_table, WorkspaceIden::WorkspaceId)).eq(ws_id);
+            Expr::col((meta.single_table, WorkspaceIden::WorkspaceId)).eq(Expr::val(ws_id));
         main_query.and_where(workspace_id_expr);
     }
 
@@ -543,7 +546,8 @@ pub async fn list_many_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: Ta
     // Attach the WithClause to the main query
     let final_query = main_query.with(common_table_expr.into());
 
-    let (sql, vals) = final_query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = final_query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let query = sqlx::query_as_with::<_, T, _>(&sql, vals);
 
@@ -591,8 +595,9 @@ pub async fn set_many_to_many_links<I: TableIden, ID: StoreId + Clone>(
     // // Delete all existing associations for self_id
     let (sql, vals) = Query::delete()
         .from_table(meta.join_table)
-        .and_where(Expr::col(meta.join_fk).eq(self_id.clone()))
-        .build_sqlx(PostgresQueryBuilder);
+        .and_where(Expr::col(meta.join_fk).eq(Expr::val(self_id.clone())))
+        .build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let query = sqlx::query_with(&sql, vals);
 
@@ -615,7 +620,8 @@ pub async fn set_many_to_many_links<I: TableIden, ID: StoreId + Clone>(
             query.values_panic(row);
         }
 
-        let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+        let (sql, vals) = query.build(PostgresQueryBuilder);
+        let vals = PgBinder(vals.0);
         let query = sqlx::query_with(&sql, vals);
         let _ = dbx.execute(query).await?;
     }
@@ -669,7 +675,8 @@ pub async fn attach_link<I: TableIden, ID: StoreId>(
                 .do_nothing()
                 .to_owned(),
         )
-        .build_sqlx(PostgresQueryBuilder);
+        .build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let query = sqlx::query_with(&sql, vals);
 
@@ -713,10 +720,11 @@ pub async fn detach_link<I: TableIden, ID: StoreId>(
     let (sql, vals) = Query::delete()
         .from_table(meta.join_table)
         // WHERE self_fk = 'self_id'
-        .and_where(Expr::col(meta.join_fk).eq(self_id.clone()))
+        .and_where(Expr::col(meta.join_fk).eq(Expr::val(self_id.clone())))
         // AND other_fk = 'other_id'
-        .and_where(Expr::col(meta.many_fk).eq(other_id.clone()))
-        .build_sqlx(PostgresQueryBuilder);
+        .and_where(Expr::col(meta.many_fk).eq(Expr::val(other_id.clone())))
+        .build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let query = sqlx::query_with(&sql, vals);
 

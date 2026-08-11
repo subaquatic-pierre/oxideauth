@@ -5,9 +5,8 @@ use modql::filter::{FilterNodes, OpValsString, OpValsValue};
 use oxideauth_macros::{EnumTextType, HasId};
 use sea_query::{Iden, Nullable, Value as SeaValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value as JsonValue, json};
+use serde_json::Value as JsonValue;
 use sqlx::prelude::FromRow;
-
 use strum_macros::{Display, EnumString};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -64,7 +63,7 @@ pub enum CredentialStatus {
 impl From<CredentialStatus> for SeaValue {
     fn from(value: CredentialStatus) -> Self {
         let s = format!("{value}");
-        SeaValue::String(Some(Box::new(s)))
+        SeaValue::String(Some(s))
     }
 }
 
@@ -85,7 +84,7 @@ pub enum CredentialProvider {
 impl From<CredentialProvider> for SeaValue {
     fn from(value: CredentialProvider) -> Self {
         let s = format!("{value}");
-        SeaValue::String(Some(Box::new(s)))
+        SeaValue::String(Some(s))
     }
 }
 
@@ -110,7 +109,7 @@ pub enum CredentialKind {
 impl From<CredentialKind> for SeaValue {
     fn from(value: CredentialKind) -> Self {
         let s = format!("{value}");
-        SeaValue::String(Some(Box::new(s)))
+        SeaValue::String(Some(s))
     }
 }
 

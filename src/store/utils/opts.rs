@@ -121,7 +121,7 @@ mod tests {
             ListOptionsValidator::validate_list_opts(None, /*has_audit_fields*/ true).unwrap();
         assert_eq!(res.limit, Some(LIST_LIMIT_DEFAULT));
         // Expect "!created_at" (descending on created_at)
-        assert_eq!(ob_str(&res.order_bys).as_deref(), Some("created_at DESC"));
+        assert_eq!(ob_str(&res.order_bys).as_deref(), Some("\"created_at\" DESC"));
         // Offset should remain None by default
         assert_eq!(res.offset, None);
     }
@@ -208,7 +208,7 @@ mod tests {
                 .unwrap();
         assert_eq!(res.limit, Some(42));
         // Our validator should not override caller's order_bys
-        assert_eq!(ob_str(&res.order_bys).as_deref(), Some("created_at ASC"));
+        assert_eq!(ob_str(&res.order_bys).as_deref(), Some("\"created_at\" ASC"));
     }
 
     #[tokio::test]
@@ -216,7 +216,7 @@ mod tests {
     async fn test_with_order_by_created_at_helper_builds_expected_default() {
         let res = ListOptionsValidator::with_order_by_created_at();
         assert_eq!(res.limit, Some(LIST_LIMIT_DEFAULT));
-        assert_eq!(ob_str(&res.order_bys).as_deref(), Some("created_at DESC"));
+        assert_eq!(ob_str(&res.order_bys).as_deref(), Some("\"created_at\" DESC"));
         assert_eq!(res.offset, None);
     }
 

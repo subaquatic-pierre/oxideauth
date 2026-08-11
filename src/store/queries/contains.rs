@@ -1,6 +1,6 @@
 use modql::filter::{FilterGroups, ListOptions};
-use sea_query::{Alias, Asterisk, BinOper, Condition, Expr, Func, PostgresQueryBuilder, Query};
-use sea_query_binder::SqlxBinder;
+use sea_query::{Alias, Asterisk, BinOper, Condition, Expr, Func, PostgresQueryBuilder, Query, ExprTrait};
+use crate::store::utils::pg_binder::PgBinder;
 use serde_json::Value as JsonValue;
 use tracing::debug;
 
@@ -82,7 +82,7 @@ pub async fn filter_by_value_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
     query.and_where(expr);
 
     if let Some(ws_id) = ctx.workspace_scope() {
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
@@ -93,7 +93,8 @@ pub async fn filter_by_value_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
     // add list options to query (e.g., limit, offset, order_by)
     list_options.apply_to_sea_query(&mut query);
 
-    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     let query = sqlx::query_as_with(&sql, vals);
 
@@ -136,7 +137,7 @@ pub async fn list_with_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
 
     // --- Workspace scoping ---
     if let Some(ws_id) = ctx.workspace_scope() {
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
@@ -144,7 +145,8 @@ pub async fn list_with_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
     let list_options = ListOptionsValidator::validate_list_opts(opts, meta.has_audit)?;
     list_options.apply_to_sea_query(&mut query);
 
-    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
 
     debug!("SQL: {:#?}, VALS: {:#?}", sql, vals);
 
@@ -171,7 +173,7 @@ where
 
     // --- Workspace scoping ---
     if let Some(ws_id) = ctx.workspace_scope() {
-        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(ws_id);
+        let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
 
@@ -194,7 +196,8 @@ where
         query.cond_where(cond);
     }
 
-    let (sql, vals) = query.build_sqlx(PostgresQueryBuilder);
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
     let sqlx_query = sqlx::query_as_with(&sql, vals);
 
     #[derive(sqlx::FromRow)]

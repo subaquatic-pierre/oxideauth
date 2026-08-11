@@ -1,5 +1,4 @@
-use modql::field::Fields;
-use modql::filter::{FilterNodes, OpValsValue};
+use modql::filter::OpValsValue;
 use sea_query::Iden;
 use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
