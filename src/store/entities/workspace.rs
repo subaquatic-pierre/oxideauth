@@ -61,6 +61,7 @@ pub struct JoinedProjectOnWorkspace {
     pub name: String,
     pub code: Option<String>,
     pub description: Option<String>,
+    pub owner: DbId,
 
     // Config
     #[sqlx(json)]
@@ -115,6 +116,7 @@ pub struct WorkspaceForUpdate {
 #[serde(default)]
 pub struct WorkspaceConfig {
     pub schema_version: String,
+    pub public: bool,
 }
 
 impl Nullable for WorkspaceConfig {
@@ -155,6 +157,8 @@ pub struct WorkspaceFilter {
     pub name: Option<OpValsString>,
     pub slug: Option<OpValsString>,
     pub description: Option<OpValsString>,
+    #[modql(cast_as = "uuid")]
+    pub owner: Option<OpValsString>,
 
     // NOTE: Filtering on JSONB fields like `config` and `meta` would require custom modql logic.
     // pub config: Option<OpValsValue>,
@@ -193,13 +197,9 @@ impl Default for WorkspaceForCreate {
             name: gen_rand_str(10),
             slug: gen_rand_str(10),
             description: Some("A default workspace for testing.".into()),
-            config: WorkspaceConfig {
-                schema_version: "1".into(),
-            },
+            config: WorkspaceConfig::default(),
             tags: vec![],
-            meta: WorkspaceMeta {
-                schema_version: "1".into(),
-            },
+            meta: WorkspaceMeta::default(),
         }
     }
 }

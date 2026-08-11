@@ -2,7 +2,7 @@ use modql::field::Fields;
 use modql::filter::{FilterNodes, OpValsString, OpValsValue};
 use sea_query::{Iden, Nullable, Value as SeaValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use sqlx::prelude::FromRow;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -33,6 +33,7 @@ pub struct ProjectRow {
     pub name: String,
     pub code: Option<String>,
     pub description: Option<String>,
+    pub owner: DbId,
 
     // Config
     #[sqlx(json)]
@@ -113,7 +114,8 @@ pub struct ProjectFilter {
     pub name: Option<OpValsString>,
     pub code: Option<OpValsString>,
     pub description: Option<OpValsString>,
-
+    #[modql(cast_as = "uuid")]
+    pub owner: Option<OpValsString>,
     // Audit filters (created_by/at, updated_by/at)
     #[modql(cast_as = "uuid")]
     pub created_by: Option<OpValsString>,
@@ -142,13 +144,9 @@ impl Default for ProjectForCreate {
             name: format!("project-{}", gen_rand_str(8)),
             code: Some(format!("project-{}", gen_rand_str(8))),
             description: Some("A default project for testing.".into()),
-            config: ProjectConfig {
-                schema_version: "1".into(),
-            },
+            config: ProjectConfig::default(),
             tags: vec![],
-            meta: ProjectMeta {
-                schema_version: "1".into(),
-            },
+            meta: ProjectMeta::default(),
         }
     }
 }

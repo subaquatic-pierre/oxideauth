@@ -1,12 +1,12 @@
 use crate::impl_has_active_filter;
 use crate::store::filter;
 use derive_more::Display;
-use oxideauth_macros::HasId;
 use modql::field::Fields;
 use modql::filter::{FilterNodes, OpValsString, OpValsValue};
-use sea_query::{sea_value_to_json_value, Iden, Nullable, Value as SeaValue};
+use oxideauth_macros::{EnumTextType, HasId};
+use sea_query::{Iden, Nullable, Value as SeaValue, sea_value_to_json_value};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use sqlx::prelude::FromRow;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -44,10 +44,11 @@ pub struct AccountRow {
     pub name: String,
     pub description: Option<String>,
     pub avatar_url: Option<String>,
+    pub kind: AccountKind,
 
     // Global Status
     pub enabled: bool,
-    pub token_version: i64,
+    pub version: i64,
     pub verified: bool,
 
     pub tags: Vec<String>,
@@ -56,6 +57,14 @@ pub struct AccountRow {
 
     #[sqlx(flatten)]
     pub audit: AuditFields,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, EnumTextType)]
+pub enum AccountKind {
+    #[serde(rename = "password")]
+    User,
+    #[serde(rename = "oauth")]
+    Service,
 }
 
 // The struct to hold the combined result
@@ -98,6 +107,8 @@ pub struct AccountForCreate {
     pub description: Option<String>,
     pub avatar_url: Option<String>,
 
+    pub kind: AccountKind,
+
     pub enabled: bool,
     pub verified: bool,
 
@@ -114,7 +125,7 @@ pub struct AccountForUpdate {
     pub avatar_url: Option<String>,
 
     pub enabled: Option<bool>,
-    pub token_version: Option<i64>,
+    pub version: Option<i64>,
     pub verified: Option<bool>,
 
     pub tags: Option<Vec<String>>,

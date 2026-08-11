@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS
     name TEXT UNIQUE NOT NULL,
     slug TEXT UNIQUE NOT NULL,
     description TEXT,
+    owner UUID NOT NULL,
     -- Config blob for per-workspace structured settings (JSON object enforced below).
     config JSONB NOT NULL DEFAULT '{}'::jsonb,
     -- START Meta & Tags

@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS
     -- Identity: who and where
     account_id UUID NOT NULL,
     workspace_id UUID NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,
     scope TEXT NOT NULL, -- 'workspace' | 'project'
     project_id UUID, -- set only when scope='project'
     -- Lifecycle state

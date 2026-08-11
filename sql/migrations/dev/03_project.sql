@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS
     -- Optional short identifier (slug/code). Uniqueness per-workspace can be enforced separately.
     code TEXT,
     description TEXT,
+    owner UUID NOT NULL,
     -- Config blob for project-specific structured settings (validated below as JSON object)
     config JSONB NOT NULL DEFAULT '{}'::jsonb,
     -- START Meta & Tags
