@@ -143,11 +143,11 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         let store = self.store();
 
         let ws = match Uuid::parse_str(&slug_or_id) {
-            Ok(id) => store.get_opt(ctx.into(), &id.into()).await?,
-            Err(slug) => store.get_by_slug_opt(ctx.into(), &id.into()).await?,
+            Ok(id) => store.get_opt(&ctx.into(), &id.into()).await?,
+            Err(_) => store.get_by_slug_opt(&ctx.into(), &slug_or_id).await?,
         };
 
-        Ok(ws.map(From))
+        Ok(ws.map(|el| el.into()))
     }
 
     /// Seeds all canonical permissions into a workspace (idempotent).
@@ -437,7 +437,7 @@ mod tests {
             },
             error::StoreError,
             meta::StoreId,
-            stores::workspace::WorkspaceStore,
+            stores::workspace::{SYSTEM_CONST, WorkspaceStore},
             traits::{contains::FilterByContains, crud::*, join::GetOneToMany},
         },
     };
@@ -452,19 +452,22 @@ mod tests {
     async fn test_workspace_describe() -> CoreResult<()> {
         let app = init_test().await;
         let svc = app.svc_reg.workspace.clone();
-        let mut ctx = CoreCtx::new_root()?;
+        let mut ctx = CoreCtx::bootstrap()?;
 
-        let global_ws = app
+        let system_ws = app
             .sm
             .workspace
-            .get_by_slug_opt(&(&ctx).into(), "global")
+            .get_by_slug_opt(&(&ctx).into(), SYSTEM_CONST.system_ws_slug)
             .await?
-            .expect("global workspace not seeded");
+            .expect("system workspace not seeded");
 
         let mut params = WorkspaceDescribeParams::default();
-        params.id = Some(global_ws.id.into());
+        params.id = Some(system_ws.id.into());
 
-        let err = svc.describe(&mut ctx, params.clone()).await;
+        // NOTE: CoreCtx::bootstrap() grants `*:*`, so use a bare system context
+        // (system workspace scope, no permissions) for the unauthorized check.
+        let mut unauthorized_ctx = CoreCtx::system(Uuid::nil())?;
+        let err = svc.describe(&mut unauthorized_ctx, params.clone()).await;
 
         ctx.extend_perms(&["workspace:describe"])?;
 
@@ -481,7 +484,7 @@ mod tests {
     async fn test_workspace_create() -> CoreResult<()> {
         let app = init_test().await;
         let svc = app.svc_reg.workspace.clone();
-        let mut ctx = CoreCtx::new_root()?;
+        let mut ctx = CoreCtx::bootstrap()?;
 
         let slug = format!("test-ws-{}", Uuid::new_v4());
         let mut params = WorkspaceCreateParams::default();
@@ -489,7 +492,10 @@ mod tests {
         params.name = "Test Workspace".to_string();
 
         // 1. Test unauthorized (missing permission)
-        let err = svc.create(&mut ctx, params.clone()).await;
+        // NOTE: CoreCtx::bootstrap() grants `*:*`, so use a bare system context
+        // (system workspace scope, no permissions) for the unauthorized check.
+        let mut unauthorized_ctx = CoreCtx::system(Uuid::nil())?;
+        let err = svc.create(&mut unauthorized_ctx, params.clone()).await;
         assert!(
             err.is_err(),
             "Should fail without workspace:create permission"
@@ -514,7 +520,7 @@ mod tests {
     async fn test_workspace_list() -> CoreResult<()> {
         let app = init_test().await;
         let svc = app.svc_reg.workspace.clone();
-        let mut ctx = CoreCtx::new_root()?;
+        let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["workspace:create"])?;
 
         let mut params = WorkspaceCreateParams::default();
@@ -553,7 +559,7 @@ mod tests {
     async fn test_workspace_update() -> CoreResult<()> {
         let app = init_test().await;
         let svc = app.svc_reg.workspace.clone();
-        let mut ctx = CoreCtx::new_root()?;
+        let mut ctx = CoreCtx::bootstrap()?;
 
         // Setup: Create a workspace to update
         ctx.extend_perms(&["workspace:update", "workspace:create"])?;
@@ -588,7 +594,7 @@ mod tests {
     async fn test_workspace_delete() -> CoreResult<()> {
         let app = init_test().await;
         let svc = app.svc_reg.workspace.clone();
-        let mut ctx = CoreCtx::new_root()?;
+        let mut ctx = CoreCtx::bootstrap()?;
 
         ctx.extend_perms(&["workspace:create", "workspace:delete", "workspace:describe"])?;
 

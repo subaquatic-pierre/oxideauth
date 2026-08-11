@@ -257,7 +257,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let mut ac = |i: usize| {
             let mut data = AccountForCreate::default();
@@ -299,7 +299,7 @@ mod tests {
         let dbx = app.sm.dbx().clone();
         // Assuming a store that manages entities with a 'tags' array column
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // Define the common array of tags to check for containment
         let test_tags = vec!["premium".to_string(), "active".to_string()];
@@ -350,7 +350,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // Define the required tags for the count check (the subset we are looking for)
         let required_tags = vec!["test_here".to_string(), "test_again".to_string()];
@@ -416,7 +416,7 @@ mod tests {
         ws_id: Uuid,
         name: &str,
     ) -> StoreResult<PermissionRow> {
-        let ctx = StoreCtx::new_root(); // Use root context for creation to simplify
+        let ctx = StoreCtx::bootstrap(); // Use root context for creation to simplify
         let mut data = PermissionForCreate::default();
         data.workspace_id = ws_id;
         data.name = name.to_string();
@@ -436,7 +436,7 @@ mod tests {
 
         // 1. Define two distinct workspace IDs
         let ws_store = WorkspaceStore::new(dbx.clone());
-        let root_ctx = StoreCtx::new_root();
+        let root_ctx = StoreCtx::bootstrap();
         let ws_a_row = ws_store.create(&root_ctx, WorkspaceForCreate::default()).await?;
         let ws_b_row = ws_store.create(&root_ctx, WorkspaceForCreate::default()).await?;
         let ws_a: Uuid = ws_a_row.id.into();
@@ -471,7 +471,7 @@ mod tests {
         );
 
         // Clean-up/Sanity Check: Count as root (should be 5)
-        let root_ctx = StoreCtx::new_root();
+        let root_ctx = StoreCtx::bootstrap();
         let filter_all: PermissionFilter = from_value(json!({"name":{"$contains": tag}})).unwrap();
         let total_root = count(&root_ctx, &dbx, Some(filter_all), &meta).await?;
         assert_eq!(total_root, 5, "Root count must include all entities.");
@@ -490,7 +490,7 @@ mod tests {
 
         // 1. Define workspace IDs
         let ws_store = WorkspaceStore::new(dbx.clone());
-        let root_ctx = StoreCtx::new_root();
+        let root_ctx = StoreCtx::bootstrap();
         let ws_enforced_row = ws_store.create(&root_ctx, WorkspaceForCreate::default()).await?;
         let ws_target_row = ws_store.create(&root_ctx, WorkspaceForCreate::default()).await?;
         let ws_enforced: Uuid = ws_enforced_row.id.into(); // User's actual scope
@@ -539,7 +539,7 @@ mod tests {
         let acc_store = AccountStore::new(dbx.clone());
         let acc_mutate_meta = acc_store.mutate_meta();
 
-        let root_ctx = StoreCtx::new_root();
+        let root_ctx = StoreCtx::bootstrap();
 
         // 1. Define two distinct workspace IDs
         let new_ws_a = WorkspaceForCreate {
@@ -589,7 +589,7 @@ mod tests {
 
         // Re-run the count with a root context (should be the same if no other permissions exist)
         let parent_id: DbId = ws_b.id.into();
-        let root_ctx = StoreCtx::new_root();
+        let root_ctx = StoreCtx::bootstrap();
         let total_root = count_many(&root_ctx, &dbx, &parent_id, &count_many_meta).await?;
         assert_eq!(total_root, 2);
 

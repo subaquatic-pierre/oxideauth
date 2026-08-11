@@ -250,7 +250,7 @@ mod tests {
         // scope queries to it, so the exact-count assertions are unaffected by
         // other rows in the shared test DB (e.g. canonical permissions that are
         // seeded into every workspace created via the workspace service).
-        let mut ctx = StoreCtx::new_root();
+        let mut ctx = StoreCtx::bootstrap();
         let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
         let ws_id: Uuid = ws.id.into();
         ctx.set_workspace_scope(Some(ws_id));
@@ -322,7 +322,7 @@ mod tests {
         // queries to it, so the exact-count assertions are unaffected by other
         // rows in the shared test DB (e.g. canonical permissions that are seeded
         // into every workspace created via the workspace service).
-        let mut ctx = StoreCtx::new_root();
+        let mut ctx = StoreCtx::bootstrap();
         let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
         let ws_id: Uuid = ws.id.into();
         ctx.set_workspace_scope(Some(ws_id));
@@ -428,7 +428,7 @@ mod tests {
         // 1. Setup Contexts and Data
 
         // Create two real workspaces to use as the scoping fixtures.
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let ws_a = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
         let ws_id_a: Uuid = ws_a.id.into();
         let ws_b = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
@@ -437,7 +437,7 @@ mod tests {
         // Context 1: Scoped to ws_id_a (Root context is usually used for ws_id, but we'll scope explicitly)
         let mut ctx_a = StoreCtx {
             ws_id: ws_id_a,
-            ..StoreCtx::new_root()
+            ..StoreCtx::bootstrap()
         };
 
         // test setter method for StoreCtx
@@ -446,13 +446,13 @@ mod tests {
         // Context 2: Scoped to ws_id_b
         let mut ctx_b = StoreCtx {
             ws_id: ws_id_b,
-            ..StoreCtx::new_root()
+            ..StoreCtx::bootstrap()
         };
 
         ctx_b.set_workspace_scope(Some(ws_id_b));
 
         // Context 3: Root (Unscoped) context
-        let ctx_unscoped = StoreCtx::new_root();
+        let ctx_unscoped = StoreCtx::bootstrap();
         // The actual filtering will use ctx_a, but we create data using both Uuids.
 
         // Helper to create permissions with a specific workspace_id and common metadata
@@ -561,7 +561,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root(); // Use unscoped context for simplicity
+        let ctx = StoreCtx::bootstrap(); // Use unscoped context for simplicity
 
         // FK prerequisite: permissions reference a real workspace.
         let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;

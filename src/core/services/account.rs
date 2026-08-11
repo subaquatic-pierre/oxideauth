@@ -299,7 +299,7 @@ mod tests {
             },
             error::StoreError,
             meta::StoreId,
-            stores::account::AccountStore,
+            stores::{account::AccountStore, workspace::SYSTEM_CONST},
             traits::{contains::FilterByContains, crud::*, join::GetOneToMany},
         },
     };
@@ -316,18 +316,18 @@ mod tests {
     async fn test_account_create() -> CoreResult<()> {
         let app = init_test().await;
         let acc_svc = app.svc_reg.account.clone();
-        let mut ctx = CoreCtx::new_root()?;
+        let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["account:create"])?;
 
-        let global_ws = app
+        let system_ws = app
             .sm
             .workspace
-            .get_by_slug_opt(&(&ctx).into(), "global")
+            .get_by_slug_opt(&(&ctx).into(), SYSTEM_CONST.system_ws_slug)
             .await?
-            .expect("global workspace not seeded");
+            .expect("system workspace not seeded");
 
         let mut params = AccountCreateParams::default();
-        params.workspace_id = global_ws.id.into();
+        params.workspace_id = system_ws.id.into();
         params.email = "new_exist@new.com".to_string();
 
         let new_acc = acc_svc.create(&mut ctx, params).await?;
@@ -341,18 +341,18 @@ mod tests {
     async fn test_account_list() -> CoreResult<()> {
         let app = init_test().await;
         let acc_svc = app.svc_reg.account.clone();
-        let mut ctx = CoreCtx::new_root()?;
+        let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["account:list"])?;
 
-        let global_ws = app
+        let system_ws = app
             .sm
             .workspace
-            .get_by_slug_opt(&(&ctx).into(), "global")
+            .get_by_slug_opt(&(&ctx).into(), SYSTEM_CONST.system_ws_slug)
             .await?
-            .expect("global workspace not seeded");
+            .expect("system workspace not seeded");
 
         let params = AccountListParams {
-            workspace_id: global_ws.id.into(),
+            workspace_id: system_ws.id.into(),
             filter: None,
             options: None,
         };
@@ -394,7 +394,7 @@ mod tests {
         let cm = Arc::new(CacheManager::new(mock_cache));
         let svc_reg = ServiceRegistry::new(&config, sm, cm);
         let svc = svc_reg.account.clone();
-        let mut ctx = CoreCtx::new_root()?;
+        let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["account:create"])?;
 
         let params = AccountCreateParams::default();
@@ -452,7 +452,7 @@ mod tests {
         let svc_reg = ServiceRegistry::new(&config, sm, cm);
         let svc = svc_reg.account.clone();
 
-        let mut ctx = CoreCtx::new_root()?;
+        let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["account:create"])?;
 
         let params = AccountCreateParams::default();

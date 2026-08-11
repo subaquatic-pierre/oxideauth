@@ -28,6 +28,10 @@ pub struct Config {
     pub aws_s3_access_key: String,
     pub aws_s3_secret_key: String,
     pub email_dry_mode: bool,
+
+    pub owner_email: String,
+    pub owner_password: String,
+    pub owner_name: String,
 }
 
 impl Config {
@@ -75,6 +79,11 @@ impl Config {
 
         let app_env = var("APP_ENV").expect("APP_ENV must be set in .env");
 
+        let owner_email =
+            var("OWNER_EMAIL").unwrap_or_else(|_| "owner@system.local".to_string());
+        let owner_password = var("OWNER_PASSWORD").unwrap_or_else(|_| "ownerpass".to_string());
+        let owner_name = var("OWNER_NAME").unwrap_or_else(|_| "Owner Account".to_string());
+
         Config {
             database_url,
             redis_url,
@@ -96,6 +105,9 @@ impl Config {
             aws_s3_secret_key,
             email_dry_mode: false,
             app_env,
+            owner_email,
+            owner_password,
+            owner_name,
         }
     }
 
@@ -121,6 +133,9 @@ impl Config {
             aws_s3_access_key: "mock-s3-access-key".to_string(),
             aws_s3_secret_key: "mock-s3-secret-key".to_string(),
             email_dry_mode: true,
+            owner_email: "owner@system.local".to_string(),
+            owner_password: "ownerpass".to_string(),
+            owner_name: "Owner Account".to_string(),
         }
     }
 
@@ -147,6 +162,9 @@ impl Config {
             aws_s3_access_key: "mock-s3-access-key".to_string(),
             aws_s3_secret_key: "mock-s3-secret-key".to_string(),
             email_dry_mode: true,
+            owner_email: "owner@system.local".to_string(),
+            owner_password: "ownerpass".to_string(),
+            owner_name: "Owner Account".to_string(),
         }
     }
 

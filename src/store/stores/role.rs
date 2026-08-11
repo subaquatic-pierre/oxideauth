@@ -185,7 +185,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = RoleStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let data = RoleForCreate {
@@ -214,7 +214,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = RoleStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let created_role = store
@@ -250,7 +250,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = RoleStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let created_role = store
@@ -284,7 +284,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = RoleStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let roles_to_create = vec![
@@ -319,7 +319,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = RoleStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let role = store
@@ -400,7 +400,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = RoleStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         // -- Create test data with different tags
@@ -458,7 +458,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = RoleStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         // -- Execute: create 3 roles using Default::default() with same workspace

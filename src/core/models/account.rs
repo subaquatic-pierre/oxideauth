@@ -14,7 +14,7 @@ use crate::{
         },
     },
     store::entities::account::{
-        AccountFilter as StoreAccountFilter, AccountForCreate, AccountForUpdate, AccountKind,
+        AccountFilter as StoreAccountFilter, AccountForCreate, AccountForUpdate,
         AccountKind as StoreAccountKind, AccountMeta as StoreAccountMeta, AccountRow,
     },
 };

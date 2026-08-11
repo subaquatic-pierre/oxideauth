@@ -134,7 +134,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = CredentialStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // Prerequisite: Create an account and workspace to link the credential to.
         let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
@@ -166,7 +166,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = CredentialStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
         let mut data = CredentialForCreate::default();
@@ -197,7 +197,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = CredentialStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
         let mut data = CredentialForCreate::default();
@@ -226,7 +226,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = CredentialStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 
@@ -268,7 +268,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = CredentialStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 

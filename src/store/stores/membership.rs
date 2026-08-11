@@ -159,7 +159,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = MembershipStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let (account_id, workspace_id) = seed_prerequisites(&ctx, app).await?;
 
         let data = MembershipForCreate {
@@ -188,7 +188,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = MembershipStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 
         let created_membership = store
@@ -229,7 +229,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = MembershipStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 
         let created_membership = store
@@ -264,7 +264,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = MembershipStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let (account_id_1, space_id_1) = seed_prerequisites(&ctx, &app).await?;
         let (account_id_2, space_id_2) = seed_prerequisites(&ctx, &app).await?;
@@ -301,7 +301,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = MembershipStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
         let membership = store
@@ -382,7 +382,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = MembershipStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 
         // -- Create test data with different tags
@@ -422,7 +422,11 @@ mod tests {
             1,
             "Should find 1 membership with 'critical' tag"
         );
-        assert!(critical_memberships[0].tags.contains(&"critical".to_string()));
+        assert!(
+            critical_memberships[0]
+                .tags
+                .contains(&"critical".to_string())
+        );
 
         let general_memberships = store
             .filter_by_tags_contain(&ctx, vec!["general".into()], None)

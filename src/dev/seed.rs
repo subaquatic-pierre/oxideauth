@@ -1,13 +1,14 @@
-use std::{sync::Arc, vec};
+use std::sync::Arc;
 
 use uuid::Uuid;
 
 use crate::{
     app::AppState,
     cache::{redis::RedisChx, traits::CacheExecutor},
+    config::Config,
     core::{
-        ctx::{ContextFactory, CoreCtx},
-        error::{CoreError, CoreResult},
+        ctx::CoreCtx,
+        error::CoreResult,
         models::{
             account::AccountCreateParams,
             credential::{CredentialCreateParams, CredentialMeta},
@@ -18,14 +19,16 @@ use crate::{
         traits::service::{CoreModelCreateService, CoreModelDescribeService},
     },
     store::{
+        crud::Update,
         ctx::StoreCtx,
         dbx::PgDbx,
         entities::{
             credential::{CredentialConfig, CredentialKind, CredentialProvider, CredentialStatus},
             id::DbId,
             membership::{MembershipScope, MembershipStatus},
-            workspace::WorkspaceMeta,
+            workspace::{WorkspaceForUpdate, WorkspaceMeta},
         },
+        stores::workspace::SYSTEM_CONST,
         traits::dbx::DbExecutor,
     },
     utils::crypt::hash_password,
@@ -37,13 +40,12 @@ pub async fn seed_all<D: DbExecutor, C: CacheExecutor>(
     let svc_reg = app.svc_reg.clone();
     let ctx_factory = app.ctx_factory.clone();
     let mut ctx = CoreCtx::bootstrap()?;
+
     seed_workspaces(&mut ctx, svc_reg.clone()).await?;
-    seed_users(&mut ctx, svc_reg.clone()).await?;
-    seed_memberships(&mut ctx, svc_reg.clone()).await?;
+    seed_users(&mut ctx, svc_reg.clone(), &app.config).await?;
+    seed_memberships(&mut ctx, svc_reg.clone(), &app.config).await?;
 
-    // Cache the real UUIDs for all future context construction
     ctx_factory.init_from_seed(&svc_reg.sm).await?;
-
     Ok(())
 }
 
@@ -51,43 +53,39 @@ pub async fn seed_workspaces<D: DbExecutor, C: CacheExecutor>(
     ctx: &mut CoreCtx,
     svc_reg: Arc<ServiceRegistry<D, C>>,
 ) -> CoreResult<()> {
-    // create global workspace
-    let ws = WorkspaceCreateParams {
-        name: "Global Workspace".to_string(),
-        slug: "global".to_string(),
-        owner: Uuid::nil(),
-        description: Some("Global Workspace used for root operations".to_string()),
-        config: WorkspaceConfig::default(),
-        tags: vec!["system".to_string()],
-        meta: WorkspaceMeta::default(),
-    };
-    svc_reg.workspace.create(ctx, ws).await?;
+    // System workspace
+    svc_reg
+        .workspace
+        .create(
+            ctx,
+            WorkspaceCreateParams {
+                name: "System Workspace".to_string(),
+                slug: SYSTEM_CONST.system_ws_slug.to_string(),
+                owner: Uuid::nil(),
+                description: Some("System workspace for root operations".to_string()),
+                config: WorkspaceConfig::default(),
+                tags: vec!["system".to_string()],
+                meta: WorkspaceMeta::default(),
+            },
+        )
+        .await?;
 
-    // registry workspace
-    let ws = WorkspaceCreateParams {
-        name: "Registry Workspace".to_string(),
-        slug: "registry".to_string(),
-        owner: Uuid::nil(),
-        description: Some("Regisrty Workspace used for auditing".to_string()),
-        config: WorkspaceConfig::default(),
-        tags: vec!["system".to_string()],
-        meta: WorkspaceMeta::default(),
-    };
-    svc_reg.workspace.create(ctx, ws).await?;
-
-    // default workspace
-    let ws = WorkspaceCreateParams {
-        name: "Default Workspace".to_string(),
-        slug: "default".to_string(),
-        owner: Uuid::nil(),
-        description: Some("Default Workspace used for general permission access".to_string()),
-        config: WorkspaceConfig::default(),
-        tags: vec!["system".to_string()],
-        meta: WorkspaceMeta::default(),
-    };
-    svc_reg.workspace.create(ctx, ws).await?;
-
-    // TODO: Only create system and default workspace
+    // Default workspace
+    svc_reg
+        .workspace
+        .create(
+            ctx,
+            WorkspaceCreateParams {
+                name: "Default Workspace".to_string(),
+                slug: "default".to_string(),
+                owner: Uuid::nil(),
+                description: Some("Default workspace for general access".to_string()),
+                config: WorkspaceConfig::default(),
+                tags: vec!["system".to_string()],
+                meta: WorkspaceMeta::default(),
+            },
+        )
+        .await?;
 
     Ok(())
 }
@@ -95,69 +93,46 @@ pub async fn seed_workspaces<D: DbExecutor, C: CacheExecutor>(
 pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
     ctx: &mut CoreCtx,
     svc_reg: Arc<ServiceRegistry<D, C>>,
+    config: &Config,
 ) -> CoreResult<()> {
-    // 1. Look up the global workspace (created by seed_workspaces)
-    let global_ws = svc_reg
+    let system_ws = svc_reg
         .workspace
         .describe(
             ctx,
             WorkspaceDescribeParams {
-                slug: Some("global".to_string()),
+                slug: Some(SYSTEM_CONST.system_ws_slug.to_string()),
                 id: None,
             },
         )
         .await?;
-    let ws_id = global_ws.id;
+    let ws_id = system_ws.id;
 
-    // 2. Root account
-    let root = svc_reg
+    // System account (no password credential — internal use only)
+    let system = svc_reg
         .account
         .create(
             ctx,
             AccountCreateParams {
-                email: "root@system.local".to_string(),
-                password: "rootpass".to_string(),
-                name: "Root Account".to_string(),
+                email: SYSTEM_CONST.system_acc_email.to_string(),
+                password: String::new(),
+                name: SYSTEM_CONST.system_acc_name.to_string(),
                 workspace_id: ws_id,
-                description: Some("Root system account with full privileges".to_string()),
+                description: Some("System account for internal operations".to_string()),
                 tags: Some(vec!["system".to_string()]),
                 ..Default::default()
             },
         )
         .await?;
 
-    svc_reg
-        .credential
-        .create(
-            ctx,
-            CredentialCreateParams {
-                account_id: root.id,
-                workspace_id: ws_id,
-                kind: CredentialKind::Password,
-                provider: CredentialProvider::Local,
-                status: CredentialStatus::Active,
-                secret: Some(hash_password("rootpass")?),
-                provider_id: None,
-                email: None,
-                config: CredentialConfig::default(),
-                last_used_at: None,
-                tags: vec!["system".to_string()],
-                meta: CredentialMeta {
-                    schema_version: "1".to_string(),
-                },
-            },
-        )
-        .await?;
-
-    // 3. Owner account
+    // Owner account (from config/env)
     let owner = svc_reg
         .account
         .create(
             ctx,
             AccountCreateParams {
-                email: "owner@system.local".to_string(),
-                password: "ownerpass".to_string(),
-                name: "Owner Account".to_string(),
+                email: config.owner_email.clone(),
+                password: config.owner_password.clone(),
+                name: config.owner_name.clone(),
                 workspace_id: ws_id,
                 description: Some("Workspace owner account".to_string()),
                 tags: Some(vec!["system".to_string()]),
@@ -166,6 +141,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         )
         .await?;
 
+    // Owner credential
     svc_reg
         .credential
         .create(
@@ -176,7 +152,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
                 kind: CredentialKind::Password,
                 provider: CredentialProvider::Local,
                 status: CredentialStatus::Active,
-                secret: Some(hash_password("ownerpass")?),
+                secret: Some(hash_password(&config.owner_password)?),
                 provider_id: None,
                 email: None,
                 config: CredentialConfig::default(),
@@ -189,65 +165,72 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         )
         .await?;
 
-    // 4. Test account
-    let test = svc_reg
-        .account
-        .create(
-            ctx,
-            AccountCreateParams {
-                email: "test@example.com".to_string(),
-                password: "testpass".to_string(),
-                name: "Test Account".to_string(),
-                workspace_id: ws_id,
-                description: Some("General test account".to_string()),
-                ..Default::default()
-            },
-        )
-        .await?;
+    // Update workspace owners via the store directly (since WorkspaceUpdateParams doesn't have owner field)
+    let store_ctx: StoreCtx = (&*ctx).into();
 
+    let system_ws_db_id = DbId(system_ws.id);
     svc_reg
-        .credential
-        .create(
-            ctx,
-            CredentialCreateParams {
-                account_id: test.id,
-                workspace_id: ws_id,
-                kind: CredentialKind::Password,
-                provider: CredentialProvider::Local,
-                status: CredentialStatus::Active,
-                secret: Some(hash_password("testpass")?),
-                provider_id: None,
-                config: CredentialConfig::default(),
-                email: None,
-                last_used_at: None,
-                tags: vec!["system".to_string()],
-                meta: CredentialMeta {
-                    schema_version: "1".to_string(),
-                },
+        .sm
+        .workspace
+        .update(
+            &store_ctx,
+            &system_ws_db_id,
+            WorkspaceForUpdate {
+                name: None,
+                slug: None,
+                owner: Some(system.id),
+                description: None,
+                config: None,
+                tags: None,
+                meta: None,
             },
         )
         .await?;
 
-    tracing::info!("Seed users created: root, owner, test");
+    let default_ws = svc_reg
+        .workspace
+        .describe(
+            ctx,
+            WorkspaceDescribeParams {
+                slug: Some("default".to_string()),
+                id: None,
+            },
+        )
+        .await?;
+    let default_ws_db_id = DbId(default_ws.id);
+    svc_reg
+        .sm
+        .workspace
+        .update(
+            &store_ctx,
+            &default_ws_db_id,
+            WorkspaceForUpdate {
+                name: None,
+                slug: None,
+                owner: Some(owner.id),
+                description: None,
+                config: None,
+                tags: None,
+                meta: None,
+            },
+        )
+        .await?;
 
-    // TODO: only create Owner and System account
-    // TODO: update workspace owners, system.owner = system, default.owner = owner
-    // TODO: Get owner information from app.config
-
+    tracing::info!("Seed users created: system, owner");
     Ok(())
 }
 
 pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
     ctx: &mut CoreCtx,
     svc_reg: Arc<ServiceRegistry<D, C>>,
+    config: &Config,
 ) -> CoreResult<()> {
-    // --- Look up workspaces by slug ---
-    let global_ws = svc_reg
+    let system_ws = svc_reg
         .workspace
         .describe(
             ctx,
             WorkspaceDescribeParams {
-                slug: Some("global".to_string()),
+                slug: Some(SYSTEM_CONST.system_ws_slug.to_string()),
                 id: None,
             },
         )
@@ -262,118 +245,63 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
             },
         )
         .await?;
-    let registry_ws = svc_reg
-        .workspace
-        .describe(
-            ctx,
-            WorkspaceDescribeParams {
-                slug: Some("registry".to_string()),
-                id: None,
-            },
-        )
-        .await?;
-    let store_ctx = ctx.into();
-    // --- Look up roles by name in each workspace ---
-    let global_admin = svc_reg
+
+    let store_ctx: StoreCtx = (&*ctx).into();
+
+    // Look up admin role in each workspace
+    let system_admin = svc_reg
         .sm
         .role
-        .get_by_name_opt(&store_ctx, "Workspace Admin", DbId(global_ws.id))
+        .get_by_name_opt(&store_ctx, "Workspace Admin", DbId(system_ws.id))
         .await?
-        .expect("Workspace Admin role not found in global workspace");
+        .expect("Workspace Admin role not found in system workspace");
     let default_admin = svc_reg
         .sm
         .role
         .get_by_name_opt(&store_ctx, "Workspace Admin", DbId(default_ws.id))
         .await?
         .expect("Workspace Admin role not found in default workspace");
-    let default_viewer = svc_reg
-        .sm
-        .role
-        .get_by_name_opt(&store_ctx, "Workspace Viewer", DbId(default_ws.id))
-        .await?
-        .expect("Workspace Viewer role not found in default workspace");
-    let registry_admin = svc_reg
-        .sm
-        .role
-        .get_by_name_opt(&store_ctx, "Workspace Admin", DbId(registry_ws.id))
-        .await?
-        .expect("Workspace Admin role not found in registry workspace");
 
-    // --- Look up accounts by email ---
-    let root = svc_reg
+    // Look up accounts by email
+    let system = svc_reg
         .sm
         .account
-        .get_by_email(&store_ctx, "root@system.local")
+        .get_by_email(&store_ctx, SYSTEM_CONST.system_acc_email)
         .await?
-        .expect("Root account not found");
+        .expect("System account not found");
     let owner = svc_reg
         .sm
         .account
-        .get_by_email(&store_ctx, "owner@system.local")
+        .get_by_email(&store_ctx, &config.owner_email)
         .await?
         .expect("Owner account not found");
-    let test = svc_reg
-        .sm
-        .account
-        .get_by_email(&store_ctx, "test@example.com")
-        .await?
-        .expect("Test account not found");
 
-    // --- Build membership params ---
+    // Build memberships: system → system workspace admin, owner → system + default admin
     let memberships: Vec<MembershipCreateParams> = vec![
-        // root → global (admin)
         MembershipCreateParams {
-            account_id: root.id.into(),
-            workspace_id: global_ws.id,
+            account_id: system.id.into(),
+            workspace_id: system_ws.id,
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
-            role_ids: vec![global_admin.id.into()],
+            role_ids: vec![system_admin.id.into()],
             tags: vec!["system".to_string()],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
             },
         },
-        // owner → global (admin)
         MembershipCreateParams {
             account_id: owner.id.into(),
-            workspace_id: global_ws.id,
+            workspace_id: system_ws.id,
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
-            role_ids: vec![global_admin.id.into()],
+            role_ids: vec![system_admin.id.into()],
             tags: vec!["system".to_string()],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
             },
         },
-        // root → registry (admin)
-        MembershipCreateParams {
-            account_id: root.id.into(),
-            workspace_id: registry_ws.id,
-            scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
-            project_id: None,
-            role_ids: vec![registry_admin.id.into()],
-            tags: vec!["system".to_string()],
-            meta: MembershipMeta {
-                schema_version: "1".to_string(),
-            },
-        },
-        // owner → registry (admin)
-        MembershipCreateParams {
-            account_id: owner.id.into(),
-            workspace_id: registry_ws.id,
-            scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
-            project_id: None,
-            role_ids: vec![registry_admin.id.into()],
-            tags: vec!["system".to_string()],
-            meta: MembershipMeta {
-                schema_version: "1".to_string(),
-            },
-        },
-        // owner → default (admin)
         MembershipCreateParams {
             account_id: owner.id.into(),
             workspace_id: default_ws.id,
@@ -386,27 +314,82 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
                 schema_version: "1".to_string(),
             },
         },
-        // test → default (viewer)
-        MembershipCreateParams {
-            account_id: test.id.into(),
-            workspace_id: default_ws.id,
-            scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
-            project_id: None,
-            role_ids: vec![default_viewer.id.into()],
-            tags: vec!["system".to_string()],
-            meta: MembershipMeta {
-                schema_version: "1".to_string(),
-            },
-        },
     ];
 
-    // --- Create all memberships ---
     for params in memberships {
         ctx.extend_perms(&["membership:create"])?;
         svc_reg.membership.create(ctx, params).await?;
     }
 
     tracing::info!("Seed memberships created");
+    Ok(())
+}
+
+/// Seeds test data (workspace, project, accounts).
+/// This is optional — callers can skip it for production-like environments.
+pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
+    ctx: &mut CoreCtx,
+    svc_reg: Arc<ServiceRegistry<D, C>>,
+) -> CoreResult<()> {
+    // Create a test workspace
+    let test_ws = svc_reg
+        .workspace
+        .create(
+            ctx,
+            WorkspaceCreateParams {
+                name: "Test Workspace".to_string(),
+                slug: "test".to_string(),
+                owner: Uuid::nil(),
+                description: Some("Test workspace for development".to_string()),
+                config: WorkspaceConfig::default(),
+                tags: vec!["test".to_string()],
+                meta: WorkspaceMeta::default(),
+            },
+        )
+        .await?;
+
+    let ws_id = test_ws.id;
+
+    // Create a test account
+    let test_account = svc_reg
+        .account
+        .create(
+            ctx,
+            AccountCreateParams {
+                email: "test@example.com".to_string(),
+                password: "testpass".to_string(),
+                name: "Test Account".to_string(),
+                workspace_id: ws_id,
+                description: Some("General test account".to_string()),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    // Test credential
+    svc_reg
+        .credential
+        .create(
+            ctx,
+            CredentialCreateParams {
+                account_id: test_account.id,
+                workspace_id: ws_id,
+                kind: CredentialKind::Password,
+                provider: CredentialProvider::Local,
+                status: CredentialStatus::Active,
+                secret: Some(hash_password("testpass")?),
+                provider_id: None,
+                email: None,
+                config: CredentialConfig::default(),
+                last_used_at: None,
+                tags: vec!["test".to_string()],
+                meta: CredentialMeta {
+                    schema_version: "1".to_string(),
+                },
+            },
+        )
+        .await?;
+
+    tracing::info!("Seed test data created");
     Ok(())
 }

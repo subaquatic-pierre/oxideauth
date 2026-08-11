@@ -503,7 +503,7 @@ mod tests {
 
         let acc_store = AccountStore::new(dbx.clone());
 
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let mut data = AccountForCreate::default();
         data.email = "uninqueEmaeil@ema.c".to_string();
@@ -523,7 +523,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // Pick a random UUID that won't exist
         let missing_id = Uuid::new_v4();
@@ -543,7 +543,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let meta = acc_store.mutate_meta();
 
@@ -591,7 +591,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let meta = acc_store.mutate_meta();
 
@@ -643,7 +643,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let mutate_meta = acc_store.mutate_meta();
         let mut d = AccountForCreate::default();
@@ -677,7 +677,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // Create a row to update
         let mut d = AccountForCreate::default();
@@ -707,7 +707,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // Non-existent ID
         let missing_id = Uuid::new_v4();
@@ -732,7 +732,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // Create a row to delete
         let mut d = AccountForCreate::default();
@@ -758,7 +758,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // Non-existent ID
         let missing_id = Uuid::new_v4();
@@ -780,7 +780,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // Create a baseline account
         let mut create = AccountForCreate::default();
@@ -813,7 +813,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // Create a baseline account
         let mut create = AccountForCreate::default();
@@ -847,7 +847,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let name_tag = "TEST_LIST_FILTER_BY_CREATED_BY";
         let mut data = vec![];
@@ -888,7 +888,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let name_tag = "TEST_LIST_FILTER_BY_CREATED_AT";
 
@@ -938,7 +938,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let name_tag = "TEST_LIST_ORDER_BY_CREATED_AT";
 
@@ -996,7 +996,7 @@ mod tests {
 
         // 1. Define the official, enforced workspace ID from the context (WS_A)
         // Use a real workspace so the created permission satisfies the FK.
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
         let enforced_ws_id: Uuid = ws.id.into();
         let user_id = Uuid::new_v4();

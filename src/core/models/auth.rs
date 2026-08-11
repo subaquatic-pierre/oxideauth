@@ -25,11 +25,6 @@ impl ValidateParams for RegisterParams {
         if self.password.is_empty() {
             return Err(CoreError::InvalidParams("password required".to_string()));
         }
-        if self.workspace_id.is_none() {
-            return Err(CoreError::InvalidParams(
-                "workspaceId or workspaceSlug required".to_string(),
-            ));
-        }
         Ok(Self { email, ..self })
     }
 }

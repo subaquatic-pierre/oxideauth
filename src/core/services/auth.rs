@@ -17,10 +17,17 @@ use crate::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
         models::{
-            account::{Account, AccountKind},
+            account::{
+                Account, AccountCreateParams, AccountKind, AccountMeta, AccountUpdateParams,
+            },
             auth::RegisterParams,
-            credential::{CredentialConfig, CredentialCreateParams},
-            membership::MembershipCreateParams,
+            credential::{
+                CredentialConfig, CredentialCreateParams, CredentialFilter, CredentialUpdateParams,
+            },
+            list::RequestFilterParams,
+            membership::{
+                MembershipCreateParams, MembershipFilter, MembershipListParams, MembershipMeta,
+            },
             permission::{PermissionEngine, PermissionRule},
             role::RoleListParams,
             token::{TokenClaims, TokenType},
@@ -32,29 +39,21 @@ use crate::{
         },
         traits::{
             params::ValidateParams,
-            service::{CoreModelCreateService, CoreModelService},
+            service::{
+                CoreModelCreateService, CoreModelListService, CoreModelService,
+                CoreModelUpdateService,
+            },
         },
     },
     store::{
         ctx::StoreCtx,
         entities::{
-            account::{AccountForCreate, AccountForUpdate, AccountMeta},
-            credential::{
-                CredentialFilter, CredentialForCreate, CredentialForUpdate, CredentialKind,
-                CredentialMeta, CredentialProvider, CredentialStatus,
-            },
-            id::DbId,
-            membership::{
-                MembershipFilter, MembershipForCreate, MembershipMeta, MembershipScope,
-                MembershipStatus,
-            },
+            account::AccountForUpdate,
+            credential::{CredentialKind, CredentialMeta, CredentialProvider, CredentialStatus},
+            membership::{MembershipScope, MembershipStatus},
         },
-        join::LinkManyToMany,
         manager::StoreManager,
-        traits::{
-            crud::{Create, Get, List, Update},
-            dbx::DbExecutor,
-        },
+        traits::{crud::*, dbx::DbExecutor},
     },
     utils::{
         auth::{get_google_user, request_google_token},
@@ -212,10 +211,12 @@ where
                 "Workspace does not exist {workspace_id}"
             )))?;
 
+        let ws_id = ws.id;
+
         // --- Look up the default "Workspace Viewer" role ---
         let viewer_role = self
-            .sm
-            .role
+            .role_svc
+            .store()
             .get_by_name_opt(&store_ctx, "Workspace Viewer", ws.id.into())
             .await?
             .ok_or_else(|| {
@@ -250,27 +251,27 @@ where
 
         // --- Create account (via store — AccountService::create is too heavy with validation) ---
         let default_avatar = format!("https://www.gravatar.com/avatar/{}?d=identicon", "default");
+        let account_create_params = AccountCreateParams {
+            email: email.clone(),
+            password: String::new(), // password goes to credential, not account
+            name: name.unwrap_or_else(|| "".to_string()),
+            workspace_id: ws_id,
+            description: None,
+            avatar_url: Some(default_avatar),
+            tags: None,
+            meta: Some(AccountMeta {
+                schema_version: "1".to_string(),
+            }),
+        };
         let account_row = self
             .acc_svc
             .store()
             .create(
                 &store_ctx,
-                AccountForCreate {
-                    email: email.clone(),
-                    name: name.unwrap_or_else(|| "".to_string()),
-                    description: None,
-                    avatar_url: Some(default_avatar),
-                    kind: AccountKind::User,
-                    enabled: true,
-                    verified: false,
-                    tags: vec![],
-                    meta: AccountMeta {
-                        schema_version: "1".to_string(),
-                    },
-                },
+                account_create_params.into_store_params(AccountKind::User, true, false),
             )
             .await?;
-        let acc_ver = account_row.token_version as u64;
+        let acc_ver = account_row.version as u64;
         let account: Account = account_row.into();
 
         // --- Create credential (via service) ---
@@ -361,7 +362,6 @@ where
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
 
         // --- Find account by email ---
-        // let store = self.acc_svc.store();
         let account_row = match self.acc_svc.get_by_email(&ctx, &email).await? {
             Some(row) => row,
             None => {
@@ -373,7 +373,7 @@ where
                 return Err(CoreError::Auth("invalid credentials".to_string()));
             }
         };
-        let acc_ver = 1; // account_row.token_version as u64;
+        let acc_ver = account_row.version as u64;
         let account: Account = account_row.into();
 
         // --- Check account status ---
@@ -382,7 +382,7 @@ where
             return Err(CoreError::Auth("account disabled".to_string()));
         }
 
-        // --- Find Local password credential for the account ---
+        // --- Find Local password credential for the account (cross-workspace query via store) ---
         let filter: CredentialFilter = json!({
             "account_id": account.id.to_string(),
             "provider": CredentialProvider::Local.to_string()
@@ -390,8 +390,8 @@ where
         .try_into()?;
 
         let credentials = self
-            .sm
-            .credential
+            .credential_svc
+            .store()
             .list(&ctx.into(), Some(filter), None)
             .await?;
         let credential = credentials
@@ -432,21 +432,29 @@ where
         })
         .try_into()?;
 
-        let memberships = self
-            .sm
-            .membership
-            .list(&ctx.into(), Some(membership_filter), None)
+        ctx.extend_perms(&[CANONICAL_PERMISSIONS.membership.list])?;
+        let membership_list_params = MembershipListParams {
+            workspace_id: credential.workspace_id.into(),
+            filter: Some(RequestFilterParams {
+                fields: Some(membership_filter),
+                tags: None,
+            }),
+            options: None,
+        };
+        let membership_response = self
+            .membership_svc
+            .list(ctx, membership_list_params)
             .await?;
-        let membership = memberships.into_iter().next();
+        let membership = membership_response.data.into_iter().next();
         let (mem_id, mem_ver) = membership
-            .map(|m| (m.id.into(), m.token_version as u64))
+            .map(|m| (m.id, m.version as u64))
             .unwrap_or((Uuid::nil(), 0));
 
         // --- Issue token pair (access + refresh) ---
         let sid = Uuid::new_v4();
         let tp = self.issue_token_pair(
             account.id,
-            credential.workspace_id.into(), // workspace, set up separately
+            credential.workspace_id.into(), // workspace
             mem_id,                         // membership, set up separately
             mem_ver,
             acc_ver,
@@ -673,6 +681,7 @@ where
 
         ctx.extend_perms(&[
             CANONICAL_PERMISSIONS.account.describe,
+            CANONICAL_PERMISSIONS.credential.describe,
             CANONICAL_PERMISSIONS.credential.list,
             CANONICAL_PERMISSIONS.credential.update,
         ])?;
@@ -688,7 +697,7 @@ where
         // Hash the new password.
         let secret = hash_password(new_password)?;
 
-        // Find the account's Local password credential.
+        // Find the account's Local password credential (cross-workspace query via store).
         let filter: CredentialFilter = json!({
             "account_id": account.id.to_string(),
             "provider": CredentialProvider::Local.to_string()
@@ -696,8 +705,8 @@ where
         .try_into()?;
 
         let credentials = self
-            .sm
-            .credential
+            .credential_svc
+            .store()
             .list(&ctx.into(), Some(filter), None)
             .await?;
         let credential = credentials
@@ -705,23 +714,25 @@ where
             .find(|c| c.provider == CredentialProvider::Local && c.secret.is_some())
             .ok_or_else(|| CoreError::Auth("invalid credentials".to_string()))?;
 
-        // Update the stored password hash.
-        let update_data = CredentialForUpdate {
+        // Update the stored password hash via the credential service.
+        let cred_update_params = CredentialUpdateParams {
+            id: credential.id.into(),
+            provider_id: None,
+            email: None,
+            account_id: account.id,
+            workspace_id: credential.workspace_id.into(),
             kind: None,
             provider: None,
             status: None,
-            provider_id: None,
-            email: None,
+            new_provider_id: None,
+            new_email: None,
             secret: Some(secret),
-            config: None,
             last_used_at: None,
+            config: None,
             tags: None,
             meta: None,
         };
-        self.sm
-            .credential
-            .update(&ctx.into(), &credential.id, update_data)
-            .await?;
+        self.credential_svc.update(ctx, cred_update_params).await?;
 
         info!(account_id = %account.id, "AUTH_PASSWORD_CHANGED");
 
@@ -758,17 +769,20 @@ where
         }
 
         // Mark the account as verified.
-        let update_data = AccountForUpdate {
+        let update_params = AccountUpdateParams {
+            workspace_id: Uuid::nil(),
             email: None,
+            id: None,
             name: None,
             description: None,
             avatar_url: None,
+            version: None,
             enabled: None,
             verified: Some(true),
-            version: None,
             tags: None,
             meta: None,
         };
+        let update_data: AccountForUpdate = update_params.into();
         store
             .update(&ctx.into(), &account_id.into(), update_data)
             .await?;
@@ -777,7 +791,7 @@ where
 
         Ok(AccountConfirmation {
             account_id: account.id,
-            was_already_verified: true,
+            was_already_verified: false,
         })
     }
 
@@ -910,6 +924,7 @@ where
             CANONICAL_PERMISSIONS.account.describe,
             CANONICAL_PERMISSIONS.account.create,
             CANONICAL_PERMISSIONS.credential.create,
+            CANONICAL_PERMISSIONS.credential.describe,
         ])?;
         let store = self.acc_svc.store();
 
@@ -924,54 +939,65 @@ where
                 account
             } else {
                 // 5. Create the account from the Google profile.
-                let account_for_create = AccountForCreate {
+                let account_create_params = AccountCreateParams {
                     email: google_user.email.clone(),
+                    password: String::new(),
                     name: google_user.name,
+                    workspace_id: store_ctx.ws_id,
                     description: None,
                     avatar_url: google_user.picture.clone(),
-                    kind: AccountKind::User,
-                    enabled: true,
-                    verified: google_user.verified_email,
-                    tags: vec![],
-                    meta: AccountMeta {
+                    tags: None,
+                    meta: Some(AccountMeta {
                         schema_version: "1".to_string(),
-                    },
+                    }),
                 };
-                let account: Account = store.create(&ctx.into(), account_for_create).await?.into();
+                let account: Account = self
+                    .acc_svc
+                    .store()
+                    .create(
+                        &ctx.into(),
+                        account_create_params.into_store_params(
+                            AccountKind::User,
+                            true,
+                            google_user.verified_email,
+                        ),
+                    )
+                    .await?
+                    .into();
 
                 // 6. Link the Google OAuth credential to the new account.
-                let credential_for_create = CredentialForCreate {
-                    kind: CredentialKind::OAuth,
-                    provider: CredentialProvider::Google,
-                    status: CredentialStatus::Active,
-                    account_id: account.id,
-                    workspace_id: store_ctx.ws_id,
-                    provider_id: Some(google_user.id),
-                    email: Some(google_user.email),
-                    // TODO: get default credential from workspace config
-                    config: CredentialConfig::default(),
-                    secret: None,
-                    last_used_at: Some(now_utc()),
-                    tags: vec![],
-                    meta: CredentialMeta {
-                        schema_version: "1".to_string(),
-                    },
-                };
-                self.sm
-                    .credential
-                    .create(&ctx.into(), credential_for_create)
+                self.credential_svc
+                    .create(
+                        ctx,
+                        CredentialCreateParams {
+                            account_id: account.id,
+                            workspace_id: store_ctx.ws_id,
+                            kind: CredentialKind::OAuth,
+                            provider: CredentialProvider::Google,
+                            status: CredentialStatus::Active,
+                            provider_id: Some(google_user.id),
+                            email: Some(google_user.email),
+                            config: CredentialConfig::default(),
+                            secret: None,
+                            last_used_at: Some(now_utc()),
+                            tags: vec![],
+                            meta: CredentialMeta {
+                                schema_version: "1".to_string(),
+                            },
+                        },
+                    )
                     .await?;
 
                 account
             };
 
         // 7. Issue a token pair (access + refresh) for the session.
-        let acc_ver = self
-            .sm
-            .account
+        let account_row = self
+            .acc_svc
+            .store()
             .get(&ctx.into(), &account.id.into())
-            .await?
-            .token_version as u64;
+            .await?;
+        let acc_ver = account_row.version as u64;
 
         let sid = Uuid::new_v4();
         let tp = self.issue_token_pair(
@@ -1053,7 +1079,7 @@ impl<'a> AuthValidator<'a> {
     ///
     /// # Behavior
     ///
-    /// 1. **Global Context (Admin/Root):** If `ctx.is_global_workspace()` is true,
+    /// 1. **Global Context (Admin/Root):** If `ctx.is_system_workspace()` is true,
     ///    validation passes immediately, and the `StoreCtx` is returned.
     ///
     /// 2. **Scoped Context (Tenant User):**
@@ -1087,7 +1113,7 @@ impl<'a> AuthValidator<'a> {
     ///
     /// # Behavior
     ///
-    /// 1. **Global Context (Admin/Root):** If `ctx.is_global_workspace()` is true,
+    /// 1. **Global Context (Admin/Root):** If `ctx.is_system_workspace()` is true,
     ///    validation passes immediately, and the `requested_workspace_id` is returned
     ///    as is (it may be `None`).
     ///
@@ -1107,7 +1133,7 @@ impl<'a> AuthValidator<'a> {
         &self,
         requested_workspace_id: Option<Uuid>,
     ) -> CoreResult<Option<Uuid>> {
-        let is_global_context = self.ctx.is_global_workspace()?;
+        let is_global_context = self.ctx.is_system_workspace()?;
 
         if is_global_context {
             // Case 1: Global context (admin/root).
@@ -1145,7 +1171,7 @@ mod tests {
         let app = init_test().await;
         let granted = setup_checker()?;
 
-        let mut ctx = CoreCtx::new_root()?;
+        let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.create])?;
         let auth = AuthValidator::new(&ctx);
 

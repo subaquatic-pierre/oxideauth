@@ -31,6 +31,17 @@ impl<D: DbExecutor> WorkspaceStore<D> {
         Self { dbx }
     }
 
+    pub async fn get_system_ws(&self, ctx: &StoreCtx) -> StoreResult<WorkspaceRow> {
+        let ws = self
+            .get_by_slug_opt(ctx, SYSTEM_CONST.system_ws_slug)
+            .await?
+            .ok_or_else(|| StoreError::EntityNotFound {
+                entity: "workspace".to_string(),
+                id: SYSTEM_CONST.system_ws_slug.to_string(),
+            })?;
+        Ok(ws)
+    }
+
     pub async fn get_by_slug(&self, ctx: &StoreCtx, slug: &str) -> StoreResult<WorkspaceRow> {
         match self.get_by_slug_opt(ctx, slug).await? {
             Some(row) => Ok(row),
@@ -130,6 +141,18 @@ impl<D: DbExecutor> ContainsFilterStore for WorkspaceStore<D> {
     }
 }
 
+pub struct SystemConstants {
+    pub system_ws_slug: &'static str,
+    pub system_acc_name: &'static str,
+    pub system_acc_email: &'static str,
+}
+
+pub const SYSTEM_CONST: SystemConstants = SystemConstants {
+    system_ws_slug: "system",
+    system_acc_name: "system",
+    system_acc_email: "system@system.local",
+};
+
 // -----------------------------------------------------------------------------
 // endregion: --- Base Trait Implementations
 
@@ -158,7 +181,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = WorkspaceStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let data = WorkspaceForCreate {
             name: "test-workspace-create".to_string(),
@@ -184,7 +207,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = WorkspaceStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let created_workspace = store.create(&ctx, WorkspaceForCreate::default()).await?;
 
@@ -213,7 +236,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = WorkspaceStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let created_workspace = store.create(&ctx, WorkspaceForCreate::default()).await?;
 
@@ -238,7 +261,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = WorkspaceStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let ns_to_create = vec![
             WorkspaceForCreate {
@@ -270,7 +293,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = WorkspaceStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let workspace = store
             .create(
@@ -338,7 +361,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = WorkspaceStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // -- Create test data with different tags
         store

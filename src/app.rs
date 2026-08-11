@@ -60,7 +60,7 @@ impl<D: DbExecutor, C: CacheExecutor> AppState<D, C> {
     /// Used by unauthenticated flows (registration, login, password reset, OAuth)
     /// that need a properly scoped context without a pre-existing user session.
     pub fn system_context(&self) -> CoreResult<CoreCtx> {
-        CoreCtx::system(self.ctx_factory.global_ws_id())
+        CoreCtx::system(self.ctx_factory.system_ws_id())
     }
 }
 

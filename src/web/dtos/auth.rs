@@ -12,8 +12,7 @@ pub struct AuthRegisterReq {
     pub name: Option<String>,
     /// The workspace to register into. Either `workspaceId` or `workspaceSlug`
     /// must be provided.
-    pub workspace_id: Option<Uuid>,
-    pub workspace_slug: Option<String>,
+    pub workspace_id: String,
 }
 
 impl From<AuthRegisterReq> for RegisterParams {
@@ -23,7 +22,6 @@ impl From<AuthRegisterReq> for RegisterParams {
             password: req.password.unwrap_or_default(),
             name: req.name,
             workspace_id: req.workspace_id,
-            workspace_slug: req.workspace_slug,
         }
     }
 }

@@ -1,20 +1,20 @@
 use axum::async_trait;
 use sqlx::{
-    query::{Query, QueryAs},
     Execute, FromRow, IntoArguments, Postgres, Transaction,
+    query::{Query, QueryAs},
 };
 use std::{
     ops::{Deref, DerefMut},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
 };
 use tokio::{
-    sync::{oneshot, Mutex},
+    sync::{Mutex, oneshot},
     task::JoinHandle,
-    time::{interval, sleep, MissedTickBehavior},
+    time::{MissedTickBehavior, interval, sleep},
 };
 use tracing::{debug, error};
 
@@ -225,7 +225,7 @@ mod tests {
         let dbx = Arc::new(mock_dbx);
         let account_store = AccountStore::new(dbx);
 
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let id = Uuid::new_v4();
 

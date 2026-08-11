@@ -769,7 +769,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = CredentialStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // FK prerequisites: credentials reference a real workspace and account.
         let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
@@ -826,7 +826,7 @@ mod tests {
         let dbx = app.sm.dbx().clone();
         let store = CredentialStore::new(dbx.clone());
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // FK prerequisite: credentials reference a real workspace.
         let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
@@ -900,7 +900,7 @@ mod tests {
         let dbx = app.sm.dbx().clone();
         let perm_store = PermissionStore::new(dbx.clone());
         let role_store = RoleStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // FK prerequisite: roles and permissions reference a real workspace.
         let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
@@ -1007,7 +1007,7 @@ mod tests {
         let dbx = app.sm.dbx().clone();
         let perm_store = PermissionStore::new(dbx.clone());
         let role_store = RoleStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // FK prerequisite: roles and permissions reference a real workspace.
         let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
@@ -1110,7 +1110,7 @@ mod tests {
         let dbx = app.sm.dbx().clone();
         let perm_store = PermissionStore::new(dbx.clone());
         let role_store = RoleStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // FK prerequisite: roles and permissions reference a real workspace.
         let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;

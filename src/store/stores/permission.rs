@@ -127,10 +127,7 @@ mod tests {
         dev::init::init_test,
         store::{
             ctx::StoreCtx,
-            entities::{
-                permission::PermissionForCreate,
-                workspace::WorkspaceForCreate,
-            },
+            entities::{permission::PermissionForCreate, workspace::WorkspaceForCreate},
             error::StoreError,
             traits::{contains::FilterByContains, crud::*},
         },
@@ -160,7 +157,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let data = PermissionForCreate {
@@ -189,7 +186,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let created_permission = store
@@ -227,7 +224,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let created_permission = store
@@ -261,7 +258,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let perms_to_create = vec![
@@ -296,7 +293,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = PermissionStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         // -- Create test data with different tags

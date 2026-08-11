@@ -4,9 +4,12 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::cache::{
-    error::{CacheError, CacheResult},
-    traits::{CacheEntity, CacheKey},
+use crate::{
+    cache::{
+        error::{CacheError, CacheResult},
+        traits::{CacheEntity, CacheKey},
+    },
+    store::stores::workspace::SYSTEM_CONST,
 };
 
 /// The cached auth-scope payload persisted under `oxauth:auth_sc:{membership_id}`.
@@ -23,10 +26,10 @@ pub struct AuthScopeCache {
 }
 
 impl AuthScopeCache {
-    pub fn root_scope() -> Self {
+    pub fn system() -> Self {
         Self {
             workspace_id: Uuid::nil(),
-            workspace_slug: "global".to_string(),
+            workspace_slug: SYSTEM_CONST.system_ws_slug.to_string(),
             project_id: None,
             roles: vec![],
             permissions: vec!["*:*".to_string()],
@@ -80,7 +83,7 @@ impl AuthCache {
         }
     }
 
-    pub fn root_cache() -> Self {
+    pub fn system_cache() -> Self {
         Self {
             mem_id: Uuid::nil(),
             acc_id: Uuid::nil(),
@@ -89,16 +92,16 @@ impl AuthCache {
             acc_version: 0,
             mem_active: true,
             acc_enabled: true,
-            auth_scope: AuthScopeCache::root_scope(),
+            auth_scope: AuthScopeCache::system(),
         }
     }
 
     /// Creates a bootstrap cache with nil UUIDs — no pre-existing DB data required.
     ///
-    /// Used during seeding/initialization. Same as `root_cache()` but with an
+    /// Used during seeding/initialization. Same as `system_cache()` but with an
     /// explicit name to convey intent.
     pub fn bootstrap_cache() -> Self {
-        Self::root_cache()
+        Self::system_cache()
     }
 }
 

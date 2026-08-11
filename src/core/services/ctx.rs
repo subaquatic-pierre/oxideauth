@@ -18,7 +18,7 @@ use crate::{
         models::token::TokenClaims,
         services::{registry::ServiceRegistry, token::TokenService},
     },
-    dev::fixtures::{global_ws_id, root_user_id},
+    dev::fixtures::{system_user_id, system_ws_id},
     store::{
         ctx::StoreCtx,
         entities::membership::MembershipStatus,
@@ -138,7 +138,7 @@ where
         ctx: &mut CoreCtx,
     ) -> CoreResult<()> {
         let header_ws = CtxService::<D, C>::parse_workspace_header(headers);
-        let scoped_ws = if ctx.is_global_workspace().unwrap_or(false) {
+        let scoped_ws = if ctx.is_system_workspace().unwrap_or(false) {
             match header_ws {
                 Some(scoped_ws) => {
                     // TODO: REMOVE THIS, QUICK HACK FOR DEVELOPMENT PURPOSE
@@ -172,7 +172,7 @@ where
         acc_id: Uuid,
         sid: Option<Uuid>,
     ) -> CoreResult<AuthCache> {
-        let store_ctx = StoreCtx::new_root();
+        let store_ctx = StoreCtx::bootstrap();
 
         // Load the membership (with its roles).
         let mem_with_roles = self

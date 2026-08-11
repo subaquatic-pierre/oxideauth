@@ -32,6 +32,7 @@ impl From<ProjectCreateParams> for ProjectForCreate {
             name: params.name,
             code: params.code,
             description: params.description,
+            owner: Uuid::nil().into(),
             config: params.config,
             tags: params.tags,
             meta: params.meta,

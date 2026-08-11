@@ -28,12 +28,6 @@ impl StoreCtx {
         }
     }
 
-    /// Alias for `bootstrap()`. Kept for backward compatibility with existing
-    /// test and system-level code that uses "root" terminology.
-    pub fn new_root() -> Self {
-        Self::bootstrap()
-    }
-
     pub fn workspace_scope(&self) -> Option<Uuid> {
         self.workspace_scope
     }

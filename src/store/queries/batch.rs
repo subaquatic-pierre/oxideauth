@@ -302,7 +302,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let mutate_meta = acc_store.mutate_meta();
         let data = AccountForCreate::default();
@@ -331,7 +331,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let acc_store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let n = 3usize;
         let mut payloads: Vec<AccountForCreate> = Vec::with_capacity(n);
@@ -378,7 +378,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let n = 3usize;
         let mut payloads: Vec<AccountForCreate> = Vec::with_capacity(n);
@@ -409,7 +409,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let mutate_meta = store.mutate_meta();
         let mut c1 = AccountForCreate::default();
@@ -450,7 +450,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let mutate_meta = store.mutate_meta();
         let mut c1 = AccountForCreate::default();
@@ -496,7 +496,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let over_limit = 2000usize;
         let mut payloads: Vec<AccountForCreate> = Vec::with_capacity(over_limit);
@@ -523,7 +523,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let mut ac = AccountForCreate::default();
         ac.email = "update-many-fail@example.com".to_string();
@@ -556,7 +556,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let mutate_meta = store.mutate_meta();
         let mut mk = |i: usize| {
@@ -589,7 +589,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let mut c = AccountForCreate::default();
         c.email = "del-many-wrong@example.com".into();
@@ -618,7 +618,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = AccountStore::new(dbx.clone());
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let over_limit = 2000usize;
         let ids: Vec<Uuid> = (0..over_limit).map(|_| Uuid::new_v4()).collect();

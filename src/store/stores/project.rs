@@ -147,7 +147,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = ProjectStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let data = ProjectForCreate {
@@ -176,7 +176,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = ProjectStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let created_project = store
@@ -212,7 +212,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = ProjectStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let created_project = store
@@ -246,7 +246,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = ProjectStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let projects_to_create = vec![
@@ -281,7 +281,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = ProjectStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         // -- Create test data with different tags
@@ -339,7 +339,7 @@ mod tests {
         let app = init_test().await;
         let dbx = app.sm.dbx().clone();
         let store = ProjectStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
         let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         // -- Execute: create 3 projects using Default::default() with same workspace

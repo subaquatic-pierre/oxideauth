@@ -10,8 +10,9 @@ use crate::store::{
         AccountFilter, AccountForCreate, AccountForUpdate, AccountIden, AccountRow,
         AccountWithCredentials,
     },
-    error::StoreResult,
+    error::{StoreError, StoreResult},
     queries::meta::{ContainsFilterQueryMeta, MutateQueryMeta, OneToManyQueryMeta, ReadQueryMeta},
+    stores::workspace::SYSTEM_CONST,
     traits::{
         dbx::DbExecutor,
         meta::{ContainsFilterStore, MutateStore, OneToManyStore, ReadStore, Store},
@@ -27,6 +28,17 @@ impl<D: DbExecutor> AccountStore<D> {
     /// Creates a new `AccountStore`.
     pub fn new(dbx: Arc<D>) -> Self {
         Self { dbx }
+    }
+
+    pub async fn get_system_acc(&self, ctx: &StoreCtx) -> StoreResult<AccountRow> {
+        let acc = self
+            .get_by_email(ctx, SYSTEM_CONST.system_acc_email)
+            .await?
+            .ok_or_else(|| StoreError::EntityNotFound {
+                entity: "account".to_string(),
+                id: SYSTEM_CONST.system_acc_email.to_string(),
+            })?;
+        Ok(acc)
     }
 
     pub async fn get_by_email(
@@ -149,9 +161,9 @@ mod tests {
     async fn test_create_get_ok() -> Result<()> {
         // -- Setup
         let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = app.sm.dbx();
         let store = AccountStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let data = AccountForCreate {
             email: "create-get@example.com".to_string(),
@@ -176,9 +188,9 @@ mod tests {
     async fn test_update_ok() -> Result<()> {
         // -- Setup
         let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = app.sm.dbx();
         let store = AccountStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let created_account = store.create(&ctx, AccountForCreate::default()).await?;
 
@@ -203,9 +215,9 @@ mod tests {
     async fn test_delete_ok() -> Result<()> {
         // -- Setup
         let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = app.sm.dbx();
         let store = AccountStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let created_account = store.create(&ctx, AccountForCreate::default()).await?;
 
@@ -228,9 +240,9 @@ mod tests {
     async fn test_list_with_filter_ok() -> Result<()> {
         // -- Setup
         let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = app.sm.dbx();
         let store = AccountStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let accounts_to_create = vec![
             AccountForCreate {
@@ -260,9 +272,9 @@ mod tests {
     async fn test_get_one_to_many_ok() -> Result<()> {
         // -- Setup
         let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = app.sm.dbx();
         let store = AccountStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         let account = store
             .create(
@@ -274,7 +286,7 @@ mod tests {
             )
             .await?;
 
-        // Create a valid workspace to scope the credentials under (StoreCtx::new_root()
+        // Create a valid workspace to scope the credentials under (StoreCtx::bootstrap()
         // uses a nil workspace_id, which no longer references a seeded workspace).
         let workspace = app
             .sm
@@ -328,17 +340,19 @@ mod tests {
     async fn test_filter_by_contains_tags() -> Result<()> {
         // -- Setup
         let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = app.sm.dbx();
         let store = AccountStore::new(dbx);
-        let ctx = StoreCtx::new_root();
+        let ctx = StoreCtx::bootstrap();
 
         // -- Create test data with different tags
+        // NOTE: tags are prefixed with "test-filter-" to avoid colliding with the
+        // seed data (the seeded system/owner accounts carry a "system" tag).
         store
             .create(
                 &ctx,
                 AccountForCreate {
                     email: "tags-a@example.com".into(),
-                    tags: vec!["system".into(), "critical".into()],
+                    tags: vec!["test-filter-system".into(), "test-filter-critical".into()],
                     ..Default::default()
                 },
             )
@@ -348,7 +362,7 @@ mod tests {
                 &ctx,
                 AccountForCreate {
                     email: "tags-b@example.com".into(),
-                    tags: vec!["user".into(), "general".into()],
+                    tags: vec!["test-filter-user".into(), "test-filter-general".into()],
                     ..Default::default()
                 },
             )
@@ -356,22 +370,22 @@ mod tests {
 
         // -- Execute & Assert
         let system_accounts = store
-            .filter_by_tags_contain(&ctx, vec!["system".into()], None)
+            .filter_by_tags_contain(&ctx, vec!["test-filter-system".into()], None)
             .await?;
         assert_eq!(
             system_accounts.len(),
             1,
-            "Should find 1 account with 'system' tag"
+            "Should find 1 account with 'test-filter-system' tag"
         );
         assert_eq!(system_accounts[0].email, "tags-a@example.com");
 
         let general_accounts = store
-            .filter_by_tags_contain(&ctx, vec!["general".into()], None)
+            .filter_by_tags_contain(&ctx, vec!["test-filter-general".into()], None)
             .await?;
         assert_eq!(
             general_accounts.len(),
             1,
-            "Should find 1 account with 'general' tag"
+            "Should find 1 account with 'test-filter-general' tag"
         );
         assert_eq!(general_accounts[0].email, "tags-b@example.com");
 
