@@ -13,17 +13,17 @@ use crate::{
     },
     config::Config,
     core::{
-        ctx::CoreCtx,
+        ctx::{ContextFactory, CoreCtx},
         error::{CoreError, CoreResult},
         models::token::TokenClaims,
         services::{registry::ServiceRegistry, token::TokenService},
     },
-    dev::fixtures::{system_user_id, system_ws_id},
     store::{
         ctx::StoreCtx,
         entities::membership::MembershipStatus,
         join::GetManyToMany,
         manager::StoreManager,
+        stores::workspace::SYSTEM_CONST,
         traits::{crud::Get, dbx::DbExecutor},
     },
     web::error::ErrorBody,
@@ -32,7 +32,6 @@ use crate::{
 /// Header used by global/root tokens to specify which workspace they are
 /// operating on. Scoped tokens do not need to send this header — their
 /// workspace is resolved from the JWT.
-const WORKSPACE_ID_HEADER: &str = "X-Workspace-Id";
 
 pub struct CtxService<D, C>
 where
@@ -42,6 +41,7 @@ where
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
     svc_reg: Arc<ServiceRegistry<D, C>>,
+    ctx_factory: Arc<ContextFactory>,
     config: Config,
 }
 
@@ -54,12 +54,14 @@ where
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
         svc_reg: Arc<ServiceRegistry<D, C>>,
+        ctx_factory: Arc<ContextFactory>,
         config: Config,
     ) -> Self {
         Self {
             sm,
             cm,
             svc_reg,
+            ctx_factory,
             config,
         }
     }
@@ -141,10 +143,11 @@ where
         let scoped_ws = if ctx.is_system_workspace().unwrap_or(false) {
             match header_ws {
                 Some(scoped_ws) => {
-                    // TODO: REMOVE THIS, QUICK HACK FOR DEVELOPMENT PURPOSE
-                    // WE NEED TO EXPLICIT ADD PERMISSIONS TO ACCOUNTS/MEMBERSHIPS
-                    // THAT ARE IN THE GLOBAL NAMESPACE
-                    ctx.extend_perms(&["*:*"]);
+                    // System account gets full root permissions.
+                    // Other system-workspace members use their normal roles.
+                    if ctx.account_id() == self.ctx_factory.system_user_id() {
+                        ctx.extend_perms(&["*:*"]);
+                    }
                     scoped_ws
                 }
                 None => {
@@ -228,7 +231,7 @@ where
     /// is missing or unparseable.
     pub fn parse_workspace_header(headers: &HeaderMap) -> Option<Uuid> {
         headers
-            .get(WORKSPACE_ID_HEADER)
+            .get(SYSTEM_CONST.workspace_header_key)
             .and_then(|v| v.to_str().ok())
             .and_then(|s| Uuid::parse_str(s).ok())
     }

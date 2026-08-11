@@ -1,1 +1,0 @@
--- fixtures/00_bootstrap.sql

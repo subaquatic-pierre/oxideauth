@@ -158,9 +158,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
                 config: CredentialConfig::default(),
                 last_used_at: None,
                 tags: vec!["system".to_string()],
-                meta: CredentialMeta {
-                    schema_version: "1".to_string(),
-                },
+                meta: CredentialMeta::default(),
             },
         )
         .await?;

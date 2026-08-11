@@ -145,12 +145,14 @@ pub struct SystemConstants {
     pub system_ws_slug: &'static str,
     pub system_acc_name: &'static str,
     pub system_acc_email: &'static str,
+    pub workspace_header_key: &'static str,
 }
 
 pub const SYSTEM_CONST: SystemConstants = SystemConstants {
     system_ws_slug: "system",
     system_acc_name: "system",
     system_acc_email: "system@system.local",
+    workspace_header_key: "X-Workspace-Id",
 };
 
 // -----------------------------------------------------------------------------

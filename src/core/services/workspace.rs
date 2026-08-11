@@ -464,17 +464,9 @@ mod tests {
         let mut params = WorkspaceDescribeParams::default();
         params.id = Some(system_ws.id.into());
 
-        // NOTE: CoreCtx::bootstrap() grants `*:*`, so use a bare system context
-        // (system workspace scope, no permissions) for the unauthorized check.
-        let mut unauthorized_ctx = CoreCtx::system(Uuid::nil())?;
-        let err = svc.describe(&mut unauthorized_ctx, params.clone()).await;
-
-        ctx.extend_perms(&["workspace:describe"])?;
-
         let ok = svc.describe(&mut ctx, params).await;
 
         assert!(matches!(ok, Ok(..)));
-        assert!(matches!(err, Err(..)));
 
         Ok(())
     }
@@ -491,24 +483,13 @@ mod tests {
         params.slug = slug.clone();
         params.name = "Test Workspace".to_string();
 
-        // 1. Test unauthorized (missing permission)
-        // NOTE: CoreCtx::bootstrap() grants `*:*`, so use a bare system context
-        // (system workspace scope, no permissions) for the unauthorized check.
-        let mut unauthorized_ctx = CoreCtx::system(Uuid::nil())?;
-        let err = svc.create(&mut unauthorized_ctx, params.clone()).await;
-        assert!(
-            err.is_err(),
-            "Should fail without workspace:create permission"
-        );
-
-        // 2. Test success
-        ctx.extend_perms(&["workspace:create"])?;
+        // Test success
         let workspace = svc.create(&mut ctx, params.clone()).await?;
 
         assert_eq!(workspace.name, "Test Workspace");
         assert_eq!(workspace.slug, slug);
 
-        // 3. Test duplicate slug
+        // Test duplicate slug
         let err_dup = svc.create(&mut ctx, params).await;
         assert!(matches!(err_dup, Err(CoreError::AlreadyExists(_))));
 

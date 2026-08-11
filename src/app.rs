@@ -54,13 +54,14 @@ where
 }
 
 impl<D: DbExecutor, C: CacheExecutor> AppState<D, C> {
-    /// Creates a system-level `CoreCtx` scoped to the global workspace, using
-    /// the cached global workspace UUID from the `ContextFactory`.
+    /// Creates a system-level `CoreCtx` authenticated as the system account.
     ///
     /// Used by unauthenticated flows (registration, login, password reset, OAuth)
     /// that need a properly scoped context without a pre-existing user session.
+    /// Uses the cached system workspace and account UUIDs so audit fields
+    /// carry a real, traceable identity.
     pub fn system_context(&self) -> CoreResult<CoreCtx> {
-        CoreCtx::system(self.ctx_factory.system_ws_id())
+        self.ctx_factory.system()
     }
 }
 

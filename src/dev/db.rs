@@ -36,34 +36,6 @@ pub async fn run_migrations(pool: &PgPool, migration_env: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn load_fixture(pool: &PgPool, filename: &str) -> Result<()> {
-    let path = get_sql_dir().join("fixtures").join(filename);
-    let sql = fs::read_to_string(path)?;
-    pool.execute(sql.as_str()).await?;
-
-    Ok(())
-}
-
-// pub async fn load_all_fixtures(pool: &PgPool) -> Result<()> {
-//     let path = get_sql_dir().join("fixtures");
-//     let mut files: Vec<String> = vec![];
-
-//     for file in fs::read_dir(path)? {
-//         let file = file?;
-//         if file.file_type()?.is_file() {
-//             files.push(file.file_name().to_string_lossy().to_string());
-//         }
-//     }
-
-//     files.sort();
-
-//     for filename in files {
-//         load_fixture(pool, &filename).await?;
-//     }
-
-//     Ok(())
-// }
-
 pub async fn load_all_fixtures(app: &AppState<PgDbx, RedisChx>) -> Result<()> {
     seed::seed_all::<PgDbx, RedisChx>(app).await?;
     Ok(())

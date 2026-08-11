@@ -54,30 +54,6 @@ impl CoreCtx {
         })
     }
 
-    // pub fn bootstrap() -> CoreResult<Self> {
-    //     let auth_cache = AuthCache::system_cache();
-    //     let perm_checker = PermissionEngine::from_string_vec(vec![])?;
-    //     Ok(Self {
-    //         auth_cache,
-    //         scoped_ws_id: Uuid::nil(),
-    //         perm_checker,
-    //     })
-    // }
-
-    /// Creates a minimal system-level context scoped to a specific workspace.
-    ///
-    /// Used by unauthenticated flows (registration, login, password reset, OAuth)
-    /// that need a properly scoped `StoreCtx` without a pre-existing user session.
-    pub fn system(workspace_id: Uuid) -> CoreResult<Self> {
-        let perm_checker = PermissionEngine::from_string_vec(vec![])?;
-        let auth_cache = AuthCache::system_cache();
-        Ok(Self {
-            auth_cache,
-            scoped_ws_id: workspace_id,
-            perm_checker,
-        })
-    }
-
     pub fn permission_checker(&self) -> &PermissionEngine {
         &self.perm_checker
     }
@@ -197,14 +173,37 @@ impl ContextFactory {
         *self.system_user_id.get().unwrap_or(&Uuid::nil())
     }
 
-    /// Creates a system-level `CoreCtx` scoped to the given workspace, using
-    /// cached root identity UUIDs.
+    /// Creates a system-level `CoreCtx` authenticated as the system account.
+    ///
+    /// Uses the cached system workspace and account UUIDs so all audit fields
+    /// (`created_by`, `updated_by`) carry a real, traceable identity. Has `*:*`
+    /// permissions for unrestricted system operations.
+    ///
+    /// Must only be used after `init_from_seed()` has populated the cached UUIDs.
     pub fn system(&self) -> CoreResult<CoreCtx> {
-        let ws_id = self
-            .system_ws_id
-            .get()
-            .ok_or(CoreError::Auth(format!("System workspace not initialized")))?;
-        CoreCtx::system(*ws_id)
+        let ws_id = self.system_ws_id.get().ok_or(CoreError::Auth(
+            "System workspace not initialized".to_string(),
+        ))?;
+        let acc_id = self.system_user_id.get().ok_or(CoreError::Auth(
+            "System account not initialized".to_string(),
+        ))?;
+
+        let auth_cache = AuthCache {
+            mem_id: Uuid::nil(), // system account has no membership
+            acc_id: *acc_id,
+            sid: None,
+            mem_version: 0,
+            acc_version: 0,
+            mem_active: true,
+            acc_enabled: true,
+            auth_scope: AuthCache::system_cache().auth_scope,
+        };
+        let perm_checker = PermissionEngine::from_string_vec(vec!["*:*".to_string()])?;
+        Ok(CoreCtx {
+            auth_cache,
+            scoped_ws_id: *ws_id,
+            perm_checker,
+        })
     }
 }
 
