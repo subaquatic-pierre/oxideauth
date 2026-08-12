@@ -271,17 +271,12 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         if claims.is_expired() || claims.token_type() != TokenType::Auth {
             return Ok(false);
         }
-        if Uuid::from_str(claims.ws())
-            .map(|ws| ws != workspace_id)
-            .unwrap_or(true)
-        {
+        if claims.ws != workspace_id {
             return Ok(false);
         }
 
         // --- 6. Build PermissionEngine from the user's cached auth scope ---
-        let mem_id = claims
-            .mem_id()
-            .map_err(|_| CoreError::Auth("invalid token".into()))?;
+        let mem_id = claims.mem;
         let Some(scope) = self.cm.auth.fetch_auth_scope(&mem_id).await? else {
             return Ok(false);
         };

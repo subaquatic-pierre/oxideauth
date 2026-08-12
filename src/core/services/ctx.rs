@@ -85,9 +85,9 @@ where
         let token_svc = self.svc_reg.token.clone();
         let claims = token_svc.decode_token_str(token_str)?;
 
-        let mem_id = claims.mem_id()?;
-        let acc_id = claims.acc_id()?;
-        let sid = claims.sid();
+        let mem_id = claims.mem;
+        let acc_id = claims.sub;
+        let sid = claims.sid;
 
         // Build the keyed template, then read the auth cache.
         let keyed = AuthCache::new_keyed(mem_id, acc_id, sid);

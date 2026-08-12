@@ -469,9 +469,9 @@ where
         let claims = self.token_svc.decode_token_str(raw_token)?;
 
         let sid = claims.require_sid()?;
-        let mem_id = claims.mem_id()?;
-        let acc_id = claims.acc_id()?;
-        let ws_id = claims.ws_id()?;
+        let mem_id = claims.mem;
+        let acc_id = claims.sub;
+        let ws_id = claims.ws;
 
         // Permission check: caller must have auth:revoke
         let auth_validator = AuthValidator::new(ctx);
@@ -484,10 +484,8 @@ where
         ])?;
 
         // Bump version + invalidate cache
-        self.bump_membership_version_and_invalidate(
-            ctx, mem_id, ws_id, acc_id, Some(sid),
-        )
-        .await?;
+        self.bump_membership_version_and_invalidate(ctx, mem_id, ws_id, acc_id, Some(sid))
+            .await?;
 
         info!(account_id = %ctx.account_id(), sid = %sid, "AUTH_TOKEN_REVOKED");
 
@@ -531,10 +529,7 @@ where
             .await?;
 
         // Invalidate Redis cache
-        self.cm
-            .invalidation
-            .invalidate(mem_id, acc_id, sid)
-            .await?;
+        self.cm.invalidation.invalidate(mem_id, acc_id, sid).await?;
 
         Ok(())
     }
@@ -556,9 +551,9 @@ where
         let validated = claims.validate_refresh()?;
         let sid = validated.sid;
         let jti = validated.jti;
-        let acc_id = validated.account_id;
-        let ws_id = validated.workspace_id;
-        let mem_id = validated.membership_id;
+        let acc_id = validated.sub;
+        let ws_id = validated.ws;
+        let mem_id = validated.mem;
 
         // --- Replay check + consume (single-use) ---
         let remaining_ttl = claims
@@ -580,29 +575,19 @@ where
                 // Build a minimal context with the needed permissions.
                 // We know the token's claims are valid (we just decoded them),
                 // so we can construct a temporary context from the claims.
-                let auth_cache = AuthCache {
-                    mem_id,
-                    acc_id,
-                    sid: Some(sid),
-                    mem_version: claims.mem_ver,
-                    acc_version: claims.acc_ver,
-                    mem_active: true,
-                    acc_enabled: true,
-                    auth_scope: AuthScopeCache {
-                        workspace_id: ws_id,
-                        workspace_slug: String::new(),
-                        project_id: None,
-                        roles: vec![],
-                        permissions: vec![
-                            CANONICAL_PERMISSIONS.membership.describe.to_string(),
-                            CANONICAL_PERMISSIONS.membership.update.to_string(),
-                        ],
-                    },
-                };
+                let auth_cache = AuthCache::from_claims(claims, validated);
                 let mut temp_ctx = CoreCtx::new(auth_cache, ws_id)?;
+                temp_ctx.extend_perms(&[
+                    CANONICAL_PERMISSIONS.membership.describe,
+                    CANONICAL_PERMISSIONS.membership.update,
+                ]);
 
                 self.bump_membership_version_and_invalidate(
-                    &mut temp_ctx, mem_id, ws_id, acc_id, Some(sid),
+                    &mut temp_ctx,
+                    mem_id,
+                    ws_id,
+                    acc_id,
+                    Some(sid),
                 )
                 .await?;
             }

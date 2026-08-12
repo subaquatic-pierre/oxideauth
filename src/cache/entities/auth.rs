@@ -9,6 +9,7 @@ use crate::{
         error::{CacheError, CacheResult},
         traits::{CacheEntity, CacheKey},
     },
+    core::models::token::{RefreshClaims, TokenClaims},
     store::stores::workspace::SYSTEM_CONST,
 };
 
@@ -93,6 +94,31 @@ impl AuthCache {
             mem_active: true,
             acc_enabled: true,
             auth_scope: AuthScopeCache::system(),
+        }
+    }
+
+    pub fn from_claims(token_claims: TokenClaims, refresh_claims: RefreshClaims) -> Self {
+        let sid = refresh_claims.sid;
+        let jti = refresh_claims.jti;
+        let acc_id = refresh_claims.sub;
+        let ws_id = refresh_claims.ws;
+        let mem_id = refresh_claims.mem;
+
+        AuthCache {
+            mem_id,
+            acc_id,
+            sid: Some(sid),
+            mem_version: token_claims.mem_ver,
+            acc_version: token_claims.acc_ver,
+            mem_active: true,
+            acc_enabled: true,
+            auth_scope: AuthScopeCache {
+                workspace_id: ws_id,
+                workspace_slug: String::new(),
+                project_id: None,
+                roles: vec![],
+                permissions: vec![],
+            },
         }
     }
 }
