@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
+use crate::core::traits::service::CoreModelUpdateService;
 use crate::{
     app::AppState,
     cache::{redis::RedisChx, traits::CacheExecutor},
@@ -13,7 +14,10 @@ use crate::{
             account::AccountCreateParams,
             credential::{CredentialCreateParams, CredentialMeta},
             membership::{MembershipCreateParams, MembershipMeta},
-            workspace::{WorkspaceConfig, WorkspaceCreateParams, WorkspaceDescribeParams},
+            workspace::{
+                WorkspaceConfig, WorkspaceCreateParams, WorkspaceDescribeParams,
+                WorkspaceUpdateParams,
+            },
         },
         services::registry::ServiceRegistry,
         traits::service::{CoreModelCreateService, CoreModelDescribeService},
@@ -105,10 +109,9 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
             },
         )
         .await?;
-    let ws_id = system_ws.id;
 
     // System account (no password credential — internal use only)
-    let system = svc_reg
+    let system_acc = svc_reg
         .account
         .create(
             ctx,
@@ -116,7 +119,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
                 email: SYSTEM_CONST.system_acc_email.to_string(),
                 password: String::new(),
                 name: SYSTEM_CONST.system_acc_name.to_string(),
-                workspace_id: ws_id,
+                workspace_id: system_ws.id,
                 description: Some("System account for internal operations".to_string()),
                 tags: Some(vec!["system".to_string()]),
                 ..Default::default()
@@ -125,7 +128,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         .await?;
 
     // Owner account (from config/env)
-    let owner = svc_reg
+    let owner_acc = svc_reg
         .account
         .create(
             ctx,
@@ -133,7 +136,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
                 email: config.owner_email.clone(),
                 password: config.owner_password.clone(),
                 name: config.owner_name.clone(),
-                workspace_id: ws_id,
+                workspace_id: system_ws.id,
                 description: Some("Workspace owner account".to_string()),
                 tags: Some(vec!["system".to_string()]),
                 ..Default::default()
@@ -147,8 +150,8 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         .create(
             ctx,
             CredentialCreateParams {
-                account_id: owner.id,
-                workspace_id: ws_id,
+                account_id: owner_acc.id,
+                workspace_id: system_ws.id,
                 kind: CredentialKind::Password,
                 provider: CredentialProvider::Local,
                 status: CredentialStatus::Active,
@@ -164,19 +167,15 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         .await?;
 
     // Update workspace owners via the store directly (since WorkspaceUpdateParams doesn't have owner field)
-    let store_ctx: StoreCtx = (&*ctx).into();
-
-    let system_ws_db_id = DbId(system_ws.id);
     svc_reg
-        .sm
         .workspace
         .update(
-            &store_ctx,
-            &system_ws_db_id,
-            WorkspaceForUpdate {
+            ctx,
+            WorkspaceUpdateParams {
+                id: system_ws.id.into(),
                 name: None,
                 slug: None,
-                owner: Some(system.id),
+                owner: Some(system_ws.id),
                 description: None,
                 config: None,
                 tags: None,
@@ -195,21 +194,14 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
             },
         )
         .await?;
-    let default_ws_db_id = DbId(default_ws.id);
     svc_reg
-        .sm
         .workspace
         .update(
-            &store_ctx,
-            &default_ws_db_id,
-            WorkspaceForUpdate {
-                name: None,
-                slug: None,
-                owner: Some(owner.id),
-                description: None,
-                config: None,
-                tags: None,
-                meta: None,
+            ctx,
+            WorkspaceUpdateParams {
+                id: Some(default_ws.id),
+                owner: Some(owner_acc.id),
+                ..Default::default()
             },
         )
         .await?;
@@ -250,27 +242,33 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
     let system_admin = svc_reg
         .sm
         .role
-        .get_by_name_opt(&store_ctx, "Workspace Admin", DbId(system_ws.id))
+        .get_by_name_opt(
+            &store_ctx,
+            SYSTEM_CONST.workspace_admin_role,
+            DbId(system_ws.id),
+        )
         .await?
         .expect("Workspace Admin role not found in system workspace");
     let default_admin = svc_reg
         .sm
         .role
-        .get_by_name_opt(&store_ctx, "Workspace Admin", DbId(default_ws.id))
+        .get_by_name_opt(
+            &store_ctx,
+            SYSTEM_CONST.workspace_admin_role,
+            DbId(default_ws.id),
+        )
         .await?
         .expect("Workspace Admin role not found in default workspace");
 
     // Look up accounts by email
     let system = svc_reg
-        .sm
         .account
-        .get_by_email(&store_ctx, SYSTEM_CONST.system_acc_email)
+        .get_by_email(&ctx, SYSTEM_CONST.system_acc_email)
         .await?
         .expect("System account not found");
     let owner = svc_reg
-        .sm
         .account
-        .get_by_email(&store_ctx, &config.owner_email)
+        .get_by_email(&ctx, &config.owner_email)
         .await?
         .expect("Owner account not found");
 

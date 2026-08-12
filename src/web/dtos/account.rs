@@ -3,6 +3,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::core::error::CoreResult;
+use crate::core::models::account::AccountKind;
 use crate::core::models::{
     account::{
         Account, AccountCreateParams, AccountDeleteParams, AccountDescribeParams, AccountFilter,
@@ -76,6 +77,9 @@ impl From<Account> for AccountDescribeRes {
 pub struct AccountCreateReq {
     pub email: String,
     pub password: String,
+    pub kind: Option<AccountKind>,
+    pub enabled: Option<bool>,
+    pub verified: Option<bool>,
     // Fields that map to core::AccountCreateParams
     pub name: String,
     pub description: Option<String>,
@@ -90,11 +94,14 @@ impl IntoParams<AccountCreateParams> for AccountCreateReq {
     fn into_params(self, workspace_id: Uuid) -> CoreResult<AccountCreateParams> {
         Ok(AccountCreateParams {
             email: self.email,
+            kind: self.kind.unwrap_or(AccountKind::User),
             password: self.password,
             name: self.name,
             description: self.description,
             avatar_url: self.avatar_url,
             tags: self.tags,
+            enabled: self.enabled.unwrap_or_default(),
+            verified: self.verified.unwrap_or_default(),
             meta: self.meta,
             workspace_id,
         })
