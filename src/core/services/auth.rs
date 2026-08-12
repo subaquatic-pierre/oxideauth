@@ -209,8 +209,15 @@ where
             .ws_svc
             .get_workspace_by_slug_or_id(ctx, &workspace_id)
             .await?;
-
         let ws_id = ws.id;
+
+        // ensure only public workspaces accept open registrations
+        // FEATURE: allow for registration link verification with JWT
+        if !ws.config.public {
+            return Err(CoreError::Auth(
+                "Cannot register to private workspace".into(),
+            ));
+        }
 
         // --- Look up the default "Workspace Viewer" role ---
         let viewer_role = self
@@ -453,10 +460,6 @@ where
             access_token: tp.access_token,
             refresh_token: tp.refresh_token,
         })
-    }
-
-    pub async fn register_account(&self, ctx: &CoreCtx) -> CoreResult<()> {
-        Ok(())
     }
 
     /// Revokes the given bearer token (access or refresh).

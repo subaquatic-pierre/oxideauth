@@ -156,7 +156,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ProjectSe
             }
         }
 
-        let n_project: ProjectForCreate = params.into();
+        let n_project = params.into();
 
         let project_row = store.create(&store_ctx, n_project).await?;
 

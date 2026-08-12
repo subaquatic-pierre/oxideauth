@@ -80,7 +80,7 @@ impl From<Project> for ProjectDescribeRes {
 #[derive(Deserialize)]
 pub struct ProjectCreateReq {
     pub name: String,
-    // Use 'code' instead of 'slug'
+    pub owner: Option<Uuid>,
     pub code: Option<String>,
     pub description: Option<String>,
 
@@ -95,7 +95,7 @@ impl IntoParams<ProjectCreateParams> for ProjectCreateReq {
         Ok(ProjectCreateParams {
             workspace_id,
             name: self.name,
-            // Map 'code'
+            owner: self.owner,
             code: self.code,
             description: self.description,
             config: self.config,

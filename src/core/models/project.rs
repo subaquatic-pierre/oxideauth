@@ -1,4 +1,4 @@
-use modql::filter::{op_val_string, ListOptions, OpValString, OpValsString};
+use modql::filter::{ListOptions, OpValString, OpValsString, op_val_string};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -32,7 +32,7 @@ impl From<ProjectCreateParams> for ProjectForCreate {
             name: params.name,
             code: params.code,
             description: params.description,
-            owner: Uuid::nil().into(),
+            owner: params.owner.unwrap_or_default().into(),
             config: params.config,
             tags: params.tags,
             meta: params.meta,
@@ -107,6 +107,7 @@ pub struct ProjectCreateParams {
     pub name: String,
     pub code: Option<String>,
     pub description: Option<String>,
+    pub owner: Option<Uuid>,
 
     pub config: ProjectConfig,
     pub tags: Vec<String>,

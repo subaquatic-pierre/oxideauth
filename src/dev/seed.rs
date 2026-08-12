@@ -320,7 +320,9 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
     ctx: &mut CoreCtx,
     svc_reg: Arc<ServiceRegistry<D, C>>,
 ) -> CoreResult<()> {
-    // Create a test workspace
+    // =========================================================================
+    // WORKSPACE 1: Private "test" workspace
+    // =========================================================================
     let test_ws = svc_reg
         .workspace
         .create(
@@ -329,7 +331,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
                 name: "Test Workspace".to_string(),
                 slug: "test".to_string(),
                 owner: None,
-                description: Some("Test workspace for development".to_string()),
+                description: Some("Private test workspace for development".to_string()),
                 config: WorkspaceConfig::default(),
                 tags: vec!["test".to_string()],
                 meta: WorkspaceMeta::default(),
@@ -337,9 +339,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         )
         .await?;
 
-    let ws_id = test_ws.id;
-
-    // Create a test account
+    // Test account — owner of test workspace
     let test_account = svc_reg
         .account
         .create(
@@ -361,7 +361,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             ctx,
             CredentialCreateParams {
                 account_id: test_account.id,
-                workspace_id: ws_id,
+                workspace_id: test_ws.id,
                 kind: CredentialKind::Password,
                 provider: CredentialProvider::Local,
                 status: CredentialStatus::Active,
@@ -378,6 +378,339 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         )
         .await?;
 
-    tracing::info!("Seed test data created");
+    // Set owner of test workspace
+    svc_reg
+        .workspace
+        .update(
+            ctx,
+            WorkspaceUpdateParams {
+                id: test_ws.id.to_string(),
+                owner: Some(test_account.id),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    // =========================================================================
+    // WORKSPACE 2: Public "public-test" workspace
+    // =========================================================================
+    let public_ws = svc_reg
+        .workspace
+        .create(
+            ctx,
+            WorkspaceCreateParams {
+                name: "Public Test Workspace".to_string(),
+                slug: "public-test".to_string(),
+                owner: None,
+                description: Some("Public test workspace — anyone can browse".to_string()),
+                config: WorkspaceConfig {
+                    public: true,
+                    ..Default::default()
+                },
+                tags: vec!["test".to_string(), "public".to_string()],
+                meta: WorkspaceMeta::default(),
+            },
+        )
+        .await?;
+
+    // Admin for public workspace
+    let public_admin = svc_reg
+        .account
+        .create(
+            ctx,
+            AccountCreateParams {
+                email: "public-admin@example.com".to_string(),
+                password: "adminpass".to_string(),
+                name: "Public Admin".to_string(),
+                description: Some("Admin of the public test workspace".to_string()),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    svc_reg
+        .credential
+        .create(
+            ctx,
+            CredentialCreateParams {
+                account_id: public_admin.id,
+                workspace_id: public_ws.id,
+                kind: CredentialKind::Password,
+                provider: CredentialProvider::Local,
+                status: CredentialStatus::Active,
+                secret: Some(hash_password("adminpass")?),
+                provider_id: None,
+                email: None,
+                config: CredentialConfig::default(),
+                last_used_at: None,
+                tags: vec!["test".to_string()],
+                meta: CredentialMeta {
+                    schema_version: "1".to_string(),
+                },
+            },
+        )
+        .await?;
+
+    // Set owner of public workspace
+    svc_reg
+        .workspace
+        .update(
+            ctx,
+            WorkspaceUpdateParams {
+                id: public_ws.id.to_string(),
+                owner: Some(public_admin.id),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    // =========================================================================
+    // WORKSPACE 3: Private "private-test" workspace
+    // =========================================================================
+    let private_ws = svc_reg
+        .workspace
+        .create(
+            ctx,
+            WorkspaceCreateParams {
+                name: "Private Test Workspace".to_string(),
+                slug: "private-test".to_string(),
+                owner: None,
+                description: Some("Private test workspace — members only".to_string()),
+                config: WorkspaceConfig {
+                    public: false,
+                    ..Default::default()
+                },
+                tags: vec!["test".to_string(), "private".to_string()],
+                meta: WorkspaceMeta::default(),
+            },
+        )
+        .await?;
+
+    // Admin for private workspace
+    let private_admin = svc_reg
+        .account
+        .create(
+            ctx,
+            AccountCreateParams {
+                email: "private-admin@example.com".to_string(),
+                password: "adminpass".to_string(),
+                name: "Private Admin".to_string(),
+                description: Some("Admin of the private test workspace".to_string()),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    svc_reg
+        .credential
+        .create(
+            ctx,
+            CredentialCreateParams {
+                account_id: private_admin.id,
+                workspace_id: private_ws.id,
+                kind: CredentialKind::Password,
+                provider: CredentialProvider::Local,
+                status: CredentialStatus::Active,
+                secret: Some(hash_password("adminpass")?),
+                provider_id: None,
+                email: None,
+                config: CredentialConfig::default(),
+                last_used_at: None,
+                tags: vec!["test".to_string()],
+                meta: CredentialMeta {
+                    schema_version: "1".to_string(),
+                },
+            },
+        )
+        .await?;
+
+    // Set owner of private workspace
+    svc_reg
+        .workspace
+        .update(
+            ctx,
+            WorkspaceUpdateParams {
+                id: private_ws.id.to_string(),
+                owner: Some(private_admin.id),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    // =========================================================================
+    // EXTRA USER: Cross-workspace member
+    // =========================================================================
+    let member = svc_reg
+        .account
+        .create(
+            ctx,
+            AccountCreateParams {
+                email: "member@example.com".to_string(),
+                password: "memberpass".to_string(),
+                name: "Workspace Member".to_string(),
+                description: Some("Cross-workspace member account".to_string()),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    // Credential for member (attached to test workspace)
+    svc_reg
+        .credential
+        .create(
+            ctx,
+            CredentialCreateParams {
+                account_id: member.id,
+                workspace_id: test_ws.id,
+                kind: CredentialKind::Password,
+                provider: CredentialProvider::Local,
+                status: CredentialStatus::Active,
+                secret: Some(hash_password("memberpass")?),
+                provider_id: None,
+                email: None,
+                config: CredentialConfig::default(),
+                last_used_at: None,
+                tags: vec!["test".to_string()],
+                meta: CredentialMeta {
+                    schema_version: "1".to_string(),
+                },
+            },
+        )
+        .await?;
+
+    // =========================================================================
+    // MEMBERSHIPS — owners as admins, member as viewer across workspaces
+    // =========================================================================
+    let store_ctx: StoreCtx = (&*ctx).into();
+
+    let test_admin_role = svc_reg
+        .sm
+        .role
+        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_admin_role, DbId(test_ws.id))
+        .await?
+        .expect("WorkspaceAdmin role not found in test workspace");
+    let public_admin_role = svc_reg
+        .sm
+        .role
+        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_admin_role, DbId(public_ws.id))
+        .await?
+        .expect("WorkspaceAdmin role not found in public test workspace");
+    let private_admin_role = svc_reg
+        .sm
+        .role
+        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_admin_role, DbId(private_ws.id))
+        .await?
+        .expect("WorkspaceAdmin role not found in private test workspace");
+
+    let test_viewer_role = svc_reg
+        .sm
+        .role
+        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_viewer_role, DbId(test_ws.id))
+        .await?
+        .expect("WorkspaceViewer role not found in test workspace");
+    let public_viewer_role = svc_reg
+        .sm
+        .role
+        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_viewer_role, DbId(public_ws.id))
+        .await?
+        .expect("WorkspaceViewer role not found in public test workspace");
+    let private_viewer_role = svc_reg
+        .sm
+        .role
+        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_viewer_role, DbId(private_ws.id))
+        .await?
+        .expect("WorkspaceViewer role not found in private test workspace");
+
+    let memberships: Vec<MembershipCreateParams> = vec![
+        // test_account as admin of test ws
+        MembershipCreateParams {
+            account_id: test_account.id,
+            workspace_id: test_ws.id,
+            scope: MembershipScope::Workspace,
+            status: MembershipStatus::Active,
+            project_id: None,
+            role_ids: vec![test_admin_role.id.into()],
+            tags: vec!["test".to_string()],
+            meta: MembershipMeta {
+                schema_version: "1".to_string(),
+            },
+        },
+        // public_admin as admin of public ws
+        MembershipCreateParams {
+            account_id: public_admin.id,
+            workspace_id: public_ws.id,
+            scope: MembershipScope::Workspace,
+            status: MembershipStatus::Active,
+            project_id: None,
+            role_ids: vec![public_admin_role.id.into()],
+            tags: vec!["test".to_string()],
+            meta: MembershipMeta {
+                schema_version: "1".to_string(),
+            },
+        },
+        // private_admin as admin of private ws
+        MembershipCreateParams {
+            account_id: private_admin.id,
+            workspace_id: private_ws.id,
+            scope: MembershipScope::Workspace,
+            status: MembershipStatus::Active,
+            project_id: None,
+            role_ids: vec![private_admin_role.id.into()],
+            tags: vec!["test".to_string()],
+            meta: MembershipMeta {
+                schema_version: "1".to_string(),
+            },
+        },
+        // member as viewer of test ws
+        MembershipCreateParams {
+            account_id: member.id,
+            workspace_id: test_ws.id,
+            scope: MembershipScope::Workspace,
+            status: MembershipStatus::Active,
+            project_id: None,
+            role_ids: vec![test_viewer_role.id.into()],
+            tags: vec!["test".to_string()],
+            meta: MembershipMeta {
+                schema_version: "1".to_string(),
+            },
+        },
+        // member as viewer of public ws
+        MembershipCreateParams {
+            account_id: member.id,
+            workspace_id: public_ws.id,
+            scope: MembershipScope::Workspace,
+            status: MembershipStatus::Active,
+            project_id: None,
+            role_ids: vec![public_viewer_role.id.into()],
+            tags: vec!["test".to_string()],
+            meta: MembershipMeta {
+                schema_version: "1".to_string(),
+            },
+        },
+        // member as viewer of private ws
+        MembershipCreateParams {
+            account_id: member.id,
+            workspace_id: private_ws.id,
+            scope: MembershipScope::Workspace,
+            status: MembershipStatus::Active,
+            project_id: None,
+            role_ids: vec![private_viewer_role.id.into()],
+            tags: vec!["test".to_string()],
+            meta: MembershipMeta {
+                schema_version: "1".to_string(),
+            },
+        },
+    ];
+
+    for params in memberships {
+        ctx.extend_perms(&["membership:create"])?;
+        svc_reg.membership.create(ctx, params).await?;
+    }
+
+    tracing::info!(
+        "Seed test data created: 3 workspaces (test, public-test, private-test), \
+         4 accounts (test, public-admin, private-admin, member), \
+         4 credentials, 6 memberships"
+    );
     Ok(())
 }
