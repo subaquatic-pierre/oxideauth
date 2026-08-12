@@ -99,6 +99,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
         // Phase 2: wire cycle-breaking Weak references into WorkspaceService.
         workspace.wire_permission_service(&permission);
         workspace.wire_role_service(&role);
+        workspace.wire_project_service(&project);
 
         Self {
             sm,

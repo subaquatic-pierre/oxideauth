@@ -23,6 +23,7 @@ use crate::{
         services::{
             auth::AuthValidator,
             permission::{CANONICAL_PERMISSIONS, PermissionService},
+            project::ProjectService,
             role::RoleService,
         },
         traits::{
@@ -40,6 +41,7 @@ use crate::{
             account::{AccountFilter, AccountForCreate, AccountMeta},
             id::DbId,
             permission::{PermissionForCreate, PermissionMeta},
+            project::ProjectForCreate,
             workspace::{
                 WorkspaceConfig as StoreWorkspaceConfig, WorkspaceFilter, WorkspaceForCreate,
                 WorkspaceForUpdate,
@@ -63,6 +65,10 @@ pub struct WorkspaceService<D: DbExecutor, C: CacheExecutor> {
     /// `Weak` to break the Arc cycle with `PermissionService`.
     /// Set by `ServiceRegistry` via `wire_permission_service()`.
     perm_svc: OnceLock<Weak<PermissionService<D, C>>>,
+
+    /// `Weak` to break the Arc cycle with `ProjectService`.
+    /// Set by `ServiceRegistry` via `wire_project_service()`.
+    project_svc: OnceLock<Weak<ProjectService<D, C>>>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
@@ -71,6 +77,7 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             sm,
             role_svc: OnceLock::new(),
             perm_svc: OnceLock::new(),
+            project_svc: OnceLock::new(),
         }
     }
 
@@ -86,6 +93,12 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         self.perm_svc
             .set(Arc::downgrade(perm))
             .expect("wire_permission_service must only be called once");
+    }
+
+    pub(crate) fn wire_project_service(&self, project: &Arc<ProjectService<D, C>>) {
+        self.project_svc
+            .set(Arc::downgrade(project))
+            .expect("wire_project_service must only be called once");
     }
 
     /// --- Resolvers ---
@@ -104,6 +117,14 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             .expect("PermissionService not wired")
             .upgrade()
             .expect("PermissionService Arc dropped before WorkspaceService")
+    }
+
+    fn project_svc(&self) -> Arc<ProjectService<D, C>> {
+        self.project_svc
+            .get()
+            .expect("ProjectService not wired")
+            .upgrade()
+            .expect("ProjectService Arc dropped before WorkspaceService")
     }
 
     // async fn get_workspace_id(&self, ctx: &CoreCtx, id: String) -> CoreResult<Uuid> {
@@ -216,6 +237,32 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         tracing::info!(workspace_id = %workspace_id, "Default workspace roles seeded");
         Ok(())
     }
+
+    /// Creates a default project in the new workspace, owned by the
+    /// workspace creator. Called after permissions and roles are seeded.
+    async fn populate_default_project(
+        &self,
+        ctx: &mut CoreCtx,
+        workspace_id: Uuid,
+    ) -> CoreResult<()> {
+        let store_ctx: StoreCtx = ctx.into();
+
+        let project_for_create = ProjectForCreate {
+            workspace_id,
+            name: "Default".to_string(),
+            code: None,
+            description: Some("Default project for workspace".to_string()),
+            owner: ctx.account_id().into(),
+            config: Default::default(),
+            tags: vec![],
+            meta: Default::default(),
+        };
+
+        self.sm.project.create(&store_ctx, project_for_create).await?;
+
+        tracing::info!(workspace_id = %workspace_id, "Default project created");
+        Ok(())
+    }
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for WorkspaceService<D, C> {
@@ -283,6 +330,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Workspace
             CANONICAL_PERMISSIONS.role.describe,
         ]);
         self.populate_ws_roles(ctx, workspace_id).await?;
+
+        // 6. Create default project in the new workspace
+        ctx.extend_perms(&[CANONICAL_PERMISSIONS.project.create]);
+        self.populate_default_project(ctx, workspace_id).await?;
 
         Ok(new_workspace.into())
     }
