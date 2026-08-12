@@ -532,6 +532,20 @@ impl PermissionPermissions {
     }
 }
 
+pub struct AuthPermissions {
+    pub refresh: &'static str,
+    pub revoke: &'static str,
+}
+
+impl AuthPermissions {
+    pub fn all(&self) -> Vec<(&'static str, &'static str)> {
+        vec![
+            (self.refresh, "Rotate authentication tokens (refresh access)"),
+            (self.revoke, "Revoke authentication tokens (invalidate sessions)"),
+        ]
+    }
+}
+
 // ============================================================================
 // Canonical permissions aggregate
 // ============================================================================
@@ -545,6 +559,7 @@ pub struct CanonicalPermissions {
     pub client: ClientPermissions,
     pub credential: CredentialPermissions,
     pub permission: PermissionPermissions,
+    pub auth: AuthPermissions,
 }
 
 impl CanonicalPermissions {
@@ -559,6 +574,7 @@ impl CanonicalPermissions {
         v.extend_from_slice(self.client.all());
         v.extend_from_slice(self.credential.all());
         v.extend_from_slice(self.permission.all());
+        v.extend_from_slice(&self.auth.all());
         v
     }
 
@@ -575,6 +591,9 @@ impl CanonicalPermissions {
             // membership
             CANONICAL_PERMISSIONS.membership.describe, // describe memberships
             CANONICAL_PERMISSIONS.membership.list,     // list memberships
+            // auth
+            CANONICAL_PERMISSIONS.auth.refresh,
+            CANONICAL_PERMISSIONS.auth.revoke,
         ];
 
         v
@@ -590,6 +609,7 @@ impl CanonicalPermissions {
         all.extend_from_slice(self.client.all());
         all.extend_from_slice(self.credential.all());
         all.extend_from_slice(self.permission.all());
+        all.extend_from_slice(&self.auth.all());
         all.into_iter().map(|(name, _)| name).collect()
     }
 }
@@ -652,5 +672,9 @@ pub const CANONICAL_PERMISSIONS: CanonicalPermissions = CanonicalPermissions {
         list: "permission:list",
         update: "permission:update",
         delete: "permission:delete",
+    },
+    auth: AuthPermissions {
+        refresh: "auth:refresh",
+        revoke: "auth:revoke",
     },
 };

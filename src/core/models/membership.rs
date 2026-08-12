@@ -97,6 +97,7 @@ pub struct MembershipDescribeParams {
 pub struct MembershipUpdateParams {
     pub id: Uuid,
     pub workspace_id: Uuid,
+    pub version: Option<i64>,
     pub status: Option<MembershipStatus>,
     pub scope: Option<MembershipScope>,
     pub project_id: Option<Uuid>,
@@ -110,7 +111,7 @@ impl From<MembershipUpdateParams> for MembershipForUpdate {
             status: value.status,
             scope: value.scope,
             project_id: value.project_id,
-            version: None,
+            version: value.version,
             tags: value.tags,
             meta: value.meta,
         }

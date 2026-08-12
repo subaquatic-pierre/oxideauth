@@ -1,7 +1,6 @@
 use axum::{
     Json, Router,
     extract::{Extension, Query},
-    http::HeaderMap,
     response::Redirect,
     routing::{get, post},
 };
@@ -9,15 +8,14 @@ use serde::Deserialize;
 
 use crate::{
     app::App,
-    cache::redis::RedisChx,
-    core::{ctx::CoreCtx, models::auth::RegisterParams, services::token::TokenService},
-    store::dbx::PgDbx,
+    core::{ctx::CoreCtx, models::auth::RegisterParams},
     web::{
         dtos::auth::{
             AuthConfirmAccountReq, AuthConfirmAccountRes, AuthLoginReq, AuthLoginRes,
-            AuthOAuthInitiateReq, AuthOAuthInitiateRes, AuthRefreshRes, AuthRegisterReq,
-            AuthRegisterRes, AuthResendConfirmReq, AuthResendConfirmRes, AuthResetPasswordReq,
-            AuthResetPasswordRes, AuthRevokeRes, AuthUpdatePasswordReq, AuthUpdatePasswordRes,
+            AuthOAuthInitiateReq, AuthOAuthInitiateRes, AuthRefreshReq, AuthRefreshRes,
+            AuthRegisterReq, AuthRegisterRes, AuthResendConfirmReq, AuthResendConfirmRes,
+            AuthResetPasswordReq, AuthResetPasswordRes, AuthRevokeReq, AuthRevokeRes,
+            AuthUpdatePasswordReq, AuthUpdatePasswordRes,
         },
         error::{JsonReqResult, JsonResResult, WebError},
         response::WebResponse,
@@ -63,12 +61,11 @@ pub async fn login(
 #[axum::debug_handler]
 pub async fn refresh(
     app: Extension<App>,
-    headers: HeaderMap,
+    body: JsonReqResult<AuthRefreshReq>,
 ) -> JsonResResult<WebResponse<AuthRefreshRes>> {
-    let raw_token = TokenService::<PgDbx, RedisChx>::token_str_from_headers(&headers)
-        .ok_or(WebError::Unauthorized)?;
+    let Json(body) = body?;
     let svc = app.svc_reg.auth.clone();
-    let tp = svc.refresh_token(raw_token).await?;
+    let tp = svc.refresh_token(&body.token).await?;
     WebResponse::json(AuthRefreshRes {
         access_token: tp.access_token,
         refresh_token: tp.refresh_token,
@@ -139,14 +136,13 @@ pub async fn resend_confirm(
 // --- Revoke Token ---
 #[axum::debug_handler]
 pub async fn revoke(
-    ctx: Extension<CoreCtx>,
+    mut ctx: Extension<CoreCtx>,
     app: Extension<App>,
-    headers: HeaderMap,
+    body: JsonReqResult<AuthRevokeReq>,
 ) -> JsonResResult<WebResponse<AuthRevokeRes>> {
-    let raw_token = TokenService::<PgDbx, RedisChx>::token_str_from_headers(&headers)
-        .ok_or(WebError::Unauthorized)?;
+    let Json(body) = body?;
     let svc = app.svc_reg.auth.clone();
-    svc.revoke_token(&ctx, raw_token).await?;
+    svc.revoke_token(&mut ctx, &body.token).await?;
     WebResponse::json(AuthRevokeRes { revoked: true })
 }
 

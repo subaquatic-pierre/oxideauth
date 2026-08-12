@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     cache::{
+        entities::auth::{AuthCache, AuthScopeCache},
         entities::oauth_state::{OAuthProvider, OAuthStateCache},
         manager::CacheManager,
         traits::CacheExecutor,
@@ -26,7 +27,8 @@ use crate::{
             },
             list::RequestFilterParams,
             membership::{
-                MembershipCreateParams, MembershipFilter, MembershipListParams, MembershipMeta,
+                MembershipCreateParams, MembershipDescribeParams, MembershipFilter,
+                MembershipListParams, MembershipMeta, MembershipUpdateParams,
             },
             permission::{PermissionEngine, PermissionRule},
             role::RoleListParams,
@@ -40,8 +42,8 @@ use crate::{
         traits::{
             params::ValidateParams,
             service::{
-                CoreModelCreateService, CoreModelListService, CoreModelService,
-                CoreModelUpdateService,
+                CoreModelCreateService, CoreModelDescribeService, CoreModelListService,
+                CoreModelService, CoreModelUpdateService,
             },
         },
     },
@@ -459,49 +461,82 @@ where
 
     /// Revokes the given bearer token (access or refresh).
     ///
-    /// Decodes the token to recover its claims, then invalidates the entire
-    /// session: the session version counter is bumped and every auth-cache key
-    /// belonging to the membership/account is purged. No hash computation and
-    /// no database write are involved — revocation is purely version/cache
-    /// based.
-    pub async fn revoke_token(&self, ctx: &CoreCtx, raw_token: &str) -> CoreResult<bool> {
-        // Decode the token to recover claims (sid, sub, mem, ...). A token that
-        // fails signature validation or is already expired cannot be revoked.
+    /// Decodes the token to recover its claims, validates that the caller has
+    /// the `auth:revoke` permission, bumps the membership version in the
+    /// database, and purges the auth cache. No tokens carrying the old version
+    /// will validate after this call.
+    pub async fn revoke_token(&self, ctx: &mut CoreCtx, raw_token: &str) -> CoreResult<bool> {
         let claims = self.token_svc.decode_token_str(raw_token)?;
 
         let sid = claims.require_sid()?;
         let mem_id = claims.mem_id()?;
         let acc_id = claims.acc_id()?;
+        let ws_id = claims.ws_id()?;
 
-        // Authorization: only the token owner may revoke their own token.
-        // TODO: workspace admin (admin permission on the token's workspace) and
-        //   super admin (global permission) revocation checks.
-        if ctx.account_id() != acc_id {
-            return Err(CoreError::Auth(
-                "unauthorized: not the token owner".to_string(),
-            ));
-        }
+        // Permission check: caller must have auth:revoke
+        let auth_validator = AuthValidator::new(ctx);
+        auth_validator.validate_ctx_perms(&[CANONICAL_PERMISSIONS.auth.revoke])?;
 
-        // Purge the cached auth data for the membership + account.
-        self.cm
-            .invalidation
-            .invalidate(mem_id, acc_id, Some(sid))
-            .await?;
+        // Extend permissions needed to bump the membership version
+        ctx.extend_perms(&[
+            CANONICAL_PERMISSIONS.membership.describe,
+            CANONICAL_PERMISSIONS.membership.update,
+        ])?;
 
-        // TODO(T033): Push notification trigger — notify the workspace's clients
-        // that a token was revoked. Requires wiring a `ClientService` dependency
-        // into `AuthService` (constructor + factory). Then call:
-        //     let ws_id = Uuid::from_str(claims.ws()).unwrap_or_default();
-        //     client_svc.push_to_workspace(
-        //         ws_id,
-        //         "token_revoked",
-        //         serde_json::json!({ "account_id": acc_id, "membership_id": mem_id }),
-        //         ctx, // note: needs &mut CoreCtx; revoke_token currently takes &CoreCtx
-        //     ).await;
+        // Bump version + invalidate cache
+        self.bump_membership_version_and_invalidate(
+            ctx, mem_id, ws_id, acc_id, Some(sid),
+        )
+        .await?;
 
         info!(account_id = %ctx.account_id(), sid = %sid, "AUTH_TOKEN_REVOKED");
 
         Ok(true)
+    }
+
+    /// Bumps the membership version by 1 in the database and invalidates
+    /// the auth cache. The provided context must already have
+    /// membership:describe and membership:update permissions.
+    async fn bump_membership_version_and_invalidate(
+        &self,
+        ctx: &mut CoreCtx,
+        mem_id: Uuid,
+        ws_id: Uuid,
+        acc_id: Uuid,
+        sid: Option<Uuid>,
+    ) -> CoreResult<()> {
+        // Describe membership to get current version
+        let membership = self
+            .membership_svc
+            .describe(
+                ctx,
+                MembershipDescribeParams {
+                    id: mem_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        // Bump version by 1
+        self.membership_svc
+            .update(
+                ctx,
+                MembershipUpdateParams {
+                    id: mem_id,
+                    workspace_id: ws_id,
+                    version: Some(membership.version + 1),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        // Invalidate Redis cache
+        self.cm
+            .invalidation
+            .invalidate(mem_id, acc_id, sid)
+            .await?;
+
+        Ok(())
     }
 
     /// Rotates a refresh token: verifies it has not already been used (replay
@@ -538,13 +573,39 @@ where
             .check_and_consume(jti, sid, remaining_ttl as u64)
             .await?
         {
-            // REPLAY DETECTED: the refresh token was already used. Compromise
-            // the whole session so neither the old nor the (stolen) new tokens
-            // remain valid.
-            self.cm
-                .invalidation
-                .invalidate(mem_id, acc_id, Some(sid))
+            // REPLAY DETECTED: the refresh token was already used. Bump the
+            // membership version so all existing tokens for this session are
+            // permanently invalidated, then purge the auth cache.
+            {
+                // Build a minimal context with the needed permissions.
+                // We know the token's claims are valid (we just decoded them),
+                // so we can construct a temporary context from the claims.
+                let auth_cache = AuthCache {
+                    mem_id,
+                    acc_id,
+                    sid: Some(sid),
+                    mem_version: claims.mem_ver,
+                    acc_version: claims.acc_ver,
+                    mem_active: true,
+                    acc_enabled: true,
+                    auth_scope: AuthScopeCache {
+                        workspace_id: ws_id,
+                        workspace_slug: String::new(),
+                        project_id: None,
+                        roles: vec![],
+                        permissions: vec![
+                            CANONICAL_PERMISSIONS.membership.describe.to_string(),
+                            CANONICAL_PERMISSIONS.membership.update.to_string(),
+                        ],
+                    },
+                };
+                let mut temp_ctx = CoreCtx::new(auth_cache, ws_id)?;
+
+                self.bump_membership_version_and_invalidate(
+                    &mut temp_ctx, mem_id, ws_id, acc_id, Some(sid),
+                )
                 .await?;
+            }
 
             return Err(CoreError::Auth(
                 "session compromised, please re-authenticate".to_string(),

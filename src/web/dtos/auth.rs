@@ -52,6 +52,13 @@ pub struct AuthLoginRes {
     pub refresh_token: String,
 }
 
+// --- AuthRefreshReq ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthRefreshReq {
+    pub token: String,
+}
+
 // --- AuthRefreshRes ---
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -116,6 +123,13 @@ pub struct AuthResendConfirmReq {
 #[serde(rename_all = "camelCase")]
 pub struct AuthResendConfirmRes {
     pub message: String,
+}
+
+// --- AuthRevokeReq ---
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthRevokeReq {
+    pub token: String,
 }
 
 // --- AuthRevokeRes ---

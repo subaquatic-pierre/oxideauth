@@ -113,6 +113,7 @@ impl IntoParams<MembershipUpdateParams> for MembershipUpdateReq {
             project_id: self.project_id,
             tags: self.tags,
             meta: self.meta,
+            ..Default::default()
         })
     }
 }
