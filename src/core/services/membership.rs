@@ -110,7 +110,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         &self,
         ctx: &mut CoreCtx,
         id: Uuid,
-        workspace_id: Uuid,
+        _workspace_id: Uuid,
     ) -> CoreResult<Account> {
         ctx.extend_perms(&["account:describe"])?;
 
@@ -119,7 +119,6 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
             .describe(
                 ctx,
                 AccountDescribeParams {
-                    workspace_id,
                     email: None,
                     id: Some(id),
                 },
@@ -502,7 +501,6 @@ mod tests {
             .create(
                 ctx,
                 crate::core::models::account::AccountCreateParams {
-                    workspace_id: ws.id,
                     email: format!("test-{}@example.com", Uuid::new_v4()),
                     name: "Member User".to_string(),
                     ..Default::default()

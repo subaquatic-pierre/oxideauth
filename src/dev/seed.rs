@@ -65,7 +65,7 @@ pub async fn seed_workspaces<D: DbExecutor, C: CacheExecutor>(
             WorkspaceCreateParams {
                 name: "System Workspace".to_string(),
                 slug: SYSTEM_CONST.system_ws_slug.to_string(),
-                owner: Uuid::nil(),
+                owner: None,
                 description: Some("System workspace for root operations".to_string()),
                 config: WorkspaceConfig::default(),
                 tags: vec!["system".to_string()],
@@ -82,7 +82,7 @@ pub async fn seed_workspaces<D: DbExecutor, C: CacheExecutor>(
             WorkspaceCreateParams {
                 name: "Default Workspace".to_string(),
                 slug: "default".to_string(),
-                owner: Uuid::nil(),
+                owner: None,
                 description: Some("Default workspace for general access".to_string()),
                 config: WorkspaceConfig::default(),
                 tags: vec!["system".to_string()],
@@ -104,8 +104,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         .describe(
             ctx,
             WorkspaceDescribeParams {
-                slug: Some(SYSTEM_CONST.system_ws_slug.to_string()),
-                id: None,
+                id: SYSTEM_CONST.default_ws_slug.to_string(),
             },
         )
         .await?;
@@ -119,7 +118,6 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
                 email: SYSTEM_CONST.system_acc_email.to_string(),
                 password: String::new(),
                 name: SYSTEM_CONST.system_acc_name.to_string(),
-                workspace_id: system_ws.id,
                 description: Some("System account for internal operations".to_string()),
                 tags: Some(vec!["system".to_string()]),
                 ..Default::default()
@@ -136,7 +134,6 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
                 email: config.owner_email.clone(),
                 password: config.owner_password.clone(),
                 name: config.owner_name.clone(),
-                workspace_id: system_ws.id,
                 description: Some("Workspace owner account".to_string()),
                 tags: Some(vec!["system".to_string()]),
                 ..Default::default()
@@ -174,7 +171,6 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
             WorkspaceUpdateParams {
                 id: system_ws.id.into(),
                 name: None,
-                slug: None,
                 owner: Some(system_ws.id),
                 description: None,
                 config: None,
@@ -189,8 +185,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         .describe(
             ctx,
             WorkspaceDescribeParams {
-                slug: Some("default".to_string()),
-                id: None,
+                id: SYSTEM_CONST.default_ws_slug.to_string(),
             },
         )
         .await?;
@@ -199,7 +194,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         .update(
             ctx,
             WorkspaceUpdateParams {
-                id: Some(default_ws.id),
+                id: default_ws.id.to_string(),
                 owner: Some(owner_acc.id),
                 ..Default::default()
             },
@@ -220,8 +215,7 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
         .describe(
             ctx,
             WorkspaceDescribeParams {
-                slug: Some(SYSTEM_CONST.system_ws_slug.to_string()),
-                id: None,
+                id: SYSTEM_CONST.system_ws_slug.to_string(),
             },
         )
         .await?;
@@ -230,8 +224,7 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
         .describe(
             ctx,
             WorkspaceDescribeParams {
-                slug: Some("default".to_string()),
-                id: None,
+                id: SYSTEM_CONST.default_ws_slug.to_string(),
             },
         )
         .await?;
@@ -335,7 +328,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             WorkspaceCreateParams {
                 name: "Test Workspace".to_string(),
                 slug: "test".to_string(),
-                owner: Uuid::nil(),
+                owner: None,
                 description: Some("Test workspace for development".to_string()),
                 config: WorkspaceConfig::default(),
                 tags: vec!["test".to_string()],
@@ -355,7 +348,6 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
                 email: "test@example.com".to_string(),
                 password: "testpass".to_string(),
                 name: "Test Account".to_string(),
-                workspace_id: ws_id,
                 description: Some("General test account".to_string()),
                 ..Default::default()
             },

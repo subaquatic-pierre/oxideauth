@@ -82,7 +82,6 @@ pub struct AccountCreateParams {
     pub email: String,
     pub password: String,
     pub name: String,
-    pub workspace_id: Uuid,
     pub kind: AccountKind,
 
     pub description: Option<String>,
@@ -112,18 +111,15 @@ impl From<AccountCreateParams> for AccountForCreate {
 #[derive(Default)]
 pub struct AccountDescribeParams {
     pub email: Option<String>,
-    pub workspace_id: Uuid,
     pub id: Option<Uuid>,
 }
 
 pub struct AccountDeleteParams {
-    pub workspace_id: Uuid,
     pub email: Option<String>,
     pub id: Option<Uuid>,
 }
 
 pub struct AccountUpdateParams {
-    pub workspace_id: Uuid,
     pub email: Option<String>,
     pub id: Option<Uuid>,
 
@@ -155,7 +151,6 @@ impl From<AccountUpdateParams> for AccountForUpdate {
     }
 }
 pub struct AccountListParams {
-    pub workspace_id: Uuid,
     pub filter: Option<RequestFilterParams<AccountFilter>>,
     pub options: Option<RequestListOptions>,
 }

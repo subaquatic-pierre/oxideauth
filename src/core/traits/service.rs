@@ -26,8 +26,7 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
 
     async fn get_workspace(&self, ctx: &mut CoreCtx, workspace_id: Uuid) -> CoreResult<Workspace> {
         let params = WorkspaceDescribeParams {
-            id: Some(workspace_id),
-            slug: None,
+            id: workspace_id.to_string(),
         };
 
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.workspace.describe])?;

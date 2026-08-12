@@ -106,40 +106,35 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             .expect("PermissionService Arc dropped before WorkspaceService")
     }
 
-    async fn get_workspace_id(
-        &self,
-        ctx: &CoreCtx,
-        id: Option<Uuid>,
-        slug: Option<String>,
-    ) -> CoreResult<Uuid> {
-        let store = self.store();
+    // async fn get_workspace_id(&self, ctx: &CoreCtx, id: String) -> CoreResult<Uuid> {
+    //     let store = self.store();
 
-        let id: DbId = match (id, slug) {
-            (Some(id), _) => id.into(),
-            (None, Some(slug)) => match store.get_by_slug_opt(&ctx.into(), &slug).await? {
-                Some(ws) => ws.id,
-                None => {
-                    return Err(CoreError::StoreError(StoreError::EntityNotFound {
-                        entity: "workspace".to_string(),
-                        id: slug.to_string(),
-                    }));
-                }
-            },
-            (None, None) => {
-                return Err(CoreError::InvalidParams(
-                    "Workspace ID or slug required".to_string(),
-                ));
-            }
-        };
+    //     let id: DbId = match (id, slug) {
+    //         (Some(id), _) => id.into(),
+    //         (None, Some(slug)) => match store.get_by_slug_opt(&ctx.into(), &slug).await? {
+    //             Some(ws) => ws.id,
+    //             None => {
+    //                 return Err(CoreError::StoreError(StoreError::EntityNotFound {
+    //                     entity: "workspace".to_string(),
+    //                     id: slug.to_string(),
+    //                 }));
+    //             }
+    //         },
+    //         (None, None) => {
+    //             return Err(CoreError::InvalidParams(
+    //                 "Workspace ID or slug required".to_string(),
+    //             ));
+    //         }
+    //     };
 
-        Ok(id.into())
-    }
+    //     Ok(id.into())
+    // }
 
     pub async fn get_workspace_by_slug_or_id(
         &self,
         ctx: &CoreCtx,
         slug_or_id: &str,
-    ) -> CoreResult<Option<Workspace>> {
+    ) -> CoreResult<Workspace> {
         let store = self.store();
 
         let ws = match Uuid::parse_str(&slug_or_id) {
@@ -147,7 +142,12 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             Err(_) => store.get_by_slug_opt(&ctx.into(), &slug_or_id).await?,
         };
 
-        Ok(ws.map(|el| el.into()))
+        let ws = ws.ok_or(CoreError::NotFound(format!(
+            "Unable to get workspace with identifier: {}",
+            slug_or_id
+        )))?;
+
+        Ok(ws.into())
     }
 
     /// Seeds all canonical permissions into a workspace (idempotent).
@@ -268,7 +268,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Workspace
         }
 
         // 3. Execute store creation
-        let new_workspace = store.create(&store_ctx, params.into()).await?;
+        let new_workspace = store
+            .create(&store_ctx, params.into_store_params(ctx.account_id()))
+            .await?;
 
         // 4. Seed canonical permissions into the new workspace
         let workspace_id: Uuid = new_workspace.id.into();
@@ -298,7 +300,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Workspa
     ) -> CoreResult<Workspace> {
         let store = self.store();
 
-        let workspace_id = self.get_workspace_id(ctx, params.id, params.slug).await?;
+        let workspace = self.get_workspace_by_slug_or_id(ctx, &params.id).await?;
 
         let auth_validator = AuthValidator::new(ctx);
 
@@ -308,7 +310,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Workspa
         // scope store_ctx
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        let res = store.get(&store_ctx, &workspace_id.into()).await?;
+        let res = store.get(&store_ctx, &workspace.id.into()).await?;
 
         Ok(res.into())
     }
@@ -378,13 +380,11 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
         // scope store_ctx
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        let id = self
-            .get_workspace_id(ctx, params.id, params.slug.clone())
-            .await?;
+        let ws = self.get_workspace_by_slug_or_id(ctx, &params.id).await?;
 
         let update_data: WorkspaceForUpdate = params.into();
 
-        let res = store.update(&store_ctx, &id.into(), update_data).await?;
+        let res = store.update(&store_ctx, &ws.id.into(), update_data).await?;
 
         Ok(res.into())
     }
@@ -411,9 +411,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Workspace
         // scope store_ctx
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        let id = self.get_workspace_id(ctx, params.id, params.slug).await?;
+        let ws = self.get_workspace_by_slug_or_id(ctx, &params.id).await?;
 
-        let deleted = store.delete(&store_ctx, &id.into()).await?;
+        let deleted = store.delete(&store_ctx, &ws.id.into()).await?;
 
         Ok(deleted.into())
     }
@@ -462,7 +462,7 @@ mod tests {
             .expect("system workspace not seeded");
 
         let mut params = WorkspaceDescribeParams::default();
-        params.id = Some(system_ws.id.into());
+        params.id = system_ws.id.to_string();
 
         let ok = svc.describe(&mut ctx, params).await;
 
@@ -558,7 +558,7 @@ mod tests {
 
         // Update name
         let update_params = WorkspaceUpdateParams {
-            id: Some(created.id),
+            id: created.id.to_string(),
             name: Some("Updated Name".to_string()),
             ..Default::default()
         };
@@ -594,16 +594,14 @@ mod tests {
 
         // Delete
         let delete_params = WorkspaceDeleteParams {
-            id: Some(created.id),
-            slug: None,
+            id: created.id.to_string(),
         };
         let deleted = svc.delete(&mut ctx, delete_params).await?;
         assert_eq!(deleted.id, created.id);
 
         // Verify it's gone
         let desc_params = WorkspaceDescribeParams {
-            id: Some(created.id),
-            slug: None,
+            id: created.id.to_string(),
         };
         let err = svc.describe(&mut ctx, desc_params).await;
         assert!(err.is_err());

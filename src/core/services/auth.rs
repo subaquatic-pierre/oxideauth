@@ -206,10 +206,7 @@ where
         let ws = self
             .ws_svc
             .get_workspace_by_slug_or_id(ctx, &workspace_id)
-            .await?
-            .ok_or(CoreError::Auth(format!(
-                "Workspace does not exist {workspace_id}"
-            )))?;
+            .await?;
 
         let ws_id = ws.id;
 
@@ -242,7 +239,6 @@ where
             email: email.clone(),
             password: String::new(), // password goes to credential, not account
             name: name.unwrap_or_else(|| "".to_string()),
-            workspace_id: ws_id,
             description: None,
             avatar_url: Some(default_avatar),
             enabled: false,
@@ -753,7 +749,6 @@ where
 
         // Mark the account as verified.
         let update_params = AccountUpdateParams {
-            workspace_id: Uuid::nil(),
             email: None,
             id: None,
             name: None,
@@ -926,7 +921,6 @@ where
                     email: google_user.email.clone(),
                     password: String::new(),
                     name: google_user.name,
-                    workspace_id: store_ctx.ws_id,
                     description: None,
                     avatar_url: google_user.picture.clone(),
                     kind: AccountKind::User,
@@ -1127,7 +1121,11 @@ impl<'a> AuthValidator<'a> {
                 }
                 Ok(Some(id))
             }
-            None => Err(CoreError::Auth("workspace_id required".to_string())),
+            None => {
+                // Derive workspace implicitly from the authenticated context.
+                // The permission check (validate_ctx_perms) still gates authorization.
+                Ok(Some(self.ctx.auth_cache.auth_scope.workspace_id))
+            }
         }
     }
 }

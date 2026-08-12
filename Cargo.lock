@@ -359,7 +359,7 @@ dependencies = [
  "ring",
  "sha2",
  "subtle",
- "time 0.3.41",
+ "time 0.3.55",
  "tracing",
  "zeroize",
 ]
@@ -546,7 +546,7 @@ dependencies = [
  "pin-utils",
  "ryu",
  "serde",
- "time 0.3.41",
+ "time 0.3.55",
  "tokio",
  "tokio-util",
 ]
@@ -1304,12 +1304,11 @@ dependencies = [
 
 [[package]]
 name = "deranged"
-version = "0.4.0"
+version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c9e6a11ca8224451684bc0d7d5a7adbf8f2fd6887261a1cfc3c0432f9d4068e"
+checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 dependencies = [
- "powerfmt",
- "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -2771,9 +2770,9 @@ dependencies = [
 
 [[package]]
 name = "modql"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4226d7e0d2a99687ed0eda5f33f2c9095bdf74869652eab73d075a9f981ecfd"
+checksum = "cd734a9a4868e4e44efe7eadfe6615b82baa25be88a9c6497d108a477dcf3742"
 dependencies = [
  "modql-macros",
  "sea-query",
@@ -2783,9 +2782,9 @@ dependencies = [
 
 [[package]]
 name = "modql-macros"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64cb2ed7c4062a6219c5144317219a5b2668f413f40a52757b9481346817ac86"
+checksum = "f3918b68cc61fdd3667fb7e85d40770b85ca6a694d192ed6872440d623351ff3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2897,9 +2896,9 @@ dependencies = [
 
 [[package]]
 name = "num-conv"
-version = "0.1.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51d515d32fb182ee37cda2ccdcb92950d6a3c2893aa280e540671c2cd0f3b1d9"
+checksum = "521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441"
 
 [[package]]
 name = "num-integer"
@@ -3048,7 +3047,6 @@ dependencies = [
  "reqwest",
  "rust-argon2",
  "sea-query",
- "sea-query-binder",
  "serde",
  "serde_json",
  "serde_with",
@@ -3058,7 +3056,7 @@ dependencies = [
  "strum",
  "strum_macros",
  "tera",
- "time 0.3.41",
+ "time 0.3.55",
  "tokio",
  "tower",
  "tower-http 0.5.2",
@@ -4177,35 +4175,23 @@ dependencies = [
 
 [[package]]
 name = "sea-query"
-version = "0.32.7"
+version = "1.0.0-rc.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a5d1c518eaf5eda38e5773f902b26ab6d5e9e9e2bb2349ca6c64cf96f80448c"
+checksum = "c7e01d76c67146262612a9db50cbc4b4b3236a96a1f04f1744ef2582234187e2"
 dependencies = [
  "inherent",
+ "itoa",
  "sea-query-derive",
  "serde_json",
- "time 0.3.41",
- "uuid 1.18.0",
-]
-
-[[package]]
-name = "sea-query-binder"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0019f47430f7995af63deda77e238c17323359af241233ec768aba1faea7608"
-dependencies = [
- "sea-query",
- "serde_json",
- "sqlx",
- "time 0.3.41",
+ "time 0.3.55",
  "uuid 1.18.0",
 ]
 
 [[package]]
 name = "sea-query-derive"
-version = "0.4.3"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bae0cbad6ab996955664982739354128c58d16e126114fe88c2a493642502aab"
+checksum = "a0b0f466921cdd3cf4b89d5c3ac2173dba89a873ab395b123a645de181ec7537"
 dependencies = [
  "darling",
  "heck 0.4.1",
@@ -4360,7 +4346,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_with_macros",
- "time 0.3.41",
+ "time 0.3.55",
 ]
 
 [[package]]
@@ -4492,7 +4478,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "thiserror",
- "time 0.3.41",
+ "time 0.3.55",
 ]
 
 [[package]]
@@ -4618,7 +4604,7 @@ dependencies = [
  "sha2",
  "smallvec",
  "thiserror",
- "time 0.3.41",
+ "time 0.3.55",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -4704,7 +4690,7 @@ dependencies = [
  "sqlx-core",
  "stringprep",
  "thiserror",
- "time 0.3.41",
+ "time 0.3.55",
  "tracing",
  "uuid 1.18.0",
  "whoami",
@@ -4744,7 +4730,7 @@ dependencies = [
  "sqlx-core",
  "stringprep",
  "thiserror",
- "time 0.3.41",
+ "time 0.3.55",
  "tracing",
  "uuid 1.18.0",
  "whoami",
@@ -4770,7 +4756,7 @@ dependencies = [
  "serde_urlencoded",
  "sqlx-core",
  "thiserror",
- "time 0.3.41",
+ "time 0.3.55",
  "tracing",
  "url",
  "uuid 1.18.0",
@@ -5009,30 +4995,29 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.41"
+version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a7619e19bc266e0f9c5e6686659d394bc57973859340060a69221e57dbc0c40"
+checksum = "cdb87b95ec50ddfa440816d227a17b2ccbdda963a316a727fda0fc4334f7d134"
 dependencies = [
  "deranged",
- "itoa",
  "num-conv",
  "powerfmt",
- "serde",
+ "serde_core",
  "time-core",
  "time-macros",
 ]
 
 [[package]]
 name = "time-core"
-version = "0.1.4"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9e9a38711f559d9e3ce1cdb06dd7c5b8ea546bc90052da6d06bb76da74bb07c"
+checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
 
 [[package]]
 name = "time-macros"
-version = "0.2.22"
+version = "0.2.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3526739392ec93fd8b359c8e98514cb3e8e021beb4e5f597b00a0221f8ed8a49"
+checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
 dependencies = [
  "num-conv",
  "time-core",

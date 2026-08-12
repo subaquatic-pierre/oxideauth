@@ -129,9 +129,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for AccountSe
     async fn create(&self, ctx: &mut CoreCtx, params: AccountCreateParams) -> CoreResult<Account> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
-            .await?;
+        let auth_validator = AuthValidator::new(ctx);
+        auth_validator.validate_ctx_perms(&[Self::CREATE_PERMISSION])?;
+        let store_ctx = auth_validator.scope_store_workspace(None)?;
 
         if store
             .get_by_email(&store_ctx, &params.email)
@@ -160,9 +160,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Account
     ) -> CoreResult<Account> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
-            .await?;
+        let auth_validator = AuthValidator::new(ctx);
+        auth_validator.validate_ctx_perms(&[Self::DESCRIBE_PERMISSION])?;
+        let store_ctx = auth_validator.scope_store_workspace(None)?;
 
         let id = self.get_account_id(ctx, params.id, params.email).await?;
 
@@ -183,9 +183,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for AccountServ
     ) -> CoreResult<ListResponse<Account>> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
-            .await?;
+        let auth_validator = AuthValidator::new(ctx);
+        auth_validator.validate_ctx_perms(&[Self::LIST_PERMISSION])?;
+        let store_ctx = auth_validator.scope_store_workspace(None)?;
 
         let options = params.list_options();
 
@@ -221,9 +221,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
 
     async fn update(&self, ctx: &mut CoreCtx, params: AccountUpdateParams) -> CoreResult<Account> {
         let store = self.store();
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
-            .await?;
+        let auth_validator = AuthValidator::new(ctx);
+        auth_validator.validate_ctx_perms(&[Self::UPDATE_PERMISSION])?;
+        let store_ctx = auth_validator.scope_store_workspace(None)?;
 
         let id = self
             .get_account_id(&ctx, params.id, params.email.clone())
@@ -265,9 +265,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
     async fn delete(&self, ctx: &mut CoreCtx, params: AccountDeleteParams) -> CoreResult<Account> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
-            .await?;
+        let auth_validator = AuthValidator::new(ctx);
+        auth_validator.validate_ctx_perms(&[Self::DELETE_PERMISSION])?;
+        let store_ctx = auth_validator.scope_store_workspace(None)?;
 
         let id = self.get_account_id(&ctx, params.id, params.email).await?;
 
@@ -332,7 +332,6 @@ mod tests {
             .expect("system workspace not seeded");
 
         let mut params = AccountCreateParams::default();
-        params.workspace_id = system_ws.id.into();
         params.email = "new_exist@new.com".to_string();
 
         let new_acc = acc_svc.create(&mut ctx, params).await?;
@@ -357,7 +356,6 @@ mod tests {
             .expect("system workspace not seeded");
 
         let params = AccountListParams {
-            workspace_id: system_ws.id.into(),
             filter: None,
             options: None,
         };

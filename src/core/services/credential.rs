@@ -65,7 +65,7 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
         &self,
         ctx: &mut CoreCtx,
         id: Uuid,
-        workspace_id: Uuid,
+        _workspace_id: Uuid,
     ) -> CoreResult<Account> {
         ctx.extend_perms(&["account:describe"])?;
 
@@ -74,7 +74,6 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
             .describe(
                 ctx,
                 AccountDescribeParams {
-                    workspace_id,
                     email: None,
                     id: Some(id),
                 },
@@ -104,8 +103,7 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
                         .describe(
                             ctx,
                             WorkspaceDescribeParams {
-                                id: Some(workspace_id),
-                                slug: None,
+                                id: workspace_id.to_string(),
                             },
                         )
                         .await?;
@@ -224,8 +222,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Credent
             .describe(
                 ctx,
                 WorkspaceDescribeParams {
-                    id: Some(params.workspace_id),
-                    slug: None,
+                    id: workspace.id.to_string(),
                 },
             )
             .await?;

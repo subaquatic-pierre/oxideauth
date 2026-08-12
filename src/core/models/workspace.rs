@@ -68,22 +68,22 @@ pub struct WorkspaceCreateParams {
     pub name: String,
     pub slug: String,
     pub description: Option<String>,
-    pub owner: Uuid,
+    pub owner: Option<Uuid>,
     pub config: WorkspaceConfig,
     pub tags: Vec<String>,
     pub meta: WorkspaceMeta,
 }
 
-impl From<WorkspaceCreateParams> for WorkspaceForCreate {
-    fn from(value: WorkspaceCreateParams) -> Self {
-        Self {
-            name: value.name,
-            slug: value.slug,
-            description: value.description,
-            owner: value.owner.into(),
-            config: value.config.into(),
-            tags: value.tags,
-            meta: value.meta,
+impl WorkspaceCreateParams {
+    pub fn into_store_params(self, owner: Uuid) -> WorkspaceForCreate {
+        WorkspaceForCreate {
+            name: self.name,
+            slug: self.slug,
+            description: self.description,
+            owner: owner.into(),
+            config: self.config.into(),
+            tags: self.tags,
+            meta: self.meta,
         }
     }
 }
@@ -106,15 +106,12 @@ impl RequestListParams<WorkspaceFilter> for WorkspaceListParams {
 
 #[derive(Default, Clone, Debug)]
 pub struct WorkspaceDeleteParams {
-    pub id: Option<Uuid>,
-    pub slug: Option<String>,
+    pub id: String,
 }
 
 #[derive(Default, Clone, Debug)]
 pub struct WorkspaceUpdateParams {
-    // Workspace Identifier (one must be provided)
-    pub id: Option<Uuid>,
-    pub slug: Option<String>,
+    pub id: String,
 
     // Fields to Update (mirroring WorkspaceForUpdate)
     pub name: Option<String>,
@@ -141,8 +138,7 @@ impl From<WorkspaceUpdateParams> for WorkspaceForUpdate {
 
 #[derive(Default, Clone, Debug)]
 pub struct WorkspaceDescribeParams {
-    pub id: Option<Uuid>,
-    pub slug: Option<String>,
+    pub id: String,
 }
 
 pub type WorkspaceMeta = StoreWorkspaceMeta;

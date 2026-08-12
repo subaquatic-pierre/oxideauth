@@ -23,11 +23,10 @@ pub struct AccountDescribeReq {
 // Implement IntoParams to convert Web Req to Core Param
 // This simplifies the handler, especially for structs where fields change names/types.
 impl IntoParams<AccountDescribeParams> for AccountDescribeReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<AccountDescribeParams> {
+    fn into_params(self, _workspace_id: Uuid) -> CoreResult<AccountDescribeParams> {
         Ok(AccountDescribeParams {
             email: self.email,
             id: self.id,
-            workspace_id,
         })
     }
 }
@@ -91,7 +90,7 @@ pub struct AccountCreateReq {
 
 // Implement IntoParams to convert Web Req to Core Param
 impl IntoParams<AccountCreateParams> for AccountCreateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<AccountCreateParams> {
+    fn into_params(self, _workspace_id: Uuid) -> CoreResult<AccountCreateParams> {
         Ok(AccountCreateParams {
             email: self.email,
             kind: self.kind.unwrap_or(AccountKind::User),
@@ -103,7 +102,6 @@ impl IntoParams<AccountCreateParams> for AccountCreateReq {
             enabled: self.enabled.unwrap_or_default(),
             verified: self.verified.unwrap_or_default(),
             meta: self.meta,
-            workspace_id,
         })
     }
 }
@@ -128,7 +126,7 @@ pub struct AccountUpdateReq {
 
 // Implement IntoParams to convert Web Req to Core Param
 impl IntoParams<AccountUpdateParams> for AccountUpdateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<AccountUpdateParams> {
+    fn into_params(self, _workspace_id: Uuid) -> CoreResult<AccountUpdateParams> {
         Ok(AccountUpdateParams {
             email: self.email,
             id: self.id,
@@ -139,7 +137,6 @@ impl IntoParams<AccountUpdateParams> for AccountUpdateReq {
             enabled: self.enabled,
             verified: self.verified,
             tags: self.tags,
-            workspace_id,
             meta: self.meta,
         })
     }
@@ -157,10 +154,9 @@ pub struct AccountListReq {
 // use crate::core::models::account::AccountListParams;
 
 impl IntoParams<AccountListParams> for AccountListReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<AccountListParams> {
+    fn into_params(self, _workspace_id: Uuid) -> CoreResult<AccountListParams> {
         Ok(AccountListParams {
             filter: self.filter,
-            workspace_id,
             options: self.options,
         })
     }
@@ -182,11 +178,10 @@ pub struct AccountDeleteReq {
 
 // Implement IntoParams<AccountDeleteParams> for AccountDeleteReq
 impl IntoParams<AccountDeleteParams> for AccountDeleteReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<AccountDeleteParams> {
+    fn into_params(self, _workspace_id: Uuid) -> CoreResult<AccountDeleteParams> {
         Ok(AccountDeleteParams {
             email: self.email,
             id: self.id,
-            workspace_id,
         })
     }
 }
