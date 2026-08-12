@@ -83,32 +83,28 @@ pub struct AccountCreateParams {
     pub password: String,
     pub name: String,
     pub workspace_id: Uuid,
+    pub kind: AccountKind,
 
     pub description: Option<String>,
     pub avatar_url: Option<String>,
+    pub enabled: bool,
+    pub verified: bool,
     pub tags: Option<Vec<String>>,
     pub meta: Option<AccountMeta>,
 }
 
-impl AccountCreateParams {
-    /// Converts these core params into store-level create params,
-    /// accepting extra fields that are not part of the user-facing API.
-    pub fn into_store_params(
-        self,
-        kind: AccountKind,
-        enabled: bool,
-        verified: bool,
-    ) -> AccountForCreate {
+impl From<AccountCreateParams> for AccountForCreate {
+    fn from(value: AccountCreateParams) -> Self {
         AccountForCreate {
-            email: self.email,
-            name: self.name,
-            description: self.description,
-            avatar_url: self.avatar_url,
-            kind,
-            enabled,
-            verified,
-            tags: self.tags.unwrap_or_default(),
-            meta: self.meta.unwrap_or_default(),
+            email: value.email,
+            name: value.name,
+            description: value.description,
+            avatar_url: value.avatar_url,
+            kind: value.kind,
+            enabled: value.enabled,
+            verified: value.verified,
+            tags: value.tags.unwrap_or_default(),
+            meta: value.meta.unwrap_or_default(),
         }
     }
 }

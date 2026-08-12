@@ -32,7 +32,9 @@ use crate::{
         ctx::StoreCtx,
         dbx::PgDbx,
         entities::{
-            account::{AccountFilter, AccountForCreate, AccountForUpdate, AccountKind, AccountMeta},
+            account::{
+                AccountFilter, AccountForCreate, AccountForUpdate, AccountKind, AccountMeta,
+            },
             id::DbId,
         },
         error::StoreError,
@@ -136,12 +138,13 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for AccountSe
             .await?
             .is_some()
         {
-            return Err(CoreError::AlreadyExists("email already exists".to_string()));
+            return Err(CoreError::AlreadyExists(format!(
+                "Account with email: {} already exists",
+                params.email
+            )));
         }
 
-        let n_acc = params.into_store_params(AccountKind::User, false, false);
-
-        let new_account = store.create(&store_ctx, n_acc).await?;
+        let new_account = store.create(&store_ctx, params.into()).await?;
 
         Ok(new_account.into())
     }
@@ -222,7 +225,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
 
-        let id = self.get_account_id(&ctx, params.id, params.email.clone()).await?;
+        let id = self
+            .get_account_id(&ctx, params.id, params.email.clone())
+            .await?;
 
         // TODO: updating email constraints need to be enforced
         // if email is updated then need to set verified as false

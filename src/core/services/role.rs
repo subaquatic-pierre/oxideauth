@@ -17,7 +17,8 @@ use crate::{
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{
-            auth::AuthValidator, permission::CANONICAL_PERMISSIONS, permission::PermissionService,
+            auth::AuthValidator,
+            permission::{CANONICAL_PERMISSIONS, PermissionService},
             workspace::WorkspaceService,
         },
         traits::{
@@ -38,7 +39,7 @@ use crate::{
         },
         join::{GetManyToMany, LinkManyToMany, ListManyToMany},
         manager::StoreManager,
-        stores::role::RoleStore,
+        stores::{role::RoleStore, workspace::SYSTEM_CONST},
         traits::{crud::*, dbx::DbExecutor},
     },
 };
@@ -78,6 +79,23 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
         }
     }
 
+    pub async fn get_by_name(&self, ctx: &mut CoreCtx, name: &str) -> CoreResult<Role> {
+        let store = self.store();
+        let (store_ctx, _workspace) = self
+            .scope_and_validate_ctx(ctx, ctx.scoped_ws_id(), &[Self::DESCRIBE_PERMISSION])
+            .await?;
+
+        let role = self
+            .store()
+            .get_by_name(&store_ctx, name, ctx.scoped_ws_id().into())
+            .await?;
+
+        let role = store.get_many_to_many(&store_ctx, &role.id).await?;
+        let role = Role::from(role);
+
+        Ok(role)
+    }
+
     /// Creates the default "Workspace Viewer" role with the given permissions.
     pub async fn create_workspace_viewer_role(
         &self,
@@ -87,7 +105,7 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
     ) -> CoreResult<Role> {
         let params = RoleCreateParams::new_workspace_system_role(
             ws_id,
-            "Workspace Viewer",
+            SYSTEM_CONST.workspace_viewer_role,
             Some("Default read-only workspace viewer role"),
             perm_ids,
         );
@@ -103,7 +121,7 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
     ) -> CoreResult<Role> {
         let params = RoleCreateParams::new_workspace_system_role(
             ws_id,
-            "Workspace Admin",
+            SYSTEM_CONST.workspace_admin_role,
             Some("Default workspace administrator role"),
             perm_ids,
         );
@@ -172,10 +190,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for RoleServi
         let row = store.create(&store_ctx, r_create).await?;
 
         // Sync many-to-many permissions
-        let perm_db_ids: Vec<DbId> = permission_ids
-            .iter()
-            .map(|id| DbId::from(*id))
-            .collect();
+        let perm_db_ids: Vec<DbId> = permission_ids.iter().map(|id| DbId::from(*id)).collect();
         self.sm
             .role
             .set_many_to_many_links(&store_ctx, &row.id, perm_db_ids)

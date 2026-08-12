@@ -103,6 +103,7 @@ pub struct WorkspaceUpdateReq {
     pub slug: Option<String>,
 
     // Fields to Update (all fields here are Option<T> to represent 'patch')
+    pub owner: Option<Uuid>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub config: Option<WorkspaceConfig>,
@@ -118,6 +119,7 @@ impl From<WorkspaceUpdateReq> for WorkspaceUpdateParams {
             slug: value.slug,
             name: value.name,
             description: value.description,
+            owner: value.owner,
             config: value.config,
             tags: value.tags,
             meta: value.meta,

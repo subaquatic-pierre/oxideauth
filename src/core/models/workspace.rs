@@ -118,6 +118,7 @@ pub struct WorkspaceUpdateParams {
 
     // Fields to Update (mirroring WorkspaceForUpdate)
     pub name: Option<String>,
+    pub owner: Option<Uuid>,
     pub description: Option<String>,
     pub config: Option<WorkspaceConfig>,
     pub tags: Option<Vec<String>>,
@@ -129,7 +130,7 @@ impl From<WorkspaceUpdateParams> for WorkspaceForUpdate {
         Self {
             name: params.name,
             slug: None, // slug in params is an identifier, not an update field
-            owner: None,
+            owner: params.owner,
             description: params.description,
             config: params.config,
             tags: params.tags,

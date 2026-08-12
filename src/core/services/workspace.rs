@@ -155,7 +155,7 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
     /// Inserts every permission from `CANONICAL_PERMISSIONS.all()` into the
     /// given workspace.
     async fn populate_ws_perms(&self, ctx: &mut CoreCtx, workspace_id: Uuid) -> CoreResult<()> {
-        let perm_svc = self.perm_svc();
+        let perm_svc: Arc<PermissionService<D, C>> = self.perm_svc();
 
         let perms: Vec<PermissionCreateParams> = CANONICAL_PERMISSIONS
             .all()

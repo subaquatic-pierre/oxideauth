@@ -53,6 +53,7 @@ use crate::{
             membership::{MembershipScope, MembershipStatus},
         },
         manager::StoreManager,
+        stores::workspace::SYSTEM_CONST,
         traits::{crud::*, dbx::DbExecutor},
     },
     utils::{
@@ -202,10 +203,9 @@ where
         } = params.validate()?;
 
         // --- Resolve target workspace (slug takes precedence, then id) ---
-        let store_ctx: StoreCtx = (&*ctx).into();
         let ws = self
             .ws_svc
-            .get_workspace_by_slug_or_id(&ctx, &workspace_id)
+            .get_workspace_by_slug_or_id(ctx, &workspace_id)
             .await?
             .ok_or(CoreError::Auth(format!(
                 "Workspace does not exist {workspace_id}"
@@ -216,23 +216,11 @@ where
         // --- Look up the default "Workspace Viewer" role ---
         let viewer_role = self
             .role_svc
-            .store()
-            .get_by_name_opt(&store_ctx, "Workspace Viewer", ws.id.into())
-            .await?
-            .ok_or_else(|| {
-                CoreError::InvalidParams(
-                    "Workspace Viewer role not found — workspace may not be seeded yet".to_string(),
-                )
-            })?;
+            .get_by_name(ctx, SYSTEM_CONST.workspace_viewer_role)
+            .await?;
 
         // --- Check email uniqueness ---
-        if self
-            .acc_svc
-            .store()
-            .get_by_email(&store_ctx, &email)
-            .await?
-            .is_some()
-        {
+        if self.acc_svc.get_by_email(ctx, &email).await?.is_some() {
             return Err(CoreError::AlreadyExists(format!(
                 "account with email '{}' already exists",
                 email
@@ -247,7 +235,6 @@ where
             CANONICAL_PERMISSIONS.credential.create,
             CANONICAL_PERMISSIONS.membership.create,
         ])?;
-        let store_ctx: StoreCtx = (&*ctx).into();
 
         // --- Create account (via store — AccountService::create is too heavy with validation) ---
         let default_avatar = format!("https://www.gravatar.com/avatar/{}?d=identicon", "default");
@@ -258,19 +245,15 @@ where
             workspace_id: ws_id,
             description: None,
             avatar_url: Some(default_avatar),
+            enabled: false,
+            verified: false,
+            kind: AccountKind::User,
             tags: None,
             meta: Some(AccountMeta {
                 schema_version: "1".to_string(),
             }),
         };
-        let account_row = self
-            .acc_svc
-            .store()
-            .create(
-                &store_ctx,
-                account_create_params.into_store_params(AccountKind::User, true, false),
-            )
-            .await?;
+        let account_row = self.acc_svc.create(ctx, account_create_params).await?;
         let acc_ver = account_row.version as u64;
         let account: Account = account_row.into();
 
@@ -946,6 +929,9 @@ where
                     workspace_id: store_ctx.ws_id,
                     description: None,
                     avatar_url: google_user.picture.clone(),
+                    kind: AccountKind::User,
+                    verified: google_user.verified_email,
+                    enabled: true,
                     tags: None,
                     meta: Some(AccountMeta {
                         schema_version: "1".to_string(),
@@ -954,14 +940,7 @@ where
                 let account: Account = self
                     .acc_svc
                     .store()
-                    .create(
-                        &ctx.into(),
-                        account_create_params.into_store_params(
-                            AccountKind::User,
-                            true,
-                            google_user.verified_email,
-                        ),
-                    )
+                    .create(&ctx.into(), account_create_params.into())
                     .await?
                     .into();
 

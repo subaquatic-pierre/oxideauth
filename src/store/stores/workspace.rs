@@ -146,6 +146,8 @@ pub struct SystemConstants {
     pub system_acc_name: &'static str,
     pub system_acc_email: &'static str,
     pub workspace_header_key: &'static str,
+    pub workspace_viewer_role: &'static str,
+    pub workspace_admin_role: &'static str,
 }
 
 pub const SYSTEM_CONST: SystemConstants = SystemConstants {
@@ -153,6 +155,8 @@ pub const SYSTEM_CONST: SystemConstants = SystemConstants {
     system_acc_name: "system",
     system_acc_email: "system@system.local",
     workspace_header_key: "X-Workspace-Id",
+    workspace_viewer_role: "WorkspaceViewer",
+    workspace_admin_role: "WorkspaceAdmin",
 };
 
 // -----------------------------------------------------------------------------
