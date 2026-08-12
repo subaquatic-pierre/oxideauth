@@ -1,5 +1,5 @@
 use axum::async_trait;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::cache::{
     error::{CacheError, CacheResult},
@@ -13,14 +13,14 @@ pub struct MockChx {}
 
 #[async_trait]
 impl CacheExecutor for MockChx {
-    async fn get<T>(&self, _key: &str, _path: Option<&str>) -> CacheResult<Option<T>>
+    async fn json_get<T>(&self, _key: &str, _path: Option<&str>) -> CacheResult<Option<T>>
     where
         T: DeserializeOwned + Send + Sync,
     {
         Ok(None)
     }
 
-    async fn set<T>(
+    async fn json_set<T>(
         &self,
         _key: &str,
         _path: Option<&str>,
@@ -36,7 +36,7 @@ impl CacheExecutor for MockChx {
         Ok(ret)
     }
 
-    async fn del<T>(&self, _key: &str, _path: Option<&str>) -> CacheResult<T>
+    async fn json_del<T>(&self, _key: &str, _path: Option<&str>) -> CacheResult<T>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
@@ -53,15 +53,17 @@ impl CacheExecutor for MockChx {
         Ok(vec![None; keys.len()])
     }
 
-    async fn set_string(&self, _key: &str, _val: &str, _ttl: Option<u64>) -> CacheResult<()> {
-        Ok(())
-    }
-
     async fn incr(&self, _key: &str) -> CacheResult<i64> {
         Ok(0)
     }
 
-    async fn del_key(&self, _key: &str) -> CacheResult<()> {
-        Ok(())
+    async fn get(&self, key: &str) -> CacheResult<Option<String>> {
+        Ok(Some("".to_string()))
+    }
+    async fn set(&self, key: &str, val: &str, _ttl: Option<u64>) -> CacheResult<String> {
+        Ok("".to_string())
+    }
+    async fn del(&self, key: &str) -> CacheResult<Option<String>> {
+        Ok(Some("".to_string()))
     }
 }

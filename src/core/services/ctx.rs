@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     cache::{
+        CacheEntity,
         entities::auth::{AuthCache, AuthScopeCache},
         manager::CacheManager,
         traits::CacheExecutor,
@@ -117,7 +118,7 @@ where
     }
 
     async fn fetch_auth_cache(&self, keyed: &AuthCache) -> CoreResult<AuthCache> {
-        let hydrated = match self.cm.auth.fetch(&keyed).await? {
+        let hydrated = match self.cm.auth.fetch(&keyed.key()).await? {
             Some(entity) => entity,
             None => {
                 let hydrated = self

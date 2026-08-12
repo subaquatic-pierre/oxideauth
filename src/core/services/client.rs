@@ -6,7 +6,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    cache::{manager::CacheManager, traits::CacheExecutor},
+    cache::{CacheEntity, entities::auth::AuthCache, manager::CacheManager, traits::CacheExecutor},
     config::Config,
     core::{
         ctx::CoreCtx,
@@ -277,10 +277,11 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
 
         // --- 6. Build PermissionEngine from the user's cached auth scope ---
         let mem_id = claims.mem;
-        let Some(scope) = self.cm.auth.fetch_auth_scope(&mem_id).await? else {
+        let keyed = AuthCache::from_claims(&claims);
+        let Some(auth_cache) = self.cm.auth.fetch(&keyed.key()).await? else {
             return Ok(false);
         };
-        let checker = match PermissionEngine::from_string_vec(scope.permissions) {
+        let checker = match PermissionEngine::from_string_vec(auth_cache.auth_scope.permissions) {
             Ok(checker) => checker,
             Err(_) => return Ok(false),
         };

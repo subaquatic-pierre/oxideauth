@@ -1,6 +1,7 @@
-use std::collections::HashMap;
 use std::str::FromStr;
+use std::{collections::HashMap, fmt::Display};
 
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::cache::{
@@ -12,7 +13,7 @@ use crate::cache::{
 ///
 /// A single plain-string value records the session id (`sid`) that consumed the
 /// refresh token. Once present, the token can never be replayed again.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RefreshTokenReplayCache {
     pub jti: Uuid,
     pub sid: Option<Uuid>,
@@ -25,28 +26,17 @@ impl RefreshTokenReplayCache {
 }
 
 impl CacheEntity for RefreshTokenReplayCache {
-    fn keys(&self) -> HashMap<String, CacheKey> {
-        let mut map = HashMap::new();
-        map.insert(
-            "consumed".into(),
-            CacheKey::new("oxauth", "crt", self.jti),
-        );
-        map
+    fn _key() -> (&'static str, &'static str) {
+        ("oxauth", "crt")
     }
 
-    fn from_raw(raw: HashMap<String, Option<String>>) -> CacheResult<Self> {
-        // The value is a plain string holding the session id that consumed the
-        // token. Empty or missing values mean the token has not been consumed.
-        match raw.get("consumed").and_then(|v| v.as_deref()) {
-            Some(raw_sid) if !raw_sid.is_empty() => {
-                let sid = Uuid::from_str(raw_sid)
-                    .map_err(|e| CacheError::ParseError(format!("invalid sid: {e}")))?;
-                Ok(Self {
-                    jti: Uuid::nil(),
-                    sid: Some(sid),
-                })
-            }
-            _ => Ok(Self::default()),
-        }
+    fn key(&self) -> CacheKey {
+        let (prefix, name) = Self::_key();
+        CacheKey::new(prefix, name, self.jti)
+    }
+
+    fn new_key(jti: impl Display) -> CacheKey {
+        let (prefix, name) = Self::_key();
+        CacheKey::new(prefix, name, jti)
     }
 }

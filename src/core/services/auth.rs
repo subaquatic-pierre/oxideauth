@@ -532,7 +532,7 @@ where
             .await?;
 
         // Invalidate Redis cache
-        self.cm.invalidation.invalidate(mem_id, acc_id, sid).await?;
+        // TODO: invalidate auth cache
 
         Ok(())
     }
@@ -578,7 +578,7 @@ where
                 // Build a minimal context with the needed permissions.
                 // We know the token's claims are valid (we just decoded them),
                 // so we can construct a temporary context from the claims.
-                let auth_cache = AuthCache::from_claims(claims, validated);
+                let auth_cache = AuthCache::from_claims(&claims);
                 let mut temp_ctx = CoreCtx::new(auth_cache, ws_id)?;
                 temp_ctx.extend_perms(&[
                     CANONICAL_PERMISSIONS.membership.describe,

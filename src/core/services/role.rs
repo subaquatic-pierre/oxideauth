@@ -147,12 +147,7 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
             .list_many_to_many(store_ctx, None, None, None)
             .await?;
         for membership in memberships {
-            if membership.roles.iter().any(|r| Uuid::from(r.id) == role_id) {
-                self.cm
-                    .invalidation
-                    .invalidate(membership.id.into(), membership.membership.account_id, None)
-                    .await?;
-            }
+            // TODO: invalidate auth cache
         }
         Ok(())
     }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 
@@ -50,21 +50,28 @@ impl Default for OAuthStateCache {
     }
 }
 
-impl CacheEntity for OAuthStateCache {
-    fn keys(&self) -> HashMap<String, CacheKey> {
-        let mut map = HashMap::new();
-        map.insert(
-            "oauth_state".into(),
-            CacheKey::new("oxauth", "oauth", &self.csrf_token),
-        );
-        map
-    }
-
+impl OAuthStateCache {
     fn from_raw(raw: HashMap<String, Option<String>>) -> CacheResult<Self> {
         let json_str = raw
             .get("oauth_state")
             .and_then(|v| v.as_deref())
             .ok_or_else(|| CacheError::NotFound("missing key: oauth_state".into()))?;
         serde_json::from_str(json_str).map_err(CacheError::SerdeError)
+    }
+}
+
+impl CacheEntity for OAuthStateCache {
+    fn key(&self) -> CacheKey {
+        let (prefix, name) = OAuthStateCache::_key();
+        CacheKey::new(prefix, name, &self.csrf_token)
+    }
+
+    fn _key() -> (&'static str, &'static str) {
+        ("oxauth", "oauth")
+    }
+
+    fn new_key(csrf_token: impl Display) -> CacheKey {
+        let (prefix, name) = OAuthStateCache::_key();
+        CacheKey::new(prefix, name, csrf_token)
     }
 }

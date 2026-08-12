@@ -172,7 +172,3 @@ impl Default for Membership {
         }
     }
 }
-
-// Re-export the cache entity (migrated to `cache::entities::membership`,
-// kept here for backward compatibility).
-pub use crate::cache::entities::membership::MembershipCache;

@@ -1,18 +1,22 @@
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display, write},
+    sync::Arc,
+};
 
 use axum::async_trait;
 use redis::{FromRedisValue, ToRedisArgs};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::cache::error::CacheResult;
 
 #[async_trait]
 pub trait CacheExecutor: Send + Sync {
-    async fn get<T>(&self, key: &str, path: Option<&str>) -> CacheResult<Option<T>>
+    async fn json_get<T>(&self, key: &str, path: Option<&str>) -> CacheResult<Option<T>>
     where
         T: DeserializeOwned + Send + Sync;
 
-    async fn set<T>(
+    async fn json_set<T>(
         &self,
         key: &str,
         path: Option<&str>,
@@ -23,7 +27,7 @@ pub trait CacheExecutor: Send + Sync {
         T: DeserializeOwned + Serialize + Send + Sync;
 
     // Removes a key from the cache.
-    async fn del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<T>
+    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<T>
     where
         T: DeserializeOwned + Serialize + Send + Sync;
 
@@ -32,18 +36,13 @@ pub trait CacheExecutor: Send + Sync {
     /// Fetches the raw string values for multiple keys in a single round trip.
     async fn pipeline_get(&self, keys: &[&str]) -> CacheResult<Vec<Option<String>>>;
 
-    /// Stores a plain (non-JSON) string value with an optional TTL.
-    ///
-    /// Used for the auth-cache keys (`oxauth:tv:*`, `oxauth:sv:*`, ...) that are
-    /// read back with `pipeline_get`, which issues plain Redis `GET` commands.
-    async fn set_string(&self, key: &str, val: &str, ttl: Option<u64>) -> CacheResult<()>;
-
     /// Atomically increments the plain string value at `key` by one and returns
     /// the new value. Keys that do not exist are created with value `0` first.
     async fn incr(&self, key: &str) -> CacheResult<i64>;
 
-    /// Deletes a plain (non-JSON) string key.
-    async fn del_key(&self, key: &str) -> CacheResult<()>;
+    async fn set(&self, key: &str, val: &str, ttl_seconds: Option<u64>) -> CacheResult<String>;
+    async fn get(&self, key: &str) -> CacheResult<Option<String>>;
+    async fn del(&self, key: &str) -> CacheResult<Option<String>>;
 }
 
 // ── CacheKey ────────────────────────────────────────────────────────
@@ -74,6 +73,12 @@ impl CacheKey {
     }
 }
 
+impl Display for CacheKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.key)
+    }
+}
+
 impl AsRef<str> for CacheKey {
     fn as_ref(&self) -> &str {
         &self.key
@@ -99,14 +104,7 @@ pub trait CacheEntity: Sized {
     ///
     /// - Map **key**: logical name (e.g. `"mem_version"`, `"auth_scope"`)
     /// - Map **value**: the computed `CacheKey` wrapping the Redis key string
-    fn keys(&self) -> HashMap<String, CacheKey>;
-
-    /// Parses the entity from raw pipeline results keyed by logical name.
-    ///
-    /// `raw` maps the logical name to the Redis string value (`None` if
-    /// the key did not exist — but the store should have already rejected
-    /// such cases before calling this method).
-    fn from_raw(raw: HashMap<String, Option<String>>) -> CacheResult<Self>
-    where
-        Self: Sized;
+    fn _key() -> (&'static str, &'static str);
+    fn key(&self) -> CacheKey;
+    fn new_key(id: impl Display) -> CacheKey;
 }

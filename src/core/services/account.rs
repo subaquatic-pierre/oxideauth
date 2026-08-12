@@ -249,7 +249,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
 
         if security_change {
             let account_id: Uuid = id.into();
-            self.cm.auth.invalidate_account(&account_id).await?;
+            // TODO: Need to somehow get membership id for this account
+            // self.cm.auth.invalidate(&account_id).await?;
         } else {
             tracing::debug!("non-security update, cache not invalidated");
         }
@@ -274,9 +275,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
         let deleted = store.delete(&store_ctx, &id).await?.into();
 
         let account_id: Uuid = id.into();
-        if let Err(e) = self.cm.auth.invalidate_account(&account_id).await {
-            tracing::error!(account_id = %account_id, error = %e, "Cache invalidation failed on account delete");
-        }
+        // TODO: invalidate auth cache
+        // if let Err(e) = self.cm.auth.invalidate(&account_id).await {
+        //     tracing::error!(account_id = %account_id, error = %e, "Cache invalidation failed on account delete");
+        // }
 
         Ok(deleted)
     }

@@ -1,6 +1,6 @@
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
 use tracing::info;
@@ -19,17 +19,11 @@ use crate::cache::{
 /// detected as a replay attempt.
 pub struct RefreshTokenReplayCacheStore<C: CacheExecutor> {
     chx: Arc<C>,
-    replay_detected_count: AtomicU64,
-    token_consumed_count: AtomicU64,
 }
 
 impl<C: CacheExecutor> RefreshTokenReplayCacheStore<C> {
     pub fn new(chx: Arc<C>) -> Self {
-        Self {
-            chx,
-            replay_detected_count: AtomicU64::new(0),
-            token_consumed_count: AtomicU64::new(0),
-        }
+        Self { chx }
     }
 
     /// Checks whether the refresh token with the given `jti` has already been
@@ -40,8 +34,12 @@ impl<C: CacheExecutor> RefreshTokenReplayCacheStore<C> {
     ///   with the given `sid` and TTL (seconds).
     pub async fn check_and_consume(&self, jti: Uuid, sid: Uuid, ttl: u64) -> CacheResult<bool> {
         let key = CacheKey::new("oxauth", "crt", jti);
-        if self.chx.get::<String>(key.as_ref(), None).await?.is_some() {
-            self.replay_detected_count.fetch_add(1, Ordering::Relaxed);
+        if self
+            .chx
+            .json_get::<RefreshTokenReplayCache>(key.as_ref(), None)
+            .await?
+            .is_some()
+        {
             info!(
                 jti = %jti,
                 "REFRESH_TOKEN_REPLAY_DETECTED"
@@ -49,23 +47,19 @@ impl<C: CacheExecutor> RefreshTokenReplayCacheStore<C> {
             return Ok(true);
         }
 
+        let val = RefreshTokenReplayCache {
+            jti,
+            sid: Some(sid),
+        };
+
         self.chx
-            .set_string(key.as_ref(), &sid.to_string(), Some(ttl))
+            .json_set(key.as_ref(), None, &val, Some(ttl))
             .await?;
-        self.token_consumed_count.fetch_add(1, Ordering::Relaxed);
         info!(
             jti = %jti,
             sid = %sid,
             "REFRESH_TOKEN_CONSUMED"
         );
         Ok(false)
-    }
-
-    pub fn replay_detected_count(&self) -> u64 {
-        self.replay_detected_count.load(Ordering::Relaxed)
-    }
-
-    pub fn token_consumed_count(&self) -> u64 {
-        self.token_consumed_count.load(Ordering::Relaxed)
     }
 }

@@ -4,9 +4,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    cache::{
-        manager::CacheManager, stores::membership::MembershipCacheStore, traits::CacheExecutor,
-    },
+    cache::{manager::CacheManager, traits::CacheExecutor},
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -14,7 +12,7 @@ use crate::{
             account::{Account, AccountDescribeParams},
             list::{ListResponse, RequestFilterParams},
             membership::{
-                Membership, MembershipCache, MembershipCreateParams, MembershipDeleteParams,
+                Membership, MembershipCreateParams, MembershipDeleteParams,
                 MembershipDescribeParams, MembershipListParams, MembershipUpdateParams,
             },
             permission::PermissionRule,
@@ -91,19 +89,8 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         }
     }
 
-    pub fn get_cached(&self) -> Option<MembershipCache> {
-        let cache = self.cache();
-
-        // TODO: implement get cached membership
-        None
-    }
-
     pub fn set_cm(&mut self, cm: Arc<CacheManager<C>>) {
         self.cm = cm.clone()
-    }
-
-    fn cache(&self) -> &MembershipCacheStore<C> {
-        &self.cm.membership
     }
 
     async fn get_account(
@@ -362,10 +349,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Membershi
 
         // Invalidate the auth cache for the mutated membership so the next
         // request re-hydrates status/scope/version changes from the database.
-        self.cm
-            .invalidation
-            .invalidate(res.id.into(), res.account_id, None)
-            .await?;
+        // TODO: invalidate auth cache
 
         // TODO(T032): Push notification trigger — notify all workspace clients
         // that a membership changed. Requires wiring a `ClientService`
@@ -417,10 +401,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Membershi
 
         // Invalidate the auth cache for the deleted membership so no stale
         // cached auth data survives the deletion.
-        self.cm
-            .invalidation
-            .invalidate(to_delete.id, to_delete.account.id, None)
-            .await?;
+        // TODO: invalidate auth cache
 
         // TODO(T032): Push notification trigger — notify all workspace clients
         // that a membership was deleted. Requires wiring a `ClientService`

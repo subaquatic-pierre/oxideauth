@@ -43,7 +43,7 @@ impl RedisChx {
 #[async_trait]
 impl CacheExecutor for RedisChx {
     /// Retrieves a value from Redis and deserializes it from JSON.
-    async fn get<T>(&self, key: &str, path: Option<&str>) -> CacheResult<Option<T>>
+    async fn json_get<T>(&self, key: &str, path: Option<&str>) -> CacheResult<Option<T>>
     where
         T: DeserializeOwned,
     {
@@ -59,7 +59,7 @@ impl CacheExecutor for RedisChx {
     }
 
     /// Serializes the value to JSON and stores it in Redis.
-    async fn set<T>(
+    async fn json_set<T>(
         &self,
         key: &str,
         path: Option<&str>,
@@ -103,7 +103,7 @@ impl CacheExecutor for RedisChx {
     }
 
     /// Deletes a key from Redis.
-    async fn del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<T>
+    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<T>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
@@ -138,21 +138,6 @@ impl CacheExecutor for RedisChx {
         Ok(res)
     }
 
-    /// Stores a plain (non-JSON) string value with an optional TTL.
-    ///
-    /// Uses the core `SET key value EX ttl` command so the value can be read
-    /// back with `pipeline_get` (plain `GET`) instead of the JSON module.
-    async fn set_string(&self, key: &str, val: &str, ttl: Option<u64>) -> CacheResult<()> {
-        let mut conn = self.conn.clone();
-        let ttl = ttl.unwrap_or(self.default_ttl());
-
-        let mut cmd = redis::cmd("SET");
-        cmd.arg(key).arg(val).arg("EX").arg(ttl);
-        cmd.query_async::<String>(&mut conn).await?;
-
-        Ok(())
-    }
-
     /// Atomically increments the plain string value at `key` by one.
     async fn incr(&self, key: &str) -> CacheResult<i64> {
         let mut conn = self.conn.clone();
@@ -160,10 +145,26 @@ impl CacheExecutor for RedisChx {
         Ok(n)
     }
 
-    /// Deletes a plain (non-JSON) string key.
-    async fn del_key(&self, key: &str) -> CacheResult<()> {
+    async fn get(&self, key: &str) -> CacheResult<Option<String>> {
         let mut conn = self.conn.clone();
-        conn.del::<_, i64>(key).await?;
-        Ok(())
+        let val = conn.get(key).await?;
+
+        Ok(val)
+    }
+
+    async fn set(&self, key: &str, val: &str, ttl_seconds: Option<u64>) -> CacheResult<String> {
+        let ttl = ttl_seconds.unwrap_or(self.default_ttl());
+
+        let mut conn = self.conn.clone();
+        let val = conn.set(key, ttl).await?;
+
+        Ok(val)
+    }
+
+    async fn del(&self, key: &str) -> CacheResult<Option<String>> {
+        let mut conn = self.conn.clone();
+        let val = conn.del(key).await?;
+
+        Ok(val)
     }
 }

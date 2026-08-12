@@ -127,17 +127,9 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
             .membership
             .list_many_to_many(store_ctx, None, None, None)
             .await?;
+        // TODO: implement bulk invalidate method
         for membership in memberships {
-            if membership
-                .roles
-                .iter()
-                .any(|r| affected_role_ids.contains(&Uuid::from(r.id)))
-            {
-                self.cm
-                    .invalidation
-                    .invalidate(membership.id.into(), membership.membership.account_id, None)
-                    .await?;
-            }
+            // TODO: invalidate auth cache
         }
         Ok(())
     }
@@ -540,8 +532,14 @@ pub struct AuthPermissions {
 impl AuthPermissions {
     pub fn all(&self) -> Vec<(&'static str, &'static str)> {
         vec![
-            (self.refresh, "Rotate authentication tokens (refresh access)"),
-            (self.revoke, "Revoke authentication tokens (invalidate sessions)"),
+            (
+                self.refresh,
+                "Rotate authentication tokens (refresh access)",
+            ),
+            (
+                self.revoke,
+                "Revoke authentication tokens (invalidate sessions)",
+            ),
         ]
     }
 }
