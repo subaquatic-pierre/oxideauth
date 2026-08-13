@@ -33,9 +33,9 @@ impl<C: CacheExecutor> AuthCacheStore<C> {
     }
 
     /// Writes all keys for the entity with the given TTL (seconds).
-    pub async fn write(&self, entity: &AuthCache, ttl: u64) -> CacheResult<()> {
+    pub async fn write(&self, entity: &AuthCache, ttl: Option<u64>) -> CacheResult<()> {
         self.chx
-            .json_set(entity.key().as_ref(), None, entity, Some(ttl))
+            .json_set(entity.key().as_ref(), None, entity, ttl)
             .await?;
         info!(
             membership_id = %entity.mem_id,

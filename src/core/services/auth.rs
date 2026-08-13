@@ -1095,34 +1095,9 @@ impl<'a> AuthValidator<'a> {
     }
 
     /// Validates the requested workspace ID against the user's operational context.
-    ///
-    /// This function enforces the separation of tenancy by ensuring that a user
-    /// operating within a scoped context (i.e., not a global/root user) can only
-    /// query or mutate data within their assigned workspace.
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx`: The current operational context (`CoreCtx`), which holds the user's
-    ///          authentication and assigned workspace scope.
-    /// * `requested_workspace_id`: The optional workspace ID provided by the client
-    ///                             (e.g., in a query filter or mutation DTO).
-    ///
-    /// # Behavior
-    ///
-    /// 1. **Global Context (Admin/Root):** If `ctx.is_system_workspace()` is true,
-    ///    validation passes immediately, and the `StoreCtx` is returned.
-    ///
-    /// 2. **Scoped Context (Tenant User):**
-    ///    * **Required:** If `requested_workspace_id` is `None`, an error is returned.
-    ///    * **Authorization:** The provided `requested_workspace_id` must exactly match
-    ///      the workspace ID stored in the `ctx.workspace_id()`.
-    ///
-    /// # Returns
-    ///
-    /// A `CoreResult<StoreCtx>` containing:
-    ///
-    /// * `Ok(StoreCtx)`: If validation succeeds a StoreCtx is created from CoreCtx.
-    /// * `Err(CoreError::Auth)`: If the user is scoped and fails the validation checks.
+    /// If authenticated in the system, then able to operate in any workspace
+    /// If not system namespace authorized
+    /// then requested_workspace_id match must self.ctx.ws_cache.id
     pub fn scope_store_workspace(
         &self,
         requested_workspace_id: Option<Uuid>,
@@ -1137,28 +1112,8 @@ impl<'a> AuthValidator<'a> {
     }
 
     /// Validates the requested workspace ID against the user's operational context.
-    ///
-    /// This function enforces the separation of tenancy by ensuring that a
-    /// non-root user always has a concrete workspace ID to operate on.
-    ///
-    /// # Behavior
-    ///
-    /// 1. **Global Context (Admin/Root):** If `ctx.is_system_workspace()` is true,
-    ///    validation passes immediately, and the `requested_workspace_id` is returned
-    ///    as is (it may be `None`).
-    ///
-    /// 2. **Scoped Context (Tenant User):**
-    ///    * **Required:** If `requested_workspace_id` is `None`, an error is returned.
-    ///      (Should not happen in practice — the middleware always resolves a
-    ///      concrete workspace before the service layer.)
-    ///
-    /// # Returns
-    ///
-    /// A `CoreResult<Option<Uuid>>` containing:
-    ///
-    /// * `Ok(Some(Uuid))`: If validation succeeds (either global or scoped with ID).
-    /// * `Ok(None)`: Only if in a global context and no ID was requested.
-    /// * `Err(CoreError::Auth)`: If the user is scoped and no ID was provided.
+    /// If not system namespace authorized
+    /// then requested_workspace_id match must self.ctx.ws_cache.id
     pub fn validate_workspace(
         &self,
         requested_workspace_id: Option<Uuid>,
@@ -1166,22 +1121,21 @@ impl<'a> AuthValidator<'a> {
         let is_global_context = self.ctx.is_system_workspace()?;
 
         if is_global_context {
-            // Case 1: Global context (admin/root).
+            // Case 1: system context
             return Ok(requested_workspace_id);
         }
 
         // Case 2: Scoped context — must have a concrete workspace.
         match requested_workspace_id {
             Some(id) => {
-                if self.ctx.auth_cache.auth_scope.workspace_id != id {
+                if self.ctx.ws_cache.id != id {
                     return Err(CoreError::Auth("unauthorized workspace".to_string()));
                 }
                 Ok(Some(id))
             }
             None => {
-                // Derive workspace implicitly from the authenticated context.
-                // The permission check (validate_ctx_perms) still gates authorization.
-                Ok(Some(self.ctx.auth_cache.auth_scope.workspace_id))
+                // Derive workspace from the context.
+                Ok(Some(self.ctx.ws_cache.id))
             }
         }
     }

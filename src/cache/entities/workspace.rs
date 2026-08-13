@@ -8,6 +8,7 @@ use crate::{
         error::CacheResult,
         traits::{CacheEntity, CacheKey},
     },
+    core::models::workspace::Workspace,
     store::{
         crud::Get,
         ctx::StoreCtx,
@@ -90,6 +91,21 @@ impl Default for WorkspaceCache {
 
 impl From<WorkspaceRow> for WorkspaceCache {
     fn from(row: WorkspaceRow) -> Self {
+        Self {
+            id: row.id.into(),
+            name: row.name,
+            slug: row.slug,
+            description: row.description,
+            owner: row.owner.into(),
+            config: row.config,
+            tags: row.tags,
+            meta: row.meta,
+        }
+    }
+}
+
+impl From<Workspace> for WorkspaceCache {
+    fn from(row: Workspace) -> Self {
         Self {
             id: row.id.into(),
             name: row.name,

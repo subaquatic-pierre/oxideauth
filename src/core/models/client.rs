@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
+    cache::entities::workspace::WorkspaceCache,
     core::{
         models::{
             audit::CoreAuditFields,
@@ -23,7 +24,7 @@ pub type ClientFilter = StoreClientFilter;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Client {
     pub id: Uuid,
-    pub workspace: Workspace,
+    pub workspace_id: Uuid,
 
     pub name: String,
     pub endpoint: Option<String>,
@@ -36,7 +37,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn from_row_with_workspace(row: ClientRow, workspace: Workspace) -> Self {
+    pub fn from_row_with_workspace(row: ClientRow, workspace: WorkspaceCache) -> Self {
         assert!(
             row.workspace_id == workspace.id,
             "row.workspace_id does not match workspace.id"
@@ -44,7 +45,7 @@ impl Client {
 
         Self {
             id: row.id.into(),
-            workspace,
+            workspace_id: workspace.id,
             name: row.name,
             endpoint: row.endpoint,
             description: row.description,
@@ -58,8 +59,8 @@ impl Client {
 impl Default for Client {
     fn default() -> Self {
         Self {
-            id: Uuid::new_v4(),
-            workspace: Workspace::default(),
+            id: Uuid::nil(),
+            workspace_id: Uuid::nil(),
             name: "New Client".to_string(),
             endpoint: None,
             description: None,

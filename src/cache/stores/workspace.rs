@@ -29,9 +29,9 @@ impl<C: CacheExecutor> WorkspaceCacheStore<C> {
     }
 
     /// Writes the workspace entity with the given TTL (seconds).
-    pub async fn write(&self, entity: &WorkspaceCache, ttl: u64) -> CacheResult<()> {
+    pub async fn write(&self, entity: &WorkspaceCache, ttl: Option<u64>) -> CacheResult<()> {
         self.chx
-            .json_set(entity.key().as_ref(), None, entity, Some(ttl))
+            .json_set(entity.key().as_ref(), None, entity, ttl)
             .await?;
         info!(workspace_id = %entity.id, "WORKSPACE_CACHE_HYDRATED");
         Ok(())

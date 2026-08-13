@@ -69,12 +69,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for AccountService<
     }
 }
 
-// TODO: URGENT NOTE
-// Account is the only table that is not workspace scoped
-// it is important that all CRUD operations are validated
-// against what accounts the requesting user is able to access
-// based on the 'membership' <-> 'account' many to many join table
-
 impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
     pub fn new(
         sm: Arc<StoreManager<D>>,

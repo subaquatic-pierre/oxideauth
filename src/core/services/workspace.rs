@@ -7,7 +7,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    cache::traits::CacheExecutor,
+    cache::{entities::workspace::WorkspaceCache, manager::CacheManager, traits::CacheExecutor},
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -57,6 +57,7 @@ use crate::{
 
 pub struct WorkspaceService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
+    cm: Arc<CacheManager<C>>,
 
     /// `Weak` to break the Arc cycle with `RoleService`.
     /// Set by `ServiceRegistry` via `wire_role_service()`.
@@ -72,9 +73,10 @@ pub struct WorkspaceService<D: DbExecutor, C: CacheExecutor> {
 }
 
 impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
-    pub fn new(sm: Arc<StoreManager<D>>) -> Self {
+    pub fn new(sm: Arc<StoreManager<D>>, cm: Arc<CacheManager<C>>) -> Self {
         Self {
             sm,
+            cm,
             role_svc: OnceLock::new(),
             perm_svc: OnceLock::new(),
             project_svc: OnceLock::new(),
@@ -151,6 +153,12 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
     //     Ok(id.into())
     // }
 
+    pub async fn get_and_cache(&self, ctx: &CoreCtx, slug_or_id: &str) -> CoreResult<Workspace> {
+        let ws = self.get_workspace_by_slug_or_id(ctx, slug_or_id).await?;
+        self.cm.workspace.write(&ws.clone().into(), None).await?;
+
+        Ok(ws)
+    }
     pub async fn get_workspace_by_slug_or_id(
         &self,
         ctx: &CoreCtx,
@@ -258,7 +266,10 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             meta: Default::default(),
         };
 
-        self.sm.project.create(&store_ctx, project_for_create).await?;
+        self.sm
+            .project
+            .create(&store_ctx, project_for_create)
+            .await?;
 
         tracing::info!(workspace_id = %workspace_id, "Default project created");
         Ok(())

@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
 use crate::{
-    cache::traits::CacheExecutor,
+    cache::{entities::workspace::WorkspaceCache, traits::CacheExecutor},
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -69,7 +69,7 @@ impl<D: DbExecutor, C: CacheExecutor> ProjectService<D, C> {
         ctx: &mut CoreCtx,
         rows: Vec<ProjectRow>,
     ) -> CoreResult<Vec<Project>> {
-        let mut workspaces: HashMap<Uuid, Workspace> = HashMap::new();
+        let mut workspaces: HashMap<Uuid, WorkspaceCache> = HashMap::new();
 
         let mut projects: Vec<Project> = Vec::with_capacity(rows.len());
 

@@ -86,7 +86,7 @@ impl IntoParams<ClientCreateParams> for ClientCreateReq {
 pub struct ClientCreateRes {
     pub id: Uuid,
     pub secret: String,
-    pub workspace: Workspace,
+    pub workspace_id: Uuid,
     pub name: String,
     pub endpoint: Option<String>,
     pub description: Option<String>,
@@ -106,7 +106,7 @@ impl From<Client> for ClientCreateRes {
         Self {
             id: client.id,
             secret: String::new(),
-            workspace: client.workspace,
+            workspace_id: client.workspace_id,
             name: client.name,
             endpoint: client.endpoint,
             description: client.description,
@@ -125,7 +125,7 @@ impl From<(Client, String)> for ClientCreateRes {
         Self {
             id: client.id,
             secret,
-            workspace: client.workspace,
+            workspace_id: client.workspace_id,
             name: client.name,
             endpoint: client.endpoint,
             description: client.description,

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
+    cache::entities::workspace::WorkspaceCache,
     core::{
         error::{CoreError, CoreResult},
         models::{
@@ -57,7 +58,7 @@ impl From<ProjectUpdateParams> for ProjectForUpdate {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Project {
     pub id: Uuid,
-    pub workspace: Workspace,
+    pub workspace_id: Uuid,
 
     // Project identity
     pub name: String,
@@ -77,7 +78,7 @@ pub struct Project {
 impl Project {
     /// Constructs a Project model by hydrating it with the full Workspace entity.
     /// This is used by the service layer after fetching both the row and the related entity.
-    pub fn from_row_with_workspace(row: ProjectRow, workspace: Workspace) -> CoreResult<Self> {
+    pub fn from_row_with_workspace(row: ProjectRow, workspace: WorkspaceCache) -> CoreResult<Self> {
         // Ensure the ID matches (useful for validation, though generally guaranteed by join/lookup)
         if row.workspace_id != workspace.id {
             return Err(CoreError::InvalidParams(
@@ -87,7 +88,7 @@ impl Project {
 
         let new_project = Self {
             id: row.id.into(),
-            workspace, // Use the provided full Workspace entity
+            workspace_id: workspace.id,
             name: row.name,
             code: row.code,
             description: row.description,

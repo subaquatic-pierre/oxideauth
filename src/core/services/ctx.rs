@@ -88,9 +88,8 @@ where
 
         let resolver =
             ContextResolver::new(self.sm.clone(), self.cm.clone(), &self.config, &claims);
-        let auth_cache = resolver.resolve_auth_cache().await?;
-
         let ws_cache = resolver.resolve_ws_cache().await?;
+        let auth_cache = resolver.resolve_auth_cache(&ws_cache).await?;
 
         let acc_id = auth_cache.acc_id;
         let mem_id = auth_cache.mem_id;
@@ -194,14 +193,14 @@ where
         }
     }
 
-    pub async fn resolve_auth_cache(&self) -> CoreResult<AuthCache> {
+    pub async fn resolve_auth_cache(&self, ws_cache: &WorkspaceCache) -> CoreResult<AuthCache> {
         let mem_id = self.claims.mem;
         let acc_id = self.claims.sub;
         let sid = self.claims.sid;
         let ws = self.claims.ws;
         // Build the keyed template, then read the auth cache.
         let keyed = AuthCache::new_keyed(mem_id, acc_id, sid);
-        let auth_cache = self.fetch_auth_cache(&keyed).await?;
+        let auth_cache = self.fetch_auth_cache(&keyed, ws_cache).await?;
 
         self.validate_auth(&auth_cache)?;
 
@@ -214,7 +213,11 @@ where
         Ok(ws_cache)
     }
 
-    async fn fetch_auth_cache(&self, keyed: &AuthCache) -> CoreResult<AuthCache> {
+    async fn fetch_auth_cache(
+        &self,
+        keyed: &AuthCache,
+        ws_cache: &WorkspaceCache,
+    ) -> CoreResult<AuthCache> {
         let hydrated = match self.cm.auth.fetch(&keyed.key()).await? {
             Some(entity) => entity,
             None => {
@@ -228,7 +231,7 @@ where
                 self.cm
                     .auth
                     // TODO: need to get workspace config for workspace max token age
-                    .write(&hydrated, self.config.access_token_max_age)
+                    .write(&hydrated, Some(ws_cache.config.jwt_max_age))
                     .await?;
                 hydrated
             }
@@ -245,7 +248,7 @@ where
                 self.cm
                     .workspace
                     // TODO: need to get workspace config for workspace max token age
-                    .write(&hydrated, hydrated.config.jwt_max_age)
+                    .write(&hydrated, None)
                     .await?;
                 hydrated
             }

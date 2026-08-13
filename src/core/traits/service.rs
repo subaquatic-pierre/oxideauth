@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::{
-    cache::traits::CacheExecutor,
+    cache::{entities::workspace::WorkspaceCache, traits::CacheExecutor},
     core::{
         ctx::CoreCtx,
         error::CoreResult,
@@ -24,14 +24,23 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
     fn store(&self) -> &Self::ServiceStore;
     fn ws_svc(&self) -> &WorkspaceService<D, C>;
 
-    async fn get_workspace(&self, ctx: &mut CoreCtx, workspace_id: Uuid) -> CoreResult<Workspace> {
+    async fn get_workspace(
+        &self,
+        ctx: &mut CoreCtx,
+        workspace_id: Uuid,
+    ) -> CoreResult<WorkspaceCache> {
         let params = WorkspaceDescribeParams {
             id: workspace_id.to_string(),
         };
 
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.workspace.describe])?;
 
-        self.ws_svc().describe(ctx, params).await
+        let ws = self
+            .ws_svc()
+            .get_and_cache(ctx, &workspace_id.to_string())
+            .await?;
+
+        Ok(ws.into())
     }
 
     fn should_remove_workspace_from_store_ctx(&self) -> bool {
@@ -43,7 +52,7 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
         ctx: &mut CoreCtx,
         workspace_id: Uuid,
         required_perms: &[&str],
-    ) -> CoreResult<(StoreCtx, Workspace)> {
+    ) -> CoreResult<(StoreCtx, WorkspaceCache)> {
         let workspace = self.get_workspace(ctx, workspace_id).await?;
 
         let auth_validator = AuthValidator::new(ctx);

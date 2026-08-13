@@ -80,7 +80,10 @@ impl CoreCtx {
 
     /// Whether the token is scoped to the system/root workspace (admin).
     pub fn is_system_workspace(&self) -> CoreResult<bool> {
-        Ok(&self.auth_cache.auth_scope.workspace_slug == SYSTEM_CONST.system_ws_slug)
+        // Note: slug is unique across the system
+        // only one system_ws_slug can ever exist
+        // it is created on system bootstrap
+        Ok(&self.ws_cache.slug == SYSTEM_CONST.system_ws_slug)
     }
 
     // --- Operational target (may differ from token scope for root tokens) ---

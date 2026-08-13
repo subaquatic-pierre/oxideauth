@@ -54,7 +54,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
         let ctx_factory = Arc::new(ContextFactory::new());
 
         // Phase 1: construct in dependency order (leaves first).
-        let workspace = Arc::new(WorkspaceService::new(sm.clone()));
+        let workspace = Arc::new(WorkspaceService::new(sm.clone(), cm.clone()));
         let permission = Arc::new(PermissionService::new(
             sm.clone(),
             workspace.clone(),
