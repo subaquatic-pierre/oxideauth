@@ -1,6 +1,8 @@
+use crate::store::utils::{apply_tags_to_query, pg_binder::PgBinder};
 use modql::filter::{FilterGroups, ListOptions};
-use sea_query::{Alias, Asterisk, BinOper, Condition, Expr, Func, PostgresQueryBuilder, Query, ExprTrait};
-use crate::store::utils::pg_binder::PgBinder;
+use sea_query::{
+    Alias, Asterisk, BinOper, Condition, Expr, ExprTrait, Func, PostgresQueryBuilder, Query,
+};
 use serde_json::Value as JsonValue;
 use tracing::debug;
 
@@ -122,11 +124,8 @@ pub async fn list_with_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
     query.from(meta.table).column((meta.table, Asterisk));
 
     // --- Tags containment (@>) ---
-    if let Some(tags) = tags.filter(|t| !t.is_empty()) {
-        let tags_values: Vec<JsonValue> = tags.into_iter().map(JsonValue::String).collect();
-        let expr =
-            Expr::cust_with_values(format!(r#""{}" @> $"#, meta.col.to_string()), [tags_values]);
-        query.and_where(expr);
+    if let Some(tags) = tags.map(|tags| tags) {
+        apply_tags_to_query(&mut query, meta.table, tags);
     }
 
     // --- Field-based filter ---
@@ -254,7 +253,11 @@ mod tests {
         // other rows in the shared test DB (e.g. canonical permissions that are
         // seeded into every workspace created via the workspace service).
         let mut ctx = StoreCtx::bootstrap();
-        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws = app
+            .sm
+            .workspace
+            .create(&ctx, WorkspaceForCreate::default())
+            .await?;
         let ws_id: Uuid = ws.id.into();
         ctx.set_workspace_scope(Some(ws_id));
 
@@ -326,7 +329,11 @@ mod tests {
         // rows in the shared test DB (e.g. canonical permissions that are seeded
         // into every workspace created via the workspace service).
         let mut ctx = StoreCtx::bootstrap();
-        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws = app
+            .sm
+            .workspace
+            .create(&ctx, WorkspaceForCreate::default())
+            .await?;
         let ws_id: Uuid = ws.id.into();
         ctx.set_workspace_scope(Some(ws_id));
 
@@ -432,9 +439,17 @@ mod tests {
 
         // Create two real workspaces to use as the scoping fixtures.
         let ctx = StoreCtx::bootstrap();
-        let ws_a = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_a = app
+            .sm
+            .workspace
+            .create(&ctx, WorkspaceForCreate::default())
+            .await?;
         let ws_id_a: Uuid = ws_a.id.into();
-        let ws_b = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws_b = app
+            .sm
+            .workspace
+            .create(&ctx, WorkspaceForCreate::default())
+            .await?;
         let ws_id_b: Uuid = ws_b.id.into();
 
         // Context 1: Scoped to ws_id_a (Root context is usually used for ws_id, but we'll scope explicitly)
@@ -567,7 +582,11 @@ mod tests {
         let ctx = StoreCtx::bootstrap(); // Use unscoped context for simplicity
 
         // FK prerequisite: permissions reference a real workspace.
-        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws = app
+            .sm
+            .workspace
+            .create(&ctx, WorkspaceForCreate::default())
+            .await?;
         let ws_id: Uuid = ws.id.into();
 
         // 1. Setup Data

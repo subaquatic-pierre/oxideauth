@@ -1,17 +1,27 @@
 use std::sync::Arc;
 
+use modql::filter::ListOptions;
 use serde_json::json;
 
 use crate::store::{
     crud::List,
     ctx::StoreCtx,
     dbx::PgDbx,
-    entities::account::{
-        AccountFilter, AccountForCreate, AccountForUpdate, AccountIden, AccountRow,
-        AccountWithCredentials,
+    entities::{
+        account::{
+            AccountFilter, AccountForCreate, AccountForUpdate, AccountIden, AccountRow,
+            AccountWithCredentials,
+        },
+        membership::MembershipIden,
     },
     error::{StoreError, StoreResult},
-    queries::meta::{ContainsFilterQueryMeta, MutateQueryMeta, OneToManyQueryMeta, ReadQueryMeta},
+    queries::{
+        list::list_in_namespace,
+        meta::{
+            ContainsFilterQueryMeta, ListInNamespaceQueryMeta, MutateQueryMeta, OneToManyQueryMeta,
+            ReadQueryMeta,
+        },
+    },
     stores::workspace::SYSTEM_CONST,
     traits::{
         dbx::DbExecutor,
@@ -52,6 +62,30 @@ impl<D: DbExecutor> AccountStore<D> {
         .try_into()?;
 
         Ok(self.list(ctx, Some(filter), None).await?.into_iter().next())
+    }
+
+    /// Lists accounts that belong to the current namespace (workspace) by
+    /// joining on their memberships.
+    ///
+    /// Accounts are globally scoped (the `account` table has no `workspace_id`
+    /// column), so the namespace boundary is enforced through the `membership`
+    /// join table's `workspace_id`.
+    pub async fn list_in_namespace(
+        &self,
+        ctx: &StoreCtx,
+        tags: Option<Vec<String>>,
+        filter: Option<AccountFilter>,
+        opts: Option<ListOptions>,
+    ) -> StoreResult<Vec<AccountRow>> {
+        let meta = ListInNamespaceQueryMeta {
+            table: AccountIden::Table,
+            pk: AccountIden::Id,
+            join_table: AccountIden::Membership,
+            join_fk: AccountIden::AccountId,
+            has_audit: true,
+        };
+
+        list_in_namespace(ctx, &self.dbx, tags, filter, opts, &meta).await
     }
 }
 

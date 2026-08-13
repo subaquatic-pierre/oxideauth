@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use modql::filter::ListOptions;
 use sea_query::Iden;
 use serde_json::json;
 
@@ -12,7 +13,13 @@ use crate::store::{
         role::{RoleFilter, RoleForCreate, RoleForUpdate, RoleIden, RoleRow, RoleWithPermissions},
     },
     error::{StoreError, StoreResult},
-    queries::meta::{ContainsFilterQueryMeta, ManyToManyQueryMeta, MutateQueryMeta, ReadQueryMeta},
+    queries::{
+        list::list_containing_many,
+        meta::{
+            ContainsFilterQueryMeta, ListContainingManyQueryMeta, ManyToManyQueryMeta,
+            MutateQueryMeta, ReadQueryMeta,
+        },
+    },
     traits::{
         dbx::DbExecutor,
         meta::{ContainsFilterStore, ManyToManyStore, MutateStore, ReadStore, Store},
@@ -57,6 +64,28 @@ impl<D: DbExecutor> RoleStore<D> {
         .try_into()?;
 
         Ok(self.list(ctx, Some(filter), None).await?.into_iter().next())
+    }
+
+    /// Lists roles whose set of linked permissions **contains all** of the given
+    /// permission IDs (via the `role_permission` join table).
+    pub async fn list_containing_permissions(
+        &self,
+        ctx: &StoreCtx,
+        permission_ids: Vec<DbId>,
+        tags: Option<Vec<String>>,
+        filter: Option<RoleFilter>,
+        opts: Option<ListOptions>,
+    ) -> StoreResult<Vec<RoleRow>> {
+        let meta = ListContainingManyQueryMeta {
+            table: RoleIden::Table,
+            pk: RoleIden::Id,
+            join_table: RoleIden::RolePermission,
+            join_fk: RoleIden::RoleId,
+            join_many_fk: RoleIden::PermissionId,
+            has_audit: true,
+        };
+
+        list_containing_many(ctx, &self.dbx, permission_ids, tags, filter, opts, &meta).await
     }
 }
 
@@ -463,22 +492,49 @@ mod tests {
 
         // -- Execute: create 3 roles using Default::default() with same workspace
         let role1 = store
-            .create(&ctx, RoleForCreate { workspace_id, ..Default::default() })
+            .create(
+                &ctx,
+                RoleForCreate {
+                    workspace_id,
+                    ..Default::default()
+                },
+            )
             .await?;
         let role2 = store
-            .create(&ctx, RoleForCreate { workspace_id, ..Default::default() })
+            .create(
+                &ctx,
+                RoleForCreate {
+                    workspace_id,
+                    ..Default::default()
+                },
+            )
             .await?;
         let role3 = store
-            .create(&ctx, RoleForCreate { workspace_id, ..Default::default() })
+            .create(
+                &ctx,
+                RoleForCreate {
+                    workspace_id,
+                    ..Default::default()
+                },
+            )
             .await?;
 
         // -- Assert: all 3 roles persisted with unique names and valid IDs
         assert_ne!(role1.id, role2.id);
         assert_ne!(role2.id, role3.id);
         assert_ne!(role1.id, role3.id);
-        assert_ne!(role1.name, role2.name, "Default role names should be unique");
-        assert_ne!(role2.name, role3.name, "Default role names should be unique");
-        assert_ne!(role1.name, role3.name, "Default role names should be unique");
+        assert_ne!(
+            role1.name, role2.name,
+            "Default role names should be unique"
+        );
+        assert_ne!(
+            role2.name, role3.name,
+            "Default role names should be unique"
+        );
+        assert_ne!(
+            role1.name, role3.name,
+            "Default role names should be unique"
+        );
         assert_eq!(role1.workspace_id, workspace_id);
         assert_eq!(role2.workspace_id, workspace_id);
         assert_eq!(role3.workspace_id, workspace_id);
