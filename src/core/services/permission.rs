@@ -14,7 +14,7 @@ use crate::{
             list::ListResponse,
             permission::{
                 Permission, PermissionCreateParams, PermissionDeleteParams,
-                PermissionDescribeParams, PermissionListParams, PermissionRule,
+                PermissionDescribeParams, PermissionFilter, PermissionListParams, PermissionRule,
                 PermissionUpdateParams,
             },
             role::Role,
@@ -34,7 +34,7 @@ use crate::{
         contains::FilterByContains,
         crud::{Create, CreateMany, Delete, Get, GetCount, List, Update},
         ctx::StoreCtx,
-        entities::permission::PermissionRow,
+        entities::{permission::PermissionRow, role::RoleFilter},
         join::ListManyToMany,
         manager::StoreManager,
         stores::{permission::PermissionStore, role::RoleStore},
@@ -99,39 +99,24 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
         store_ctx: &StoreCtx,
         permission_id: Uuid,
     ) -> CoreResult<()> {
-        // Find the roles that include this permission.
-        // TODO: filter roles by permission_id
         let roles = self
             .sm
             .role
-            .list_many_to_many(store_ctx, None, None, None)
+            .list_containing_permissions(store_ctx, vec![permission_id.into()], None, None, None)
             .await?;
-        let affected_role_ids: Vec<Uuid> = roles
-            .iter()
-            .filter(|r| {
-                r.permissions
-                    .iter()
-                    .any(|p| Uuid::from(p.id) == permission_id)
-            })
-            .map(|r| Uuid::from(r.role.id))
-            .collect();
-        if affected_role_ids.is_empty() {
+        if roles.is_empty() {
             return Ok(());
         }
 
-        // Invalidate the auth cache for each affected membership individually.
-        // This is membership-scoped: only memberships holding the changed
-        // permission are invalidated. Other memberships under the same account
-        // are unaffected, preserving acc_version across unrelated memberships.
-        // TODO: filter memberships by role_id
+        let role_ids = roles.iter().map(|el| el.id).collect();
         let memberships = self
             .sm
             .membership
-            .list_many_to_many(store_ctx, None, None, None)
+            .list_containing_roles(store_ctx, role_ids, None, None, None)
             .await?;
         // TODO: implement bulk invalidate method
         for membership in memberships {
-            // TODO: invalidate auth cache
+            self.cm.auth.invalidate(membership.id.into()).await?;
         }
         Ok(())
     }

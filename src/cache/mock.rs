@@ -1,9 +1,13 @@
 use axum::async_trait;
+use redis::aio::MultiplexedConnection;
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::cache::{
-    error::{CacheError, CacheResult},
-    traits::CacheExecutor,
+use crate::{
+    cache::{
+        error::{CacheError, CacheResult},
+        traits::CacheExecutor,
+    },
+    core::error::CoreResult,
 };
 
 /// Mock cache executor for local development and tests.
@@ -18,6 +22,15 @@ impl CacheExecutor for MockChx {
         T: DeserializeOwned + Send + Sync,
     {
         Ok(None)
+    }
+
+    async fn conn(&self) -> CacheResult<MultiplexedConnection> {
+        unimplemented!()
+    }
+
+    /// Drop the cached connection so the next `conn()` re-establishes it.
+    async fn invalidate_conn(&self) {
+        unimplemented!()
     }
 
     async fn json_set<T>(
@@ -37,32 +50,22 @@ impl CacheExecutor for MockChx {
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
-        // Err(CacheError::NotFound(
-        //     "mock cache: key not found".to_string(),
-        // ))
-
         Ok(42)
     }
 
-    fn default_ttl(&self) -> u64 {
-        0
-    }
-
-    async fn pipeline_get(&self, keys: &[&str]) -> CacheResult<Vec<Option<String>>> {
-        Ok(vec![None; keys.len()])
-    }
-
-    async fn incr(&self, _key: &str) -> CacheResult<i64> {
+    async fn incr(&self, _key: &str) -> CacheResult<u64> {
         Ok(0)
     }
 
     async fn get(&self, key: &str) -> CacheResult<Option<String>> {
         Ok(Some("".to_string()))
     }
+
     async fn set(&self, key: &str, val: &str, _ttl: Option<u64>) -> CacheResult<()> {
         Ok(())
     }
-    async fn del(&self, key: &str) -> CacheResult<Option<String>> {
-        Ok(None)
+
+    async fn del(&self, key: &str) -> CacheResult<u64> {
+        Ok(0)
     }
 }

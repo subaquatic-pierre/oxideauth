@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use axum::async_trait;
 use redis::{
     AsyncCommands, Client, Commands, FromRedisValue, JsonAsyncCommands, SetOptions, ToRedisArgs,
-    aio::{ConnectionManager, ConnectionManagerConfig},
+    aio::{ConnectionManager, ConnectionManagerConfig, MultiplexedConnection},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use tokio::sync::Mutex;
 use tracing::debug;
 
 use crate::{
@@ -16,8 +19,7 @@ use crate::{
 
 pub struct RedisChx {
     client: Client,
-    conn: ConnectionManager,
-    default_ttl: u64, // default ttl time is 30min in seconds
+    conn: Mutex<Option<MultiplexedConnection>>,
 }
 
 impl RedisChx {
@@ -26,39 +28,77 @@ impl RedisChx {
         debug!("Redis URL: {redis_url}");
         let client = Client::open(redis_url).expect("unable to create Redis Client");
 
-        let conn = ConnectionManager::new(client.clone())
-            .await
-            .expect("unable to open connection");
-
-        let default_ttl = 1800;
-
         Self {
             client,
-            conn,
-            default_ttl,
+            conn: Mutex::new(None),
         }
     }
 }
 
 #[async_trait]
 impl CacheExecutor for RedisChx {
+    async fn conn(&self) -> CacheResult<MultiplexedConnection> {
+        let mut guard = self.conn.lock().await;
+        if let Some(c) = guard.as_ref() {
+            return Ok(c.clone()); // cheap: Arc clone
+        }
+        let c = self.client.get_multiplexed_async_connection().await?;
+        *guard = Some(c.clone());
+        Ok(c)
+    }
+
+    /// Drop the cached connection so the next `conn()` re-establishes it.
+    async fn invalidate_conn(&self) {
+        *self.conn.lock().await = None;
+    }
+
+    async fn get(&self, key: &str) -> CacheResult<Option<String>> {
+        let mut cmd = redis::cmd("GET");
+
+        cmd.arg(key);
+
+        let val = self.query_async(cmd).await?;
+
+        Ok(val)
+    }
+
+    async fn set(&self, key: &str, val: &str, ttl_seconds: Option<u64>) -> CacheResult<()> {
+        let str_val = serde_json::to_string(val)?;
+
+        let mut cmd = redis::cmd("SET");
+
+        cmd.arg(key).arg(&str_val);
+
+        if let Some(ttl) = ttl_seconds {
+            cmd.arg("EX").arg(ttl);
+        }
+
+        let val: String = self.query_async(cmd).await?;
+        Ok(())
+    }
+
+    async fn del(&self, key: &str) -> CacheResult<u64> {
+        let mut cmd = redis::cmd("DEL");
+
+        let val: u64 = self.query_async(cmd).await?;
+
+        Ok(val)
+    }
+
     /// Retrieves a value from Redis and deserializes it from JSON.
     async fn json_get<T>(&self, key: &str, path: Option<&str>) -> CacheResult<Option<T>>
     where
         T: DeserializeOwned,
     {
-        // Get an asynchronous connection from the client
-        let mut conn = self.conn.clone();
+        let res = match self.get(key).await? {
+            Some(val) => {
+                let json = serde_json::from_str(&val)?;
+                Some(json)
+            }
+            None => None,
+        };
 
-        let mut cmd = redis::cmd("GET");
-
-        cmd.arg(key);
-
-        let val: String = cmd.query_async(&mut conn).await?;
-
-        let json: Vec<T> = serde_json::from_str(&val)?;
-
-        Ok(json.into_iter().next())
+        Ok(res)
     }
 
     /// Serializes the value to JSON and stores it in Redis.
@@ -72,29 +112,8 @@ impl CacheExecutor for RedisChx {
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
-        // Get an asynchronous connection from the client
-        let mut conn = self.conn.clone();
-
         let str_val = serde_json::to_string(value)?;
-
-        let mut cmd = redis::cmd("SET");
-
-        cmd.arg(key).arg(&str_val);
-
-        if let Some(ttl) = ttl_seconds {
-            cmd.arg("EX").arg(ttl);
-        }
-
-        let val: String = cmd.query_async(&mut conn).await?;
-
-        // let json = serde_json::from_str(&val)?;
-
-        // let ret = json
-        //     .into_iter()
-        //     .next()
-        //     .ok_or(CacheError::InvalidSetOperation(
-        //         format!("unable to set key: {}, for value {}", key, str_val).to_string(),
-        //     ))?;
+        let res = self.set(key, &str_val, ttl_seconds).await?;
 
         Ok(())
     }
@@ -104,71 +123,17 @@ impl CacheExecutor for RedisChx {
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
-        let mut conn = self.conn.clone();
-        // let path = path.unwrap_or("$");
-
-        let count: u64 = conn.del(key).await?;
-
-        // let json: Option<T> = serde_json::from_str(&deleted)?;
-
-        // let ret = json
-        //     .into_iter()
-        //     .next()
-        //     .ok_or(CacheError::InvalidSetOperation(
-        //         format!("unable to delete key: {} at path: {}", key, path).to_string(),
-        //     ))?;
+        let count: u64 = self.del(key).await?;
 
         Ok(count)
     }
 
-    fn default_ttl(&self) -> u64 {
-        self.default_ttl
-    }
-
-    /// Fetches the raw string values for multiple keys in a single round trip.
-    async fn pipeline_get(&self, keys: &[&str]) -> CacheResult<Vec<Option<String>>> {
-        let mut pipe = redis::pipe();
-        pipe.mget(keys);
-        let (res,) = pipe
-            .query_async::<(Vec<Option<String>>,)>(&mut self.conn.clone())
-            .await?;
-        Ok(res)
-    }
-
     /// Atomically increments the plain string value at `key` by one.
-    async fn incr(&self, key: &str) -> CacheResult<i64> {
-        let mut conn = self.conn.clone();
-        let n = conn.incr(key, 1).await?;
+    async fn incr(&self, key: &str) -> CacheResult<u64> {
+        let mut cmd = redis::cmd("INCR");
+        cmd.arg(&key);
+
+        let n: u64 = self.query_async(cmd).await?;
         Ok(n)
-    }
-
-    async fn get(&self, key: &str) -> CacheResult<Option<String>> {
-        let mut conn = self.conn.clone();
-        let val = conn.get(key).await?;
-
-        Ok(val)
-    }
-
-    async fn set(&self, key: &str, val: &str, ttl_seconds: Option<u64>) -> CacheResult<()> {
-        let mut conn = self.conn.clone();
-
-        let mut cmd = redis::cmd("SET");
-
-        cmd.arg(key).arg(&val);
-
-        if let Some(ttl) = ttl_seconds {
-            cmd.arg("EX").arg(ttl);
-        }
-
-        let val: String = cmd.query_async(&mut conn).await?;
-
-        Ok(())
-    }
-
-    async fn del(&self, key: &str) -> CacheResult<Option<String>> {
-        let mut conn = self.conn.clone();
-        let s = conn.del(key).await?;
-
-        Ok(s)
     }
 }
