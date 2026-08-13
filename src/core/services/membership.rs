@@ -337,18 +337,38 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Membershi
         ctx: &mut CoreCtx,
         params: Self::UpdateParams,
     ) -> CoreResult<Self::CoreModel> {
+        ctx.extend_perms(&[CANONICAL_PERMISSIONS.membership.describe]);
+
+        let cur = self
+            .describe(
+                ctx,
+                MembershipDescribeParams {
+                    id: params.id,
+                    workspace_id: params.workspace_id,
+                },
+            )
+            .await?;
+
         let store = self.store();
 
         let (store_ctx, workspace) = self
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
 
+        let new_version = cur.version + 1;
+
         let res = store
-            .update(&store_ctx, &params.id.into(), params.into())
+            .update(
+                &store_ctx,
+                &params.id.into(),
+                params.into_store_params(new_version),
+            )
             .await?;
 
-        // Invalidate the auth cache for the mutated membership so the next
-        // request re-hydrates status/scope/version changes from the database.
+        // TODO: bump version
+
+        // TODO: link / unlink roles
+
         // TODO: invalidate auth cache
 
         // TODO(T032): Push notification trigger — notify all workspace clients

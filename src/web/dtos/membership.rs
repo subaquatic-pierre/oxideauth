@@ -103,6 +103,7 @@ pub struct MembershipUpdateReq {
     pub status: Option<MembershipStatus>,
     pub scope: Option<MembershipScope>,
     pub project_id: Option<Uuid>,
+    pub role_ids: Option<Vec<Uuid>>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<MembershipMeta>,
 }
@@ -115,6 +116,7 @@ impl IntoParams<MembershipUpdateParams> for MembershipUpdateReq {
             status: self.status,
             scope: self.scope,
             project_id: self.project_id,
+            role_ids: self.role_ids,
             tags: self.tags,
             meta: self.meta,
             ..Default::default()

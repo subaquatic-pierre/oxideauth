@@ -98,23 +98,24 @@ pub struct MembershipDescribeParams {
 pub struct MembershipUpdateParams {
     pub id: Uuid,
     pub workspace_id: Uuid,
-    pub version: Option<i64>,
     pub status: Option<MembershipStatus>,
     pub scope: Option<MembershipScope>,
+    // TODO: ensure service method links or unlinks roles if Some
+    pub role_ids: Option<Vec<Uuid>>,
     pub project_id: Option<Uuid>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<MembershipMeta>,
 }
 
-impl From<MembershipUpdateParams> for MembershipForUpdate {
-    fn from(value: MembershipUpdateParams) -> Self {
-        Self {
-            status: value.status,
-            scope: value.scope,
-            project_id: value.project_id,
-            version: value.version,
-            tags: value.tags,
-            meta: value.meta,
+impl MembershipUpdateParams {
+    pub fn into_store_params(self, version: i64) -> MembershipForUpdate {
+        MembershipForUpdate {
+            status: self.status,
+            scope: self.scope,
+            project_id: self.project_id,
+            version: Some(version),
+            tags: self.tags,
+            meta: self.meta,
         }
     }
 }

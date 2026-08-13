@@ -534,7 +534,6 @@ where
                 MembershipUpdateParams {
                     id: mem_id,
                     workspace_id: ws_id,
-                    version: Some(membership.version + 1),
                     ..Default::default()
                 },
             )
@@ -824,13 +823,13 @@ where
             name: None,
             description: None,
             avatar_url: None,
-            version: None,
             enabled: None,
             verified: Some(true),
             tags: None,
             meta: None,
         };
-        let update_data: AccountForUpdate = update_params.into();
+        let update_data: AccountForUpdate =
+            update_params.into_store_params(Some(account.version + 1));
         store
             .update(&ctx.into(), &account_id.into(), update_data)
             .await?;

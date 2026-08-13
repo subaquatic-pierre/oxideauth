@@ -80,33 +80,35 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
         Self { sm, cm, ws_svc }
     }
 
-    async fn get_account_id(
+    fn id_or_email(id: Option<Uuid>, email: Option<String>) -> CoreResult<String> {
+        let res = id
+            .map(|id| id.to_string())
+            .or(email.clone())
+            .ok_or(CoreError::InvalidParams(
+                "Email or ID required ".to_string(),
+            ));
+
+        res
+    }
+
+    async fn get_account_by_id_or_email(
         &self,
-        ctx: &CoreCtx,
-        id: Option<Uuid>,
-        email: Option<String>,
-    ) -> CoreResult<DbId> {
+        ctx: &mut CoreCtx,
+        id_or_email: &str,
+    ) -> CoreResult<Account> {
         let store = self.store();
 
-        let id: DbId = match (id, email) {
-            (Some(id), _) => id.into(),
-            (None, Some(email)) => match self.get_by_email(ctx, &email).await? {
-                Some(acc) => acc.id.into(),
-                None => {
-                    return Err(CoreError::StoreError(StoreError::EntityNotFound {
-                        entity: "account".to_string(),
-                        id: email.to_string(),
-                    }));
-                }
-            },
-            (None, None) => {
-                return Err(CoreError::InvalidParams(
-                    "Account ID or email required".to_string(),
-                ));
-            }
+        let acc = match Uuid::parse_str(&id_or_email) {
+            Ok(id) => self.store().get(&ctx.into(), &id.into()).await?.into(),
+            Err(_) => self
+                .get_by_email(ctx, &id_or_email)
+                .await?
+                .ok_or(CoreError::NotFound(format!(
+                    "Unable to get account id email: {id_or_email}"
+                )))?,
         };
 
-        Ok(id)
+        Ok(acc)
     }
 
     pub async fn get_by_email(&self, ctx: &CoreCtx, email: &str) -> CoreResult<Option<Account>> {
@@ -177,11 +179,16 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Account
         auth_validator.validate_ctx_perms(&[Self::DESCRIBE_PERMISSION])?;
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        let id = self.get_account_id(ctx, params.id, params.email).await?;
+        let identifier =
+            params
+                .id
+                .map(|id| id.to_string())
+                .or(params.email)
+                .ok_or(CoreError::InvalidParams(
+                    "Email or ID required to describe account".to_string(),
+                ))?;
 
-        let acc: Account = store.get(&store_ctx, &id).await?.into();
-
-        Ok(acc)
+        self.get_account_by_id_or_email(ctx, &identifier).await
     }
 }
 
@@ -234,27 +241,22 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
         auth_validator.validate_ctx_perms(&[Self::UPDATE_PERMISSION])?;
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        let id = self
-            .get_account_id(&ctx, params.id, params.email.clone())
-            .await?;
-
         // TODO: updating email constraints need to be enforced
         // if email is updated then need to set verified as false
         // ensure email does not already exist for a different account
         // force reverify
         // this email acts primarily as ID, if a user wants to update email
         // to login then can update credential used for that namespace instead
+        let identifier = Self::id_or_email(params.id.clone(), params.email.clone())?;
 
-        let current = store.get(&store_ctx, &id).await?;
+        let current = self.get_account_by_id_or_email(ctx, &identifier).await?;
+        let id = current.id;
 
         let security_change = params.enabled.map_or(false, |e| e != current.enabled);
 
-        let mut update_data: AccountForUpdate = params.into();
-        if security_change {
-            update_data.version = Some(current.version + 1);
-        }
+        let mut update_data: AccountForUpdate = params.into_store_params(Some(current.version + 1));
 
-        let updated_account = store.update(&store_ctx, &id, update_data).await?;
+        let updated_account = store.update(&store_ctx, &id.into(), update_data).await?;
 
         if security_change {
             self.invalidate_all_memberships(ctx, updated_account.id.into());
@@ -277,11 +279,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
         auth_validator.validate_ctx_perms(&[Self::DELETE_PERMISSION])?;
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        let id = self.get_account_id(&ctx, params.id, params.email).await?;
+        let identifier = Self::id_or_email(params.id.clone(), params.email.clone())?;
+        let acc = self.get_account_by_id_or_email(ctx, &identifier).await?;
 
-        let deleted = store.delete(&store_ctx, &id).await?.into();
+        let deleted = store.delete(&store_ctx, &acc.id.into()).await?.into();
 
-        let account_id: Uuid = id.into();
+        let account_id: Uuid = acc.id.into();
         self.invalidate_all_memberships(ctx, account_id);
 
         Ok(deleted)

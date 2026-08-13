@@ -126,7 +126,6 @@ pub struct AccountUpdateParams {
     pub name: Option<String>,
     pub description: Option<String>,
     pub avatar_url: Option<String>,
-    pub version: Option<i64>,
 
     pub enabled: Option<bool>,
     pub verified: Option<bool>,
@@ -135,18 +134,18 @@ pub struct AccountUpdateParams {
     pub meta: Option<AccountMeta>,
 }
 
-impl From<AccountUpdateParams> for AccountForUpdate {
-    fn from(params: AccountUpdateParams) -> Self {
-        Self {
+impl AccountUpdateParams {
+    pub fn into_store_params(self, version: Option<i64>) -> AccountForUpdate {
+        AccountForUpdate {
             // email: None, // email updates are intentionally blocked (see service notes)
-            name: params.name,
-            description: params.description,
-            avatar_url: params.avatar_url,
-            enabled: params.enabled,
-            version: params.version,
-            verified: params.verified,
-            tags: params.tags,
-            meta: params.meta,
+            name: self.name,
+            description: self.description,
+            avatar_url: self.avatar_url,
+            enabled: self.enabled,
+            version: version,
+            verified: self.verified,
+            tags: self.tags,
+            meta: self.meta,
         }
     }
 }
