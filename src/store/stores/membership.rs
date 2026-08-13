@@ -1,12 +1,25 @@
 use std::sync::Arc;
 
+use modql::filter::ListOptions;
+
 use crate::store::{
+    ctx::StoreCtx,
     dbx::PgDbx,
-    entities::membership::{
-        MembershipFilter, MembershipForCreate, MembershipForUpdate, MembershipIden, MembershipRow,
-        MembershipWithRoles,
+    entities::{
+        id::DbId,
+        membership::{
+            MembershipFilter, MembershipForCreate, MembershipForUpdate, MembershipIden,
+            MembershipRow, MembershipWithRoles,
+        },
     },
-    queries::meta::{ContainsFilterQueryMeta, ManyToManyQueryMeta, MutateQueryMeta, ReadQueryMeta},
+    error::StoreResult,
+    queries::{
+        list::list_containing_many,
+        meta::{
+            ContainsFilterQueryMeta, ListContainingManyQueryMeta, ManyToManyQueryMeta,
+            MutateQueryMeta, ReadQueryMeta,
+        },
+    },
     traits::{
         dbx::DbExecutor,
         meta::{ContainsFilterStore, ManyToManyStore, MutateStore, ReadStore, Store},
@@ -22,6 +35,28 @@ impl<D: DbExecutor> MembershipStore<D> {
     /// Creates a new `MembershipStore`.
     pub fn new(dbx: Arc<D>) -> Self {
         Self { dbx }
+    }
+
+    /// Lists memberships whose set of linked roles **contains all** of the given
+    /// role IDs (via the `membership_role` join table).
+    pub async fn list_containing_roles(
+        &self,
+        ctx: &StoreCtx,
+        role_ids: Vec<DbId>,
+        tags: Option<Vec<String>>,
+        filter: Option<MembershipFilter>,
+        opts: Option<ListOptions>,
+    ) -> StoreResult<Vec<MembershipRow>> {
+        let meta = ListContainingManyQueryMeta {
+            table: MembershipIden::Table,
+            pk: MembershipIden::Id,
+            join_table: MembershipIden::MembershipRole,
+            join_fk: MembershipIden::MembershipId,
+            join_many_fk: MembershipIden::RoleId,
+            has_audit: true,
+        };
+
+        list_containing_many(ctx, &self.dbx, role_ids, tags, filter, opts, &meta).await
     }
 }
 

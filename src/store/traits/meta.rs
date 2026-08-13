@@ -13,8 +13,8 @@
 
 use modql::field::HasSeaFields;
 use modql::filter::{FilterGroups, ListOptions};
-use sea_query::Iden;
-use sqlx::{postgres::PgRow, FromRow};
+use sea_query::{Iden, IntoIden};
+use sqlx::{FromRow, postgres::PgRow};
 
 use crate::store::traits::dbx::DbExecutor;
 use crate::store::{

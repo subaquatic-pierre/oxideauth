@@ -98,3 +98,43 @@ pub struct FindManyWhereValueInKeyMeta<I: TableIden> {
     /// Flag indicating if the table includes audit fields (e.g., `created_at`, `updated_at`).
     pub has_audit: bool,
 }
+
+/// Metadata for listing entities (e.g., accounts) that belong to a workspace
+/// (namespace) through an intermediary join table (e.g., `membership`).
+///
+/// Unlike workspace-scoped tables, the listed table here (e.g., `account`) does
+/// **not** carry its own `workspace_id`; the namespace is resolved through the
+/// join table's `workspace_id` column instead.
+pub struct ListInNamespaceQueryMeta<I: IntoIden> {
+    /// The table to list (e.g., `account`).
+    pub table: I,
+    /// The primary key column of the listed table (e.g., `account.id`).
+    pub pk: I,
+    /// The join table linking the listed entity to a namespace (e.g., `membership`).
+    pub join_table: I,
+    /// The foreign key column in the join table referencing `table.pk`
+    /// (e.g., `membership.account_id`).
+    pub join_fk: I,
+    /// Flag indicating if the listed table includes audit fields (e.g., `created_at`, `updated_at`).
+    pub has_audit: bool,
+}
+
+/// Metadata for listing entities (e.g., roles, memberships) whose set of linked
+/// records (via a join table) **contains all** of the given IDs.
+pub struct ListContainingManyQueryMeta<I: TableIden> {
+    /// The table to list (e.g., `role`, `membership`).
+    pub table: I,
+    /// The primary key column of the listed table (e.g., `role.id`).
+    pub pk: I,
+    /// The join table linking the listed entity to the "many" IDs
+    /// (e.g., `role_permission`, `membership_role`).
+    pub join_table: I,
+    /// The foreign key column in the join table referencing `table.pk`
+    /// (e.g., `role_permission.role_id`, `membership_role.membership_id`).
+    pub join_fk: I,
+    /// The foreign key column in the join table referencing the "many" IDs
+    /// (e.g., `role_permission.permission_id`, `membership_role.role_id`).
+    pub join_many_fk: I,
+    /// Flag indicating if the listed table includes audit fields (e.g., `created_at`, `updated_at`).
+    pub has_audit: bool,
+}

@@ -199,7 +199,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for AccountServ
         let filter = tags_filter.filter();
 
         let data = store
-            .list_with_tags_and_filter(
+            .list_in_namespace(
                 &store_ctx,
                 tags.clone(),
                 filter.clone(),

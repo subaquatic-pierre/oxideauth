@@ -28,6 +28,7 @@ pub enum AccountIden {
     Table, // TABLE_NAME
     Id, // TABLE_PK
     AccountId,
+    Membership,
     Credential,
     Credentials,
     Tags,
