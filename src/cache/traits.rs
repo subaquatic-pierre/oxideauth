@@ -27,7 +27,7 @@ pub trait CacheExecutor: Send + Sync {
         T: DeserializeOwned + Serialize + Send + Sync;
 
     // Removes a key from the cache.
-    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<Option<T>>
+    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<u64>
     where
         T: DeserializeOwned + Serialize + Send + Sync;
 

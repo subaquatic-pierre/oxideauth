@@ -100,16 +100,16 @@ impl CacheExecutor for RedisChx {
     }
 
     /// Deletes a key from Redis.
-    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<Option<T>>
+    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<u64>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
         let mut conn = self.conn.clone();
-        let path = path.unwrap_or("$");
+        // let path = path.unwrap_or("$");
 
-        let deleted: String = conn.del(key).await?;
+        let count: u64 = conn.del(key).await?;
 
-        let json: Option<T> = serde_json::from_str(&deleted)?;
+        // let json: Option<T> = serde_json::from_str(&deleted)?;
 
         // let ret = json
         //     .into_iter()
@@ -118,7 +118,7 @@ impl CacheExecutor for RedisChx {
         //         format!("unable to delete key: {} at path: {}", key, path).to_string(),
         //     ))?;
 
-        Ok(json)
+        Ok(count)
     }
 
     fn default_ttl(&self) -> u64 {

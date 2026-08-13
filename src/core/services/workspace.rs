@@ -129,30 +129,6 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             .expect("ProjectService Arc dropped before WorkspaceService")
     }
 
-    // async fn get_workspace_id(&self, ctx: &CoreCtx, id: String) -> CoreResult<Uuid> {
-    //     let store = self.store();
-
-    //     let id: DbId = match (id, slug) {
-    //         (Some(id), _) => id.into(),
-    //         (None, Some(slug)) => match store.get_by_slug_opt(&ctx.into(), &slug).await? {
-    //             Some(ws) => ws.id,
-    //             None => {
-    //                 return Err(CoreError::StoreError(StoreError::EntityNotFound {
-    //                     entity: "workspace".to_string(),
-    //                     id: slug.to_string(),
-    //                 }));
-    //             }
-    //         },
-    //         (None, None) => {
-    //             return Err(CoreError::InvalidParams(
-    //                 "Workspace ID or slug required".to_string(),
-    //             ));
-    //         }
-    //     };
-
-    //     Ok(id.into())
-    // }
-
     pub async fn get_and_cache(&self, ctx: &CoreCtx, slug_or_id: &str) -> CoreResult<Workspace> {
         let ws = self.get_workspace_by_slug_or_id(ctx, slug_or_id).await?;
         self.cm.workspace.write(&ws.clone().into(), None).await?;
@@ -448,9 +424,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
 
         let res = store.update(&store_ctx, &ws.id.into(), update_data).await?;
 
-        // TODO: invalidate auth cache
-        // A workspace slug change (rename) leaves a stale `auth_scope.workspace_slug`
-        // in every cached AuthCache entry for this workspace's memberships.
+        self.cm.workspace.invalidate(res.id.into()).await?;
+
         Ok(res.into())
     }
 }
@@ -479,10 +454,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Workspace
         let ws = self.get_workspace_by_slug_or_id(ctx, &params.id).await?;
 
         let deleted = store.delete(&store_ctx, &ws.id.into()).await?;
+        self.cm.workspace.invalidate(deleted.id.into()).await?;
 
-        // TODO: invalidate auth cache
-        // Deleting a workspace cascades to its memberships; their cached
-        // AuthCache entries must be purged to avoid stale authorization.
         Ok(deleted.into())
     }
 }

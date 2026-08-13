@@ -33,13 +33,15 @@ impl CacheExecutor for MockChx {
         Ok(())
     }
 
-    async fn json_del<T>(&self, _key: &str, _path: Option<&str>) -> CacheResult<Option<T>>
+    async fn json_del<T>(&self, _key: &str, _path: Option<&str>) -> CacheResult<u64>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
-        Err(CacheError::NotFound(
-            "mock cache: key not found".to_string(),
-        ))
+        // Err(CacheError::NotFound(
+        //     "mock cache: key not found".to_string(),
+        // ))
+
+        Ok(42)
     }
 
     fn default_ttl(&self) -> u64 {

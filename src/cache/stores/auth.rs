@@ -46,8 +46,9 @@ impl<C: CacheExecutor> AuthCacheStore<C> {
     }
 
     /// Deletes all keys for the entity. Used on invalidation.
-    pub async fn invalidate(&self, entity: &AuthCache) -> CacheResult<Option<AuthCache>> {
-        let res = self.chx.json_del(entity.key().as_ref(), None).await?;
+    pub async fn invalidate(&self, mem_id: Uuid) -> CacheResult<u64> {
+        let key = AuthCache::new_key(mem_id);
+        let res = self.chx.json_del::<AuthCache>(key.as_ref(), None).await?;
 
         Ok(res)
     }
