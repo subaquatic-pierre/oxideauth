@@ -139,7 +139,7 @@ pub struct AccountForCreate {
 // --- Update (store input) ---
 #[derive(Debug, Fields, Clone)]
 pub struct AccountForUpdate {
-    pub email: Option<String>,
+    // pub email: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub avatar_url: Option<String>,
@@ -238,7 +238,7 @@ impl Default for AccountForUpdate {
     fn default() -> Self {
         Self {
             name: None,
-            email: None,
+            // email: None,
 
             // Profile / status
             description: None,

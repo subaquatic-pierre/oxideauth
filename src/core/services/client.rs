@@ -356,17 +356,16 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ClientSer
         // caller exactly once, at creation time.
         let sh = self.generate_secret();
 
+        // TODO: unify secret generation logic in CredentialService
+        // create a credential it API secret and expiry date
+        // this is used for api client auth
+
         // Build store params from core params + secret_hash
         let for_create = params.into_store_params(sh.sha256_hash);
 
         let row = self.store().create(&store_ctx, for_create).await?;
         let client = Client::from_row_with_workspace(row, workspace);
 
-        // TODO: The plaintext secret should be exposed to the caller exactly once.
-        // `Client` does not currently carry a `secret` field; this will be addressed
-        // by either adding a `secret` field to `Client` (returned only on create) or
-        // by returning a `ClientCreated` wrapper containing both the client and the
-        // plaintext secret.
         let _ = sh.plaintext;
 
         Ok(client)

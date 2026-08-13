@@ -138,7 +138,7 @@ pub struct AccountUpdateParams {
 impl From<AccountUpdateParams> for AccountForUpdate {
     fn from(params: AccountUpdateParams) -> Self {
         Self {
-            email: None, // email updates are intentionally blocked (see service notes)
+            // email: None, // email updates are intentionally blocked (see service notes)
             name: params.name,
             description: params.description,
             avatar_url: params.avatar_url,

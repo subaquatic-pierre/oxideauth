@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
@@ -13,6 +14,7 @@ use crate::{
                 AccountListParams, AccountUpdateParams,
             },
             list::{ListResponse, ListResponseMeta},
+            membership::MembershipFilter,
             permission::PermissionRule,
             workspace::{Workspace, WorkspaceDescribeParams},
         },
@@ -113,6 +115,23 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
         let acc = store.get_by_email(&ctx.into(), &email).await?;
 
         Ok(acc.map(|el| el.into()))
+    }
+
+    async fn invalidate_all_memberships(&self, ctx: &CoreCtx, acc_id: Uuid) -> CoreResult<()> {
+        let store_ctx: StoreCtx = ctx.into();
+        let filter = json!({"account_id":&acc_id.to_string()}).try_into()?;
+        // list all memberships with account
+        let memberships = self
+            .sm
+            .membership
+            .list(&store_ctx, Some(filter), None)
+            .await?;
+
+        for mem in memberships {
+            self.cm.auth.invalidate(mem.id.into()).await?;
+        }
+
+        Ok(())
     }
 }
 
@@ -238,10 +257,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
         let updated_account = store.update(&store_ctx, &id, update_data).await?;
 
         if security_change {
-            let account_id: Uuid = id.into();
-            // TODO: invalidate auth cache
-            // get all memberships from all workspaces
-            // clear cache for all memberships
+            self.invalidate_all_memberships(ctx, updated_account.id.into());
         } else {
             tracing::debug!("non-security update, cache not invalidated");
         }
@@ -266,13 +282,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
         let deleted = store.delete(&store_ctx, &id).await?.into();
 
         let account_id: Uuid = id.into();
-        // TODO: invalidate auth cache
-        // get all memberships from all workspaces
-        // clear cache for all memberships
-
-        // if let Err(e) = self.cm.auth.invalidate(&account_id).await {
-        //     tracing::error!(account_id = %account_id, error = %e, "Cache invalidation failed on account delete");
-        // }
+        self.invalidate_all_memberships(ctx, account_id);
 
         Ok(deleted)
     }

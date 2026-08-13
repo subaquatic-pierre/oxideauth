@@ -1,12 +1,10 @@
+use crate::store::utils::pg_binder::PgBinder;
 use modql::field::HasSeaFields;
 use modql::filter::{FilterGroups, ListOptions};
-use sea_query::{
-    Alias, Asterisk, Condition, Expr, IntoValueTuple, PostgresQueryBuilder, Query,
-};
-use sea_query::{Iden, IntoIden, TableRef, ExprTrait};
-use crate::store::utils::pg_binder::PgBinder;
-use sqlx::{postgres::PgRow, FromRow};
-use sqlx::{query_as_with, Value};
+use sea_query::{Alias, Asterisk, Condition, Expr, IntoValueTuple, PostgresQueryBuilder, Query};
+use sea_query::{ExprTrait, Iden, IntoIden, TableRef};
+use sqlx::{FromRow, postgres::PgRow};
+use sqlx::{Value, query_as_with};
 use uuid::Uuid;
 
 use crate::store::dbx::PgDbx;
@@ -210,27 +208,10 @@ pub async fn list<E: DbExecutor, T: StoreRow, F: Into<FilterGroups>, I: TableIde
         // SCENARIO 1: CONTEXT IS SCOPED (Standard User Token)
         // Enforce the workspace boundary unconditionally. This condition is added
         // first and will be ANDed with the user's explicit filter (Step 2).
-        //
-        // 🔑 Key Security Takeaway (The Guardrail):
-        // If the context is scoped (e.g., ws_id = 'A'), the condition workspace_id = 'A' is added first.
-        // If the user's filter also contained a workspace_id (e.g., trying to search for workspace_id = 'B'),
-        // the final query becomes:
-        // $$\text{WHERE} \ (\text{workspace\_id} = 'A') \ \mathbf{AND} \ (\text{workspace\_id} = 'B' \ \text{AND} \ \text{name} = 'Some') \ldots$$
-        // Since $\text{workspace\_id} = 'A' \ \mathbf{AND} \ \text{workspace\_id} = 'B'$ (where $A \neq B$)
-        // is a logically false condition, the query will return zero results, thus preventing
-        // the standard user from escaping their assigned workspace.
-        // The context clause acts as a secure, enforced prefix to the user-provided filter,
-        // ensuring the security boundary is never breached. The clauses are **ANDed**, not overridden.
 
         let workspace_id_expr = Expr::col(WorkspaceIden::WorkspaceId).eq(Expr::val(ws_id));
         query.and_where(workspace_id_expr);
     }
-
-    // SCENARIO 2 & 3: CONTEXT IS GLOBAL (Admin/Global Token)
-    // If the context is global, we do not enforce a scope here. The query will
-    // rely entirely on the user-provided filter in Step 2. If the user provided
-    // a workspace_id in the filter DTO (Scenario 2), it will be used. If not
-    // (Scenario 3), all data will be retrieved.
 
     // 2. Apply User Filters
     // The user's filters (from the handler FilterParam) are applied. Due to sea-query's
@@ -472,7 +453,7 @@ mod tests {
     use anyhow::Result;
     use serde_json::{from_value, json};
     use serial_test::serial;
-    use sqlx::{query_as, Postgres};
+    use sqlx::{Postgres, query_as};
     use time::{Duration, OffsetDateTime};
     use uuid::Uuid;
 
@@ -937,7 +918,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_list_order_by_created_at() -> StoreResult<()> {
-        use tokio::time::{sleep, Duration};
+        use tokio::time::{Duration, sleep};
 
         // Arrange
         let app = init_test().await;
@@ -1002,7 +983,11 @@ mod tests {
         // 1. Define the official, enforced workspace ID from the context (WS_A)
         // Use a real workspace so the created permission satisfies the FK.
         let ctx = StoreCtx::bootstrap();
-        let ws = app.sm.workspace.create(&ctx, WorkspaceForCreate::default()).await?;
+        let ws = app
+            .sm
+            .workspace
+            .create(&ctx, WorkspaceForCreate::default())
+            .await?;
         let enforced_ws_id: Uuid = ws.id.into();
         let user_id = Uuid::new_v4();
         let mut scoped_ctx = StoreCtx::new(user_id, enforced_ws_id);

@@ -24,6 +24,12 @@ impl<C: CacheExecutor> WorkspaceCacheStore<C> {
     }
 
     /// Reads the workspace entity for the given key. Returns `None` on a miss.
+    pub async fn fetch_by_id(&self, id: Uuid) -> CacheResult<Option<WorkspaceCache>> {
+        let key = WorkspaceCache::new_key(id);
+        self.chx.json_get(key.as_ref(), None).await
+    }
+
+    /// Reads the workspace entity for the given key. Returns `None` on a miss.
     pub async fn fetch(&self, key: &CacheKey) -> CacheResult<Option<WorkspaceCache>> {
         self.chx.json_get(key.as_ref(), None).await
     }

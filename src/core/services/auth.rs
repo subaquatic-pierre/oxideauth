@@ -159,6 +159,7 @@ where
         mem_ver: u64,
         acc_ver: u64,
         sid: Uuid,
+        ttl: u64,
     ) -> CoreResult<TokenPair> {
         let now = now_utc();
 
@@ -166,7 +167,7 @@ where
             account_id,
             ws_id,
             mem_id,
-            now + Duration::seconds(self.config.access_token_max_age as i64),
+            now + Duration::seconds(ttl as i64),
             TokenType::Auth,
             mem_ver,
             acc_ver,
@@ -178,7 +179,7 @@ where
             account_id,
             ws_id,
             mem_id,
-            now + Duration::seconds(self.config.refresh_token_max_age as i64),
+            now + Duration::seconds(ttl as i64),
             TokenType::Refresh,
             mem_ver,
             acc_ver,
@@ -211,11 +212,9 @@ where
         } = params.validate()?;
 
         // --- Resolve target workspace (slug takes precedence, then id) ---
-        let ws = self
-            .ws_svc
-            .get_workspace_by_slug_or_id(ctx, &workspace_id)
-            .await?;
+        let ws = &ctx.ws_cache;
         let ws_id = ws.id;
+        let ttl = ws.config.jwt_max_age;
 
         // ensure only public workspaces accept open registrations
         // FEATURE: allow for registration link verification with JWT
@@ -321,6 +320,7 @@ where
             0, // mem_ver: initial version
             acc_ver,
             sid,
+            ttl,
         )?;
 
         info!(
@@ -444,6 +444,8 @@ where
             .map(|m| (m.id, m.version as u64))
             .unwrap_or((Uuid::nil(), 0));
 
+        let ttl = ctx.ws_cache.config.jwt_max_age;
+
         // --- Issue token pair (access + refresh) ---
         let sid = Uuid::new_v4();
         let tp = self.issue_token_pair(
@@ -453,6 +455,7 @@ where
             mem_ver,
             acc_ver,
             sid,
+            ttl,
         )?;
 
         info!(
@@ -564,6 +567,16 @@ where
         let ws_id = validated.ws;
         let mem_id = validated.mem;
 
+        let mut ctx = self.ctx_factory.system()?;
+
+        let ws_cache = match self.cm.workspace.fetch_by_id(ws_id).await? {
+            Some(ws) => ws,
+            None => {
+                let ws = self.ws_svc.get_and_cache(&ctx, &ws_id.to_string()).await?;
+                ws.into()
+            }
+        };
+
         // --- Replay check + consume (single-use) ---
         let remaining_ttl = claims
             .exp
@@ -584,17 +597,16 @@ where
                 // Build a minimal context with the needed permissions.
                 // We know the token's claims are valid (we just decoded them),
                 // so we can construct a temporary context from the claims.
-                let mut temp_ctx = self.ctx_factory.system()?;
                 // let auth_cache = AuthCache::from_claims(&claims);
                 // let ws_cache = WorkspaceCache::new_keyed(&claims.ws);
                 // let mut temp_ctx = CoreCtx::new(auth_cache, ws_id)?;
-                temp_ctx.extend_perms(&[
+                ctx.extend_perms(&[
                     CANONICAL_PERMISSIONS.membership.describe,
                     CANONICAL_PERMISSIONS.membership.update,
                 ]);
 
                 self.bump_membership_version_and_invalidate(
-                    &mut temp_ctx,
+                    &mut ctx,
                     mem_id,
                     ws_id,
                     acc_id,
@@ -610,12 +622,13 @@ where
 
         // --- Issue the next token pair (same session, new jtis) ---
         let now = now_utc();
+        let ttl = ws_cache.config.jwt_max_age;
 
         let access_claims = TokenClaims::new(
             acc_id,
             ws_id,
             mem_id,
-            now + Duration::seconds(self.config.access_token_max_age as i64),
+            now + Duration::seconds(ttl as i64),
             TokenType::Auth,
             claims.mem_ver,
             claims.acc_ver,
@@ -948,6 +961,9 @@ where
             .await
             .map_err(|_| CoreError::Auth("invalid oauth state".to_string()))?;
 
+        // TODO: encode workspace id state in state
+        // get workspace from self.ws_svc
+
         // 2. Exchange the authorization code for tokens.
         let token_response = request_google_token(code, &self.config).await?;
 
@@ -964,6 +980,7 @@ where
         let store = self.acc_svc.store();
 
         // 4. Resolve an existing account by email, or create a new one.
+        // NOTE: no workspacee scope on ctx
         let store_ctx = StoreCtx::from(&*ctx);
         let account =
             if let Some(existing) = store.get_by_email(&store_ctx, &google_user.email).await? {
@@ -1001,6 +1018,7 @@ where
                         ctx,
                         CredentialCreateParams {
                             account_id: account.id,
+                            // TODO: workspace is not on ctx, not auth scoped endpoint
                             workspace_id: store_ctx.ws_id,
                             kind: CredentialKind::OAuth,
                             provider: CredentialProvider::Google,
@@ -1029,6 +1047,8 @@ where
             .await?;
         let acc_ver = account_row.version as u64;
 
+        // NOTE: ctx is not auth scoped
+
         let sid = Uuid::new_v4();
         let tp = self.issue_token_pair(
             account.id,
@@ -1037,6 +1057,8 @@ where
             0,           // mem_ver: no membership on first sign-in
             acc_ver,
             sid,
+            // TODO: change this to workspace config
+            self.config.access_token_max_age,
         )?;
 
         info!(
