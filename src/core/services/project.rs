@@ -262,6 +262,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for ProjectSe
 
         let project_row = store.update(&store_ctx, &id_db, update_data).await?;
 
+        // TODO: invalidate auth cache
+        // A project update may affect `auth_scope.project_id` cached in the
+        // AuthCache entries of project-scoped memberships.
         Project::from_row_with_workspace(project_row, workspace)
     }
 }
@@ -283,6 +286,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for ProjectSe
 
         let deleted_row = store.delete(&store_ctx, &id_db).await?;
 
+        // TODO: invalidate auth cache
+        // Deleting a project cascades to its memberships; their cached
+        // AuthCache entries must be purged to avoid stale authorization.
         Project::from_row_with_workspace(deleted_row, workspace)
     }
 }

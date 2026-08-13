@@ -437,6 +437,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
 
         let res = store.update(&store_ctx, &ws.id.into(), update_data).await?;
 
+        // TODO: invalidate auth cache
+        // A workspace slug change (rename) leaves a stale `auth_scope.workspace_slug`
+        // in every cached AuthCache entry for this workspace's memberships.
         Ok(res.into())
     }
 }
@@ -466,6 +469,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Workspace
 
         let deleted = store.delete(&store_ctx, &ws.id.into()).await?;
 
+        // TODO: invalidate auth cache
+        // Deleting a workspace cascades to its memberships; their cached
+        // AuthCache entries must be purged to avoid stale authorization.
         Ok(deleted.into())
     }
 }

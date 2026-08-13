@@ -13,7 +13,7 @@ use crate::{
     store::stores::workspace::SYSTEM_CONST,
 };
 
-/// The cached auth-scope payload persisted under `oxauth:auth_sc:{membership_id}`.
+/// The cached auth-scope payload persisted under `oxauth:mem_id:{membership_id}`.
 ///
 /// It carries everything needed to reconstruct a [`CoreCtx`] without hitting
 /// the database on every authenticated request.

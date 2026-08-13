@@ -141,6 +141,7 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
         store_ctx: &StoreCtx,
         role_id: Uuid,
     ) -> CoreResult<()> {
+        // TODO: filter memberships by role_id
         let memberships = self
             .sm
             .membership
@@ -280,6 +281,13 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for RoleServi
             .update(&store_ctx, &params.id.into(), params.into())
             .await?;
 
+        // TODO: invalidate auth cache
+        self.invalidate_memberships_for_role(&store_ctx, res.id.into())
+            .await?;
+
+        // If this update ever syncs role->permission links (as create() does),
+        // every membership holding this role would carry a stale
+        // `auth_scope.permissions` and must be invalidated.
         // TODO(T030): Push notification trigger — notify all workspace clients
         // that a role changed. Requires wiring a `ClientService` dependency
         // into `RoleService` (constructor + factory). Then call:

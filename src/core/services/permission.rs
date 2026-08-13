@@ -100,6 +100,7 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
         permission_id: Uuid,
     ) -> CoreResult<()> {
         // Find the roles that include this permission.
+        // TODO: filter roles by permission_id
         let roles = self
             .sm
             .role
@@ -122,6 +123,7 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
         // This is membership-scoped: only memberships holding the changed
         // permission are invalidated. Other memberships under the same account
         // are unaffected, preserving acc_version across unrelated memberships.
+        // TODO: filter memberships by role_id
         let memberships = self
             .sm
             .membership

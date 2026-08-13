@@ -249,8 +249,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
 
         if security_change {
             let account_id: Uuid = id.into();
-            // TODO: Need to somehow get membership id for this account
-            // self.cm.auth.invalidate(&account_id).await?;
+            // TODO: invalidate auth cache
+            // get all memberships from all workspaces
+            // clear cache for all memberships
         } else {
             tracing::debug!("non-security update, cache not invalidated");
         }
@@ -276,6 +277,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
 
         let account_id: Uuid = id.into();
         // TODO: invalidate auth cache
+        // get all memberships from all workspaces
+        // clear cache for all memberships
+
         // if let Err(e) = self.cm.auth.invalidate(&account_id).await {
         //     tracing::error!(account_id = %account_id, error = %e, "Cache invalidation failed on account delete");
         // }
