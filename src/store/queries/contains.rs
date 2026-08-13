@@ -1,7 +1,7 @@
 use crate::store::utils::{apply_tags_to_query, pg_binder::PgBinder};
 use modql::filter::{FilterGroups, ListOptions};
 use sea_query::{
-    Alias, Asterisk, BinOper, Condition, Expr, ExprTrait, Func, PostgresQueryBuilder, Query,
+    Asterisk, Condition, Expr, ExprTrait, Func, PostgresQueryBuilder, Query,
 };
 use serde_json::Value as JsonValue;
 use tracing::debug;
@@ -124,7 +124,7 @@ pub async fn list_with_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
     query.from(meta.table).column((meta.table, Asterisk));
 
     // --- Tags containment (@>) ---
-    if let Some(tags) = tags.map(|tags| tags) {
+    if let Some(tags) = tags {
         apply_tags_to_query(&mut query, meta.table, tags);
     }
 
@@ -181,12 +181,8 @@ where
         .from(meta.table);
 
     // --- Tags containment (@>) ---
-    if let Some(tags) = tags.filter(|t| !t.is_empty()) {
-        let expr = Expr::col((meta.table, Alias::new("tags"))).binary(
-            BinOper::Custom("@>"),
-            Expr::val(tags).cast_as(Alias::new("text[]")),
-        );
-        query.and_where(expr);
+    if let Some(tags) = tags {
+        apply_tags_to_query(&mut query, meta.table, tags);
     }
 
     // --- Field-based filter ---

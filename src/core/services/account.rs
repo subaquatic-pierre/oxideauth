@@ -191,10 +191,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for AccountServ
 
         let tags_filter = params.validate_filter_tags()?;
 
-        // NOTE: Account can never be workspace scoped, like other services such as ProjectService, because the model does not have a workspace_id field on it. This means Accounts are always global scoped. We have to find a different way to scope accounts by workspace, or only reserve account::list permission to memberships in the global namespace
-
-        // Combined query: tags (@> containment) + field filter in a single SQL query.
-        // Handles all four cases: (none, tags-only, filter-only, tags+filter).
         let tags = tags_filter.tags();
         let filter = tags_filter.filter();
 

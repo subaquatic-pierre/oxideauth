@@ -1,5 +1,4 @@
 use modql::filter::{FilterGroups, ListOptions};
-use sea_query::{Alias, BinOper};
 use sea_query::{
     Asterisk, CommonTableExpression, Condition, Expr, Func, Iden, JoinType, OnConflict,
     PostgresQueryBuilder, Query, SelectStatement, SimpleExpr, Value, ExprTrait,
@@ -22,7 +21,7 @@ use crate::store::{
         dbx::DbExecutor,
         meta::{HasId, StoreId, StoreRow, TableIden},
     },
-    utils::{LIST_LIMIT_MAX, ListOptionsValidator, pg_type_of},
+    utils::{apply_tags_to_query, LIST_LIMIT_MAX, ListOptionsValidator, pg_type_of},
 };
 
 #[derive(Iden)]
@@ -523,12 +522,8 @@ pub async fn list_many_to_many<T: StoreRow, F: Into<FilterGroups> + Clone, I: Ta
     }
 
     // --- Tags containment (@>) ---
-    if let Some(tags) = tags.filter(|t| !t.is_empty()) {
-        let expr = Expr::col((meta.single_table, Alias::new("tags"))).binary(
-            BinOper::Custom("@>"),
-            Expr::val(tags).cast_as(Alias::new("text[]")),
-        );
-        main_query.and_where(expr);
+    if let Some(tags) = tags {
+        apply_tags_to_query(&mut main_query, meta.single_table, tags);
     }
 
     // --- Workspace scoping ---

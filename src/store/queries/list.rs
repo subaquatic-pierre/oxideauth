@@ -1,8 +1,7 @@
 use crate::store::utils::pg_binder::PgBinder;
 use modql::filter::{FilterGroups, ListOptions};
 use sea_query::{
-    Alias, Asterisk, BinOper, Condition, Expr, ExprTrait, Func, JoinType, PostgresQueryBuilder,
-    Query,
+    Asterisk, Condition, Expr, ExprTrait, Func, JoinType, PostgresQueryBuilder, Query,
 };
 
 use crate::store::{
@@ -14,7 +13,7 @@ use crate::store::{
         dbx::DbExecutor,
         meta::{StoreId, StoreRow, TableIden},
     },
-    utils::ListOptionsValidator,
+    utils::{apply_tags_to_query, ListOptionsValidator},
 };
 
 /// Lists entities (e.g., accounts) that belong to the current namespace by
@@ -82,12 +81,8 @@ where
         );
 
     // --- Tags containment (@>) ---
-    if let Some(tags) = tags.filter(|t| !t.is_empty()) {
-        let expr = Expr::col((meta.table, Alias::new("tags"))).binary(
-            BinOper::Custom("@>"),
-            Expr::val(tags).cast_as(Alias::new("text[]")),
-        );
-        query.and_where(expr);
+    if let Some(tags) = tags {
+        apply_tags_to_query(&mut query, meta.table, tags);
     }
 
     // Apply user filters against the listed table.
@@ -192,12 +187,8 @@ where
     }
 
     // --- Tags containment (@>) ---
-    if let Some(tags) = tags.filter(|t| !t.is_empty()) {
-        let expr = Expr::col((meta.table, Alias::new("tags"))).binary(
-            BinOper::Custom("@>"),
-            Expr::val(tags).cast_as(Alias::new("text[]")),
-        );
-        query.and_where(expr);
+    if let Some(tags) = tags {
+        apply_tags_to_query(&mut query, meta.table, tags);
     }
 
     // Apply user filters against the listed table.
