@@ -13,7 +13,7 @@ use crate::store::{
         dbx::DbExecutor,
         meta::{StoreId, StoreRow, TableIden},
     },
-    utils::{apply_tags_to_query, ListOptionsValidator},
+    utils::{ListOptionsValidator, apply_tags_to_query},
 };
 
 /// Lists entities (e.g., accounts) that belong to the current namespace by
@@ -47,7 +47,7 @@ use crate::store::{
 /// # Returns
 ///
 /// A `StoreResult<Vec<T>>` containing the entities found in the namespace.
-pub async fn list_in_namespace<E, T, F, I>(
+pub async fn list_in_namespace_by_join_table<E, T, F, I>(
     ctx: &StoreCtx,
     dbx: &E,
     tags: Option<Vec<String>>,
@@ -61,9 +61,6 @@ where
     F: Into<FilterGroups>,
     I: TableIden,
 {
-    // The namespace is the enforced workspace scope when present; otherwise fall
-    // back to the context's operational workspace (e.g., a root/system token
-    // targeting a workspace via the `X-Workspace-Id` header).
     let namespace = ctx.workspace_scope().unwrap_or(ctx.ws_id);
 
     let mut query = Query::select();

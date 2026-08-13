@@ -195,7 +195,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for AccountServ
         let filter = tags_filter.filter();
 
         let data = store
-            .list_in_namespace(
+            .list_in_namespace_by_join_table(
                 &store_ctx,
                 tags.clone(),
                 filter.clone(),

@@ -16,7 +16,7 @@ use crate::store::{
     },
     error::{StoreError, StoreResult},
     queries::{
-        list::list_in_namespace,
+        list::list_in_namespace_by_join_table,
         meta::{
             ContainsFilterQueryMeta, ListInNamespaceQueryMeta, MutateQueryMeta, OneToManyQueryMeta,
             ReadQueryMeta,
@@ -70,7 +70,7 @@ impl<D: DbExecutor> AccountStore<D> {
     /// Accounts are globally scoped (the `account` table has no `workspace_id`
     /// column), so the namespace boundary is enforced through the `membership`
     /// join table's `workspace_id`.
-    pub async fn list_in_namespace(
+    pub async fn list_in_namespace_by_join_table(
         &self,
         ctx: &StoreCtx,
         tags: Option<Vec<String>>,
@@ -85,7 +85,7 @@ impl<D: DbExecutor> AccountStore<D> {
             has_audit: true,
         };
 
-        list_in_namespace(ctx, &self.dbx, tags, filter, opts, &meta).await
+        list_in_namespace_by_join_table(ctx, &self.dbx, tags, filter, opts, &meta).await
     }
 }
 
