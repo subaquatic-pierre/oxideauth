@@ -503,7 +503,7 @@ mod tests {
         let mut ctx = CoreCtx::bootstrap()?;
 
         // Setup Workspace and Account
-        let (workspace_id, account_id) = setup_membership_deps(app, &mut ctx).await?;
+        let (workspace_id, account_id) = setup_membership_deps(&app, &mut ctx).await?;
         // let total_memberships = svc.list(&mut ctx,).await?.len();
 
         // --- 1. Create ---

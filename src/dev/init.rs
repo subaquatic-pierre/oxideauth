@@ -35,21 +35,19 @@ pub fn init_tracing_for_tests() {
     });
 }
 
-pub async fn init_test<'a>() -> &'a AppState<PgDbx, RedisChx> {
-    static INIT: OnceCell<AppState<PgDbx, RedisChx>> = OnceCell::const_new();
+/// Migrate + seed the database exactly once, against a throwaway pool.
+/// The seeded data lives in Postgres and is reused by every test.
+async fn ensure_seeded() {
+    static SEED: OnceCell<()> = OnceCell::const_new();
+    SEED.get_or_init(|| async {
+        info!("{:<12} - init_test() seeding", "FOR-DEV-ONLY");
+        let seed_app = new_app_data(AppEnv::Test).await;
+        init_test_db(&seed_app).await; // reset_db + migrations + fixtures
+    })
+    .await;
+}
 
-    let ds = INIT
-        .get_or_init(|| async {
-            info!("{:<12} - init_test()", "FOR-DEV-ONLY");
-
-            let app = new_app_data(AppEnv::Test).await;
-
-            init_test_db(&app).await;
-            // init_tracing_for_tests();
-
-            app
-        })
-        .await;
-
-    ds
+pub async fn init_test() -> AppState<PgDbx, RedisChx> {
+    ensure_seeded().await;
+    new_app_data(AppEnv::Test).await
 }

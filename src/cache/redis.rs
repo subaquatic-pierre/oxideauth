@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use axum::async_trait;
 use redis::{
-    AsyncCommands, Client, Commands, FromRedisValue, JsonAsyncCommands, SetOptions, ToRedisArgs,
+    AsyncCommands, Client, Cmd, Commands, FromRedisValue, JsonAsyncCommands, SetOptions,
+    ToRedisArgs,
     aio::{ConnectionManager, ConnectionManagerConfig, MultiplexedConnection},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};

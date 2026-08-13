@@ -105,7 +105,7 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
         }
         _ => {
             let config = Config::test_config();
-            let db: PgPool = new_db_pool(&config.database_url, 1).await;
+            let db: PgPool = new_db_pool(&config.database_url, 2).await;
             let dbx = Arc::new(PgDbx::new(db.clone()));
             let sm = Arc::new(StoreManager::new(dbx.clone()));
 

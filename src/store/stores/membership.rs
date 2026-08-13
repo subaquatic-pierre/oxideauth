@@ -195,7 +195,7 @@ mod tests {
         let dbx = app.sm.dbx().clone();
         let store = MembershipStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, app).await?;
+        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 
         let data = MembershipForCreate {
             account_id,
