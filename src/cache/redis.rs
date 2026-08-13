@@ -50,10 +50,13 @@ impl CacheExecutor for RedisChx {
         // Get an asynchronous connection from the client
         let mut conn = self.conn.clone();
 
-        let path = path.unwrap_or("$");
+        let mut cmd = redis::cmd("GET");
 
-        let cached_value: String = conn.json_get(key, path).await?;
-        let json: Vec<T> = serde_json::from_str(&cached_value)?;
+        cmd.arg(key);
+
+        let val: String = cmd.query_async(&mut conn).await?;
+
+        let json: Vec<T> = serde_json::from_str(&val)?;
 
         Ok(json.into_iter().next())
     }
@@ -65,63 +68,57 @@ impl CacheExecutor for RedisChx {
         path: Option<&str>,
         value: &T,
         ttl_seconds: Option<u64>,
-    ) -> CacheResult<T>
+    ) -> CacheResult<()>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
         // Get an asynchronous connection from the client
         let mut conn = self.conn.clone();
 
-        let path = path.unwrap_or("$");
         let str_val = serde_json::to_string(value)?;
-        let ttl = ttl_seconds.unwrap_or(self.default_ttl());
 
-        let mut cmd = redis::cmd("JSON.SET");
+        let mut cmd = redis::cmd("SET");
 
-        cmd.arg(key) // 1st argument: key
-            .arg(path) // 2nd argument: path
-            .arg(&str_val) // 3rd argument: value (serialized JSON string)
-            .arg("EX") // 4th argument: TTL option
-            .arg(ttl); // 5th argument: TTL value
+        cmd.arg(key).arg(&str_val);
 
-        let updated: String = cmd.query_async(&mut conn).await?;
+        if let Some(ttl) = ttl_seconds {
+            cmd.arg("EX").arg(ttl);
+        }
 
-        let json: Vec<T> = serde_json::from_str(&updated)?;
+        let val: String = cmd.query_async(&mut conn).await?;
 
-        let ret = json
-            .into_iter()
-            .next()
-            .ok_or(CacheError::InvalidSetOperation(
-                format!(
-                    "unable to set key: {}, at path: {} for value {}",
-                    key, path, str_val
-                )
-                .to_string(),
-            ))?;
+        // let json = serde_json::from_str(&val)?;
 
-        Ok(ret)
+        // let ret = json
+        //     .into_iter()
+        //     .next()
+        //     .ok_or(CacheError::InvalidSetOperation(
+        //         format!("unable to set key: {}, for value {}", key, str_val).to_string(),
+        //     ))?;
+
+        Ok(())
     }
 
     /// Deletes a key from Redis.
-    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<T>
+    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<Option<T>>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
         let mut conn = self.conn.clone();
         let path = path.unwrap_or("$");
 
-        let deleted: String = conn.json_del(key, path).await?;
+        let deleted: String = conn.del(key).await?;
 
-        let json: Vec<T> = serde_json::from_str(&deleted)?;
+        let json: Option<T> = serde_json::from_str(&deleted)?;
 
-        let ret = json
-            .into_iter()
-            .next()
-            .ok_or(CacheError::InvalidSetOperation(
-                format!("unable to delete key: {} at path: {}", key, path).to_string(),
-            ))?;
+        // let ret = json
+        //     .into_iter()
+        //     .next()
+        //     .ok_or(CacheError::InvalidSetOperation(
+        //         format!("unable to delete key: {} at path: {}", key, path).to_string(),
+        //     ))?;
 
-        Ok(ret)
+        Ok(json)
     }
 
     fn default_ttl(&self) -> u64 {
@@ -152,19 +149,26 @@ impl CacheExecutor for RedisChx {
         Ok(val)
     }
 
-    async fn set(&self, key: &str, val: &str, ttl_seconds: Option<u64>) -> CacheResult<String> {
-        let ttl = ttl_seconds.unwrap_or(self.default_ttl());
-
+    async fn set(&self, key: &str, val: &str, ttl_seconds: Option<u64>) -> CacheResult<()> {
         let mut conn = self.conn.clone();
-        let val = conn.set(key, ttl).await?;
 
-        Ok(val)
+        let mut cmd = redis::cmd("SET");
+
+        cmd.arg(key).arg(&val);
+
+        if let Some(ttl) = ttl_seconds {
+            cmd.arg("EX").arg(ttl);
+        }
+
+        let val: String = cmd.query_async(&mut conn).await?;
+
+        Ok(())
     }
 
     async fn del(&self, key: &str) -> CacheResult<Option<String>> {
         let mut conn = self.conn.clone();
-        let val = conn.del(key).await?;
+        let s = conn.del(key).await?;
 
-        Ok(val)
+        Ok(s)
     }
 }

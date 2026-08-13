@@ -38,14 +38,18 @@ impl<C: CacheExecutor> WorkspaceCacheStore<C> {
     }
 
     /// Deletes the workspace entity. Used on invalidation.
-    pub async fn invalidate(&self, entity: &WorkspaceCache) -> CacheResult<WorkspaceCache> {
-        self.chx.json_del(entity.key().as_ref(), None).await
+    pub async fn invalidate(&self, entity: &WorkspaceCache) -> CacheResult<Option<WorkspaceCache>> {
+        let t = self.chx.json_del(entity.key().as_ref(), None).await?;
+
+        Ok(t)
     }
 
     /// Convenience wrapper that invalidates by workspace id without needing a
     /// fully-constructed entity.
-    pub async fn invalidate_by_id(&self, id: Uuid) -> CacheResult<WorkspaceCache> {
+    pub async fn invalidate_by_id(&self, id: Uuid) -> CacheResult<Option<WorkspaceCache>> {
         let key = WorkspaceCache::new_key(id);
-        self.chx.json_del(key.as_ref(), None).await
+        let t = self.chx.json_del(key.as_ref(), None).await?;
+
+        Ok(t)
     }
 }

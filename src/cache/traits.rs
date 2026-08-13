@@ -22,12 +22,12 @@ pub trait CacheExecutor: Send + Sync {
         path: Option<&str>,
         val: &T,
         ttl: Option<u64>,
-    ) -> CacheResult<T>
+    ) -> CacheResult<()>
     where
         T: DeserializeOwned + Serialize + Send + Sync;
 
     // Removes a key from the cache.
-    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<T>
+    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<Option<T>>
     where
         T: DeserializeOwned + Serialize + Send + Sync;
 
@@ -40,7 +40,7 @@ pub trait CacheExecutor: Send + Sync {
     /// the new value. Keys that do not exist are created with value `0` first.
     async fn incr(&self, key: &str) -> CacheResult<i64>;
 
-    async fn set(&self, key: &str, val: &str, ttl_seconds: Option<u64>) -> CacheResult<String>;
+    async fn set(&self, key: &str, val: &str, ttl_seconds: Option<u64>) -> CacheResult<()>;
     async fn get(&self, key: &str) -> CacheResult<Option<String>>;
     async fn del(&self, key: &str) -> CacheResult<Option<String>>;
 }

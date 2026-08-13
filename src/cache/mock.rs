@@ -26,17 +26,14 @@ impl CacheExecutor for MockChx {
         _path: Option<&str>,
         val: &T,
         _ttl: Option<u64>,
-    ) -> CacheResult<T>
+    ) -> CacheResult<()>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
-        // Round-trip through JSON so we can return a value of type `T`.
-        let serialized = serde_json::to_string(val)?;
-        let ret = serde_json::from_str::<T>(&serialized)?;
-        Ok(ret)
+        Ok(())
     }
 
-    async fn json_del<T>(&self, _key: &str, _path: Option<&str>) -> CacheResult<T>
+    async fn json_del<T>(&self, _key: &str, _path: Option<&str>) -> CacheResult<Option<T>>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
@@ -60,10 +57,10 @@ impl CacheExecutor for MockChx {
     async fn get(&self, key: &str) -> CacheResult<Option<String>> {
         Ok(Some("".to_string()))
     }
-    async fn set(&self, key: &str, val: &str, _ttl: Option<u64>) -> CacheResult<String> {
-        Ok("".to_string())
+    async fn set(&self, key: &str, val: &str, _ttl: Option<u64>) -> CacheResult<()> {
+        Ok(())
     }
     async fn del(&self, key: &str) -> CacheResult<Option<String>> {
-        Ok(Some("".to_string()))
+        Ok(None)
     }
 }

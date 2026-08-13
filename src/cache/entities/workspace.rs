@@ -14,6 +14,7 @@ use crate::{
         ctx::StoreCtx,
         entities::workspace::{WorkspaceConfig, WorkspaceMeta, WorkspaceRow},
         manager::StoreManager,
+        stores::workspace::SYSTEM_CONST,
         traits::dbx::DbExecutor,
     },
 };
@@ -63,7 +64,7 @@ impl WorkspaceCache {
         Self {
             id: Uuid::nil(),
             name: String::new(),
-            slug: String::new(),
+            slug: SYSTEM_CONST.system_ws_slug.to_string(),
             description: None,
             owner: Uuid::nil(),
             config: WorkspaceConfig::default(),
