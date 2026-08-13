@@ -1,6 +1,8 @@
 use uuid::Uuid;
 
 use crate::cache::entities::auth::{AuthCache, AuthScopeCache};
+use crate::cache::entities::workspace::WorkspaceCache;
+use crate::core::models::workspace::{WorkspaceConfig, WorkspaceMeta};
 use crate::store::stores::workspace::SYSTEM_CONST;
 use crate::{
     core::{
@@ -24,18 +26,18 @@ use std::sync::OnceLock;
 /// tokens the middleware sets it from the `X-Workspace-Id` header.
 #[derive(Clone, Debug)]
 pub struct CoreCtx {
-    pub(crate) auth_cache: AuthCache,
-    scoped_ws_id: Uuid,
+    pub auth_cache: AuthCache,
+    pub ws_cache: WorkspaceCache,
     perm_checker: PermissionEngine,
 }
 
 impl CoreCtx {
-    pub fn new(auth_cache: AuthCache, scoped_ws_id: Uuid) -> CoreResult<Self> {
+    pub fn new(auth_cache: AuthCache, ws_cache: WorkspaceCache) -> CoreResult<Self> {
         let perm_checker =
             PermissionEngine::from_string_vec(auth_cache.auth_scope.permissions.clone())?;
         Ok(Self {
             auth_cache,
-            scoped_ws_id,
+            ws_cache,
             perm_checker,
         })
     }
@@ -45,11 +47,13 @@ impl CoreCtx {
     /// Used during seeding/initialization before any accounts or workspaces exist.
     /// Has `*:*` permissions and nil scoped workspace (no row-level filtering).
     pub fn bootstrap() -> CoreResult<Self> {
-        let auth_cache = AuthCache::bootstrap_cache();
+        let auth_cache = AuthCache::bootstrap();
+        let ws_cache = WorkspaceCache::bootstrap();
+        // let ws_cache = WorkspaceCache::bootstrap();
         let perm_checker = PermissionEngine::from_string_vec(vec!["*:*".to_string()])?;
         Ok(Self {
             auth_cache,
-            scoped_ws_id: Uuid::nil(),
+            ws_cache,
             perm_checker,
         })
     }
@@ -86,31 +90,31 @@ impl CoreCtx {
     /// Set during context resolution to the token's workspace for scoped users,
     /// or to the `X-Workspace-Id` header value for system/root tokens.
     pub fn scoped_ws_id(&self) -> Uuid {
-        self.scoped_ws_id
+        self.ws_cache.id
     }
 
     /// Override the operational workspace target (used by middleware for
     /// system tokens that supply an `X-Workspace-Id` header).
-    pub fn set_scoped_ws_id(&mut self, ws_id: Uuid) {
-        self.scoped_ws_id = ws_id;
+    pub fn set_scoped_ws(&mut self, ws_cache: WorkspaceCache) {
+        self.ws_cache = ws_cache;
     }
 }
 
 impl From<CoreCtx> for StoreCtx {
     fn from(ctx: CoreCtx) -> Self {
-        Self::new(ctx.auth_cache.acc_id, ctx.scoped_ws_id)
+        Self::new(ctx.auth_cache.acc_id, ctx.scoped_ws_id())
     }
 }
 
 impl From<&CoreCtx> for StoreCtx {
     fn from(ctx: &CoreCtx) -> Self {
-        Self::new(ctx.auth_cache.acc_id, ctx.scoped_ws_id)
+        Self::new(ctx.auth_cache.acc_id, ctx.scoped_ws_id())
     }
 }
 
 impl From<&mut CoreCtx> for StoreCtx {
     fn from(ctx: &mut CoreCtx) -> Self {
-        Self::new(ctx.auth_cache.acc_id, ctx.scoped_ws_id)
+        Self::new(ctx.auth_cache.acc_id, ctx.scoped_ws_id())
     }
 }
 
@@ -204,10 +208,22 @@ impl ContextFactory {
             acc_enabled: true,
             auth_scope: AuthScopeCache::system(),
         };
+
+        let ws_cache = WorkspaceCache {
+            id: ws_id.clone(),
+            name: String::new(),
+            slug: String::new(),
+            description: None,
+            owner: Uuid::nil(),
+            config: WorkspaceConfig::default(),
+            tags: vec![],
+            meta: WorkspaceMeta::default(),
+        };
+
         let perm_checker = PermissionEngine::from_string_vec(vec!["*:*".to_string()])?;
         Ok(CoreCtx {
             auth_cache,
-            scoped_ws_id: *ws_id,
+            ws_cache,
             perm_checker,
         })
     }

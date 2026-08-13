@@ -1,9 +1,16 @@
 use std::str::FromStr;
+use std::sync::Arc;
 use std::{collections::HashMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::store::crud::Get;
+use crate::store::ctx::StoreCtx;
+use crate::store::entities::membership::MembershipStatus;
+use crate::store::join::GetManyToMany;
+use crate::store::manager::StoreManager;
+use crate::store::traits::dbx::DbExecutor;
 use crate::{
     cache::{
         error::{CacheError, CacheResult},
@@ -84,7 +91,7 @@ impl AuthCache {
         }
     }
 
-    pub fn bootstrap_cache() -> Self {
+    pub fn bootstrap() -> Self {
         Self {
             mem_id: Uuid::nil(),
             acc_id: Uuid::nil(),
@@ -114,6 +121,66 @@ impl AuthCache {
                 permissions: vec![],
             },
         }
+    }
+
+    /// Hydrates a fully-populated `AuthCache` from the database.
+    ///
+    /// Loads the membership (with its roles), the account, and every role's
+    /// permissions, then packages the result for `AuthCacheStore::write`.
+    pub async fn build_from_db<D: DbExecutor>(
+        sm: Arc<StoreManager<D>>,
+        mem_id: Uuid,
+        acc_id: Uuid,
+        sid: Option<Uuid>,
+    ) -> CacheResult<AuthCache> {
+        let store_ctx = StoreCtx::bootstrap();
+
+        // Load the membership (with its roles).
+        let mem_with_roles = sm
+            .membership
+            .get_many_to_many(&store_ctx, &mem_id.into())
+            .await?;
+        let mem_row = mem_with_roles.membership;
+        let workspace_row = sm
+            .workspace
+            .get(&store_ctx, &mem_row.workspace_id.into())
+            .await?;
+
+        // Load the account.
+        let acc_row = sm.account.get(&store_ctx, &acc_id.into()).await?;
+
+        // Resolve permissions from the membership's roles.
+        let mut permissions: Vec<String> = vec![];
+        let mut role_ids: Vec<Uuid> = vec![];
+        for role in mem_with_roles.roles.iter() {
+            role_ids.push(role.id.into());
+            let role_with_perms = sm.role.get_many_to_many(&store_ctx, &role.id).await?;
+            for perm in role_with_perms.permissions.iter() {
+                let name = perm.name.clone();
+                if !permissions.contains(&name) {
+                    permissions.push(name);
+                }
+            }
+        }
+
+        let auth_scope = AuthScopeCache {
+            workspace_id: mem_row.workspace_id,
+            workspace_slug: workspace_row.slug,
+            project_id: mem_row.project_id,
+            roles: role_ids,
+            permissions,
+        };
+
+        Ok(AuthCache {
+            mem_id,
+            acc_id,
+            sid,
+            mem_version: mem_row.version as u64,
+            acc_version: acc_row.version as u64,
+            mem_active: mem_row.status == MembershipStatus::Active,
+            acc_enabled: acc_row.enabled,
+            auth_scope,
+        })
     }
 }
 

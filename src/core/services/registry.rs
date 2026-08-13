@@ -3,17 +3,20 @@ use std::sync::Arc;
 use crate::{
     cache::{manager::CacheManager, traits::CacheExecutor},
     config::Config,
-    core::services::{
-        account::AccountService,
-        auth::AuthService,
-        client::ClientService,
-        credential::CredentialService,
-        membership::MembershipService,
-        permission::PermissionService,
-        project::ProjectService,
-        role::RoleService,
-        token::{TokenService, TokenServiceConfig},
-        workspace::WorkspaceService,
+    core::{
+        ctx::ContextFactory,
+        services::{
+            account::AccountService,
+            auth::AuthService,
+            client::ClientService,
+            credential::CredentialService,
+            membership::MembershipService,
+            permission::PermissionService,
+            project::ProjectService,
+            role::RoleService,
+            token::{TokenService, TokenServiceConfig},
+            workspace::WorkspaceService,
+        },
     },
     store::{manager::StoreManager, traits::dbx::DbExecutor},
 };
@@ -36,6 +39,7 @@ pub struct ServiceRegistry<D: DbExecutor, C: CacheExecutor> {
     pub membership: Arc<MembershipService<D, C>>,
     pub client: Arc<ClientService<D, C>>,
     pub auth: Arc<AuthService<D, C>>,
+    pub ctx_factory: Arc<ContextFactory>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
@@ -46,6 +50,8 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             config.access_token_max_age,
             config.refresh_token_max_age,
         );
+
+        let ctx_factory = Arc::new(ContextFactory::new());
 
         // Phase 1: construct in dependency order (leaves first).
         let workspace = Arc::new(WorkspaceService::new(sm.clone()));
@@ -92,6 +98,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             token.clone(),
             credential.clone(),
             membership.clone(),
+            ctx_factory.clone(),
             role.clone(),
             config.clone(),
         ));
@@ -112,6 +119,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             token,
             credential,
             membership,
+            ctx_factory,
             client,
             auth,
         }

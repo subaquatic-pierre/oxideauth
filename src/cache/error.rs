@@ -18,6 +18,8 @@ pub enum CacheError {
     RedisError(#[serde_as(as = "DisplayFromStr")] redis::RedisError),
     #[from]
     SerdeError(#[serde_as(as = "DisplayFromStr")] serde_json::Error),
+    #[from]
+    StoreError(#[serde_as(as = "DisplayFromStr")] crate::store::error::StoreError),
 }
 
 impl Display for CacheError {

@@ -8,7 +8,10 @@ use uuid::Uuid;
 use crate::{
     cache::{
         CacheEntity,
-        entities::auth::{AuthCache, AuthScopeCache},
+        entities::{
+            auth::{AuthCache, AuthScopeCache},
+            workspace::WorkspaceCache,
+        },
         manager::CacheManager,
         traits::CacheExecutor,
     },
@@ -42,7 +45,6 @@ where
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
     svc_reg: Arc<ServiceRegistry<D, C>>,
-    ctx_factory: Arc<ContextFactory>,
     config: Config,
 }
 
@@ -55,14 +57,12 @@ where
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
         svc_reg: Arc<ServiceRegistry<D, C>>,
-        ctx_factory: Arc<ContextFactory>,
         config: Config,
     ) -> Self {
         Self {
             sm,
             cm,
             svc_reg,
-            ctx_factory,
             config,
         }
     }
@@ -86,20 +86,17 @@ where
         let token_svc = self.svc_reg.token.clone();
         let claims = token_svc.decode_token_str(token_str)?;
 
-        let mem_id = claims.mem;
-        let acc_id = claims.sub;
-        let sid = claims.sid;
+        let resolver =
+            ContextResolver::new(self.sm.clone(), self.cm.clone(), &self.config, &claims);
+        let auth_cache = resolver.resolve_auth_cache().await?;
 
-        // Build the keyed template, then read the auth cache.
-        let keyed = AuthCache::new_keyed(mem_id, acc_id, sid);
-        let auth_cache = self.fetch_auth_cache(&keyed).await?;
+        let ws_cache = resolver.resolve_ws_cache().await?;
 
-        // Validate version/status claims against the cached state.
-        let auth_resolver = AuthContextResolver::new(self.sm.clone(), &self.config);
-        auth_resolver.validate(&auth_cache, &claims)?;
+        let acc_id = auth_cache.acc_id;
+        let mem_id = auth_cache.mem_id;
+        let ws_id = ws_cache.id;
 
-        let ws_scope = auth_cache.auth_scope.workspace_id;
-        let mut core_ctx = CoreCtx::new(auth_cache, ws_scope)?;
+        let mut core_ctx = CoreCtx::new(auth_cache, ws_cache)?;
 
         // scope global workspace if token is system scope
         // this mutates ctx internal state and ensures correct headers are set
@@ -117,37 +114,19 @@ where
         Ok(core_ctx)
     }
 
-    async fn fetch_auth_cache(&self, keyed: &AuthCache) -> CoreResult<AuthCache> {
-        let hydrated = match self.cm.auth.fetch(&keyed.key()).await? {
-            Some(entity) => entity,
-            None => {
-                let hydrated = self
-                    .build_auth_cache_from_db(keyed.mem_id, keyed.acc_id, keyed.sid)
-                    .await?;
-                self.cm
-                    .auth
-                    // TODO: need to get workspace config for workspace max token age
-                    .write(&hydrated, self.config.access_token_max_age)
-                    .await?;
-                hydrated
-            }
-        };
-
-        Ok(hydrated)
-    }
-
     fn validate_and_scope_global_workspace(
         &self,
         headers: &HeaderMap,
         ctx: &mut CoreCtx,
     ) -> CoreResult<()> {
         let header_ws = CtxService::<D, C>::parse_workspace_header(headers);
-        let scoped_ws = if ctx.is_system_workspace().unwrap_or(false) {
+        let is_system = ctx.is_system_workspace().unwrap_or(false);
+        let scoped_ws = if is_system {
             match header_ws {
                 Some(scoped_ws) => {
                     // System account gets full root permissions.
                     // Other system-workspace members use their normal roles.
-                    if ctx.account_id() == self.ctx_factory.system_user_id() {
+                    if ctx.account_id() == self.svc_reg.ctx_factory.system_user_id() {
                         ctx.extend_perms(&["*:*"]);
                     }
                     scoped_ws
@@ -165,70 +144,8 @@ where
             ctx.auth_cache.auth_scope.workspace_id.clone()
         };
 
-        ctx.set_scoped_ws_id(scoped_ws);
+        ctx.set_scoped_ws(ctx.ws_cache.clone());
         Ok(())
-    }
-
-    /// Hydrates a fully-populated `AuthCache` from the database.
-    ///
-    /// Loads the membership (with its roles), the account, and every role's
-    /// permissions, then packages the result for `AuthCacheStore::write`.
-    async fn build_auth_cache_from_db(
-        &self,
-        mem_id: Uuid,
-        acc_id: Uuid,
-        sid: Option<Uuid>,
-    ) -> CoreResult<AuthCache> {
-        let store_ctx = StoreCtx::bootstrap();
-
-        // Load the membership (with its roles).
-        let mem_with_roles = self
-            .sm
-            .membership
-            .get_many_to_many(&store_ctx, &mem_id.into())
-            .await?;
-        let mem_row = mem_with_roles.membership;
-        let workspace_row = self
-            .sm
-            .workspace
-            .get(&store_ctx, &mem_row.workspace_id.into())
-            .await?;
-
-        // Load the account.
-        let acc_row = self.sm.account.get(&store_ctx, &acc_id.into()).await?;
-
-        // Resolve permissions from the membership's roles.
-        let mut permissions: Vec<String> = vec![];
-        let mut role_ids: Vec<Uuid> = vec![];
-        for role in mem_with_roles.roles.iter() {
-            role_ids.push(role.id.into());
-            let role_with_perms = self.sm.role.get_many_to_many(&store_ctx, &role.id).await?;
-            for perm in role_with_perms.permissions.iter() {
-                let name = perm.name.clone();
-                if !permissions.contains(&name) {
-                    permissions.push(name);
-                }
-            }
-        }
-
-        let auth_scope = AuthScopeCache {
-            workspace_id: mem_row.workspace_id,
-            workspace_slug: workspace_row.slug,
-            project_id: mem_row.project_id,
-            roles: role_ids,
-            permissions,
-        };
-
-        Ok(AuthCache {
-            mem_id,
-            acc_id,
-            sid,
-            mem_version: mem_row.version as u64,
-            acc_version: acc_row.version as u64,
-            mem_active: mem_row.status == MembershipStatus::Active,
-            acc_enabled: acc_row.enabled,
-            auth_scope,
-        })
     }
 
     /// Parse the `X-Workspace-Id` header as a UUID. Returns `None` if the header
@@ -247,31 +164,104 @@ where
 /// resolver now only holds the validation logic. `sm` and `config` are kept
 /// for potential future use — the validation methods themselves need no
 /// external state.
-struct AuthContextResolver<'a, D>
+struct ContextResolver<'a, D, C>
 where
     D: DbExecutor,
+    C: CacheExecutor,
 {
-    #[allow(dead_code)]
     sm: Arc<StoreManager<D>>,
-    #[allow(dead_code)]
+    cm: Arc<CacheManager<C>>,
     config: &'a Config,
+    claims: &'a TokenClaims,
 }
 
-impl<'a, D> AuthContextResolver<'a, D>
+impl<'a, D, C> ContextResolver<'a, D, C>
 where
     D: DbExecutor,
+    C: CacheExecutor,
 {
-    fn new(sm: Arc<StoreManager<D>>, config: &'a Config) -> Self {
-        Self { sm, config }
+    fn new(
+        sm: Arc<StoreManager<D>>,
+        cm: Arc<CacheManager<C>>,
+        config: &'a Config,
+        claims: &'a TokenClaims,
+    ) -> Self {
+        Self {
+            sm,
+            cm,
+            config,
+            claims,
+        }
     }
 
-    fn validate(&self, auth: &AuthCache, claims: &TokenClaims) -> CoreResult<()> {
-        self.validate_versions(auth, claims)?;
+    pub async fn resolve_auth_cache(&self) -> CoreResult<AuthCache> {
+        let mem_id = self.claims.mem;
+        let acc_id = self.claims.sub;
+        let sid = self.claims.sid;
+        let ws = self.claims.ws;
+        // Build the keyed template, then read the auth cache.
+        let keyed = AuthCache::new_keyed(mem_id, acc_id, sid);
+        let auth_cache = self.fetch_auth_cache(&keyed).await?;
+
+        self.validate_auth(&auth_cache)?;
+
+        Ok(auth_cache)
+    }
+
+    pub async fn resolve_ws_cache(&self) -> CoreResult<WorkspaceCache> {
+        let keyed = WorkspaceCache::new_keyed(self.claims.ws);
+        let ws_cache = self.fetch_workspace_cache(&keyed).await?;
+        Ok(ws_cache)
+    }
+
+    async fn fetch_auth_cache(&self, keyed: &AuthCache) -> CoreResult<AuthCache> {
+        let hydrated = match self.cm.auth.fetch(&keyed.key()).await? {
+            Some(entity) => entity,
+            None => {
+                let hydrated = AuthCache::build_from_db(
+                    self.sm.clone(),
+                    keyed.mem_id,
+                    keyed.acc_id,
+                    keyed.sid,
+                )
+                .await?;
+                self.cm
+                    .auth
+                    // TODO: need to get workspace config for workspace max token age
+                    .write(&hydrated, self.config.access_token_max_age)
+                    .await?;
+                hydrated
+            }
+        };
+
+        Ok(hydrated)
+    }
+
+    async fn fetch_workspace_cache(&self, keyed: &WorkspaceCache) -> CoreResult<WorkspaceCache> {
+        let hydrated = match self.cm.workspace.fetch(&keyed.key()).await? {
+            Some(entity) => entity,
+            None => {
+                let hydrated = WorkspaceCache::build_from_db(self.sm.clone(), keyed.id).await?;
+                self.cm
+                    .workspace
+                    // TODO: need to get workspace config for workspace max token age
+                    .write(&hydrated, hydrated.config.jwt_max_age)
+                    .await?;
+                hydrated
+            }
+        };
+
+        Ok(hydrated)
+    }
+
+    fn validate_auth(&self, auth: &AuthCache) -> CoreResult<()> {
+        self.validate_versions(auth)?;
         self.validate_status(auth)?;
         Ok(())
     }
 
-    fn validate_versions(&self, auth: &AuthCache, claims: &TokenClaims) -> CoreResult<()> {
+    fn validate_versions(&self, auth: &AuthCache) -> CoreResult<()> {
+        let claims = self.claims;
         if claims.mem_ver != auth.mem_version {
             return Err(CoreError::Auth("membership token revoked".into()));
         }

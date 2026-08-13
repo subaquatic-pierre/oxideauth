@@ -50,7 +50,6 @@ where
     pub sm: Arc<StoreManager<D>>,
     pub cm: Arc<CacheManager<C>>,
     pub svc_reg: Arc<ServiceRegistry<D, C>>,
-    pub ctx_factory: Arc<ContextFactory>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> AppState<D, C> {
@@ -61,7 +60,7 @@ impl<D: DbExecutor, C: CacheExecutor> AppState<D, C> {
     /// Uses the cached system workspace and account UUIDs so audit fields
     /// carry a real, traceable identity.
     pub fn system_context(&self) -> CoreResult<CoreCtx> {
-        self.ctx_factory.system()
+        self.svc_reg.ctx_factory.system()
     }
 }
 
@@ -122,7 +121,6 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
         }
     };
 
-    let ctx_factory = Arc::new(ContextFactory::new());
     let svc_reg = Arc::new(ServiceRegistry::new(&config, sm.clone(), cm.clone()));
 
     // debug!("App Config config: {:?}", config);
@@ -134,7 +132,6 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
         cm,
         sm,
         svc_reg,
-        ctx_factory,
     };
 
     // TODO: Ensure this is never run in production

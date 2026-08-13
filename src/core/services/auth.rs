@@ -8,14 +8,17 @@ use uuid::Uuid;
 
 use crate::{
     cache::{
-        entities::auth::{AuthCache, AuthScopeCache},
-        entities::oauth_state::{OAuthProvider, OAuthStateCache},
+        entities::{
+            auth::{AuthCache, AuthScopeCache},
+            oauth_state::{OAuthProvider, OAuthStateCache},
+            workspace::WorkspaceCache,
+        },
         manager::CacheManager,
         traits::CacheExecutor,
     },
     config::Config,
     core::{
-        ctx::CoreCtx,
+        ctx::{ContextFactory, CoreCtx},
         error::{CoreError, CoreResult},
         models::{
             account::{
@@ -107,6 +110,7 @@ where
     token_svc: Arc<TokenService<D, C>>,
     credential_svc: Arc<CredentialService<D, C>>,
     membership_svc: Arc<MembershipService<D, C>>,
+    ctx_factory: Arc<ContextFactory>,
     role_svc: Arc<RoleService<D, C>>,
     cm: Arc<CacheManager<C>>,
     config: Config,
@@ -125,6 +129,7 @@ where
         token_svc: Arc<TokenService<D, C>>,
         credential_svc: Arc<CredentialService<D, C>>,
         membership_svc: Arc<MembershipService<D, C>>,
+        ctx_factory: Arc<ContextFactory>,
         role_svc: Arc<RoleService<D, C>>,
         config: Config,
     ) -> Self {
@@ -132,6 +137,7 @@ where
             sm,
             acc_svc,
             ws_svc,
+            ctx_factory,
             token_svc,
             credential_svc,
             membership_svc,
@@ -578,8 +584,10 @@ where
                 // Build a minimal context with the needed permissions.
                 // We know the token's claims are valid (we just decoded them),
                 // so we can construct a temporary context from the claims.
-                let auth_cache = AuthCache::from_claims(&claims);
-                let mut temp_ctx = CoreCtx::new(auth_cache, ws_id)?;
+                let mut temp_ctx = self.ctx_factory.system()?;
+                // let auth_cache = AuthCache::from_claims(&claims);
+                // let ws_cache = WorkspaceCache::new_keyed(&claims.ws);
+                // let mut temp_ctx = CoreCtx::new(auth_cache, ws_id)?;
                 temp_ctx.extend_perms(&[
                     CANONICAL_PERMISSIONS.membership.describe,
                     CANONICAL_PERMISSIONS.membership.update,

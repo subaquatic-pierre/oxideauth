@@ -42,7 +42,7 @@ pub async fn seed_all<D: DbExecutor, C: CacheExecutor>(
     app: &AppState<PgDbx, RedisChx>,
 ) -> CoreResult<()> {
     let svc_reg = app.svc_reg.clone();
-    let ctx_factory = app.ctx_factory.clone();
+    let ctx_factory = app.svc_reg.ctx_factory.clone();
     let mut ctx = CoreCtx::bootstrap()?;
 
     seed_workspaces(&mut ctx, svc_reg.clone()).await?;
@@ -586,38 +586,62 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
     let test_admin_role = svc_reg
         .sm
         .role
-        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_admin_role, DbId(test_ws.id))
+        .get_by_name_opt(
+            &store_ctx,
+            SYSTEM_CONST.workspace_admin_role,
+            DbId(test_ws.id),
+        )
         .await?
         .expect("WorkspaceAdmin role not found in test workspace");
     let public_admin_role = svc_reg
         .sm
         .role
-        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_admin_role, DbId(public_ws.id))
+        .get_by_name_opt(
+            &store_ctx,
+            SYSTEM_CONST.workspace_admin_role,
+            DbId(public_ws.id),
+        )
         .await?
         .expect("WorkspaceAdmin role not found in public test workspace");
     let private_admin_role = svc_reg
         .sm
         .role
-        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_admin_role, DbId(private_ws.id))
+        .get_by_name_opt(
+            &store_ctx,
+            SYSTEM_CONST.workspace_admin_role,
+            DbId(private_ws.id),
+        )
         .await?
         .expect("WorkspaceAdmin role not found in private test workspace");
 
     let test_viewer_role = svc_reg
         .sm
         .role
-        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_viewer_role, DbId(test_ws.id))
+        .get_by_name_opt(
+            &store_ctx,
+            SYSTEM_CONST.workspace_viewer_role,
+            DbId(test_ws.id),
+        )
         .await?
         .expect("WorkspaceViewer role not found in test workspace");
     let public_viewer_role = svc_reg
         .sm
         .role
-        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_viewer_role, DbId(public_ws.id))
+        .get_by_name_opt(
+            &store_ctx,
+            SYSTEM_CONST.workspace_viewer_role,
+            DbId(public_ws.id),
+        )
         .await?
         .expect("WorkspaceViewer role not found in public test workspace");
     let private_viewer_role = svc_reg
         .sm
         .role
-        .get_by_name_opt(&store_ctx, SYSTEM_CONST.workspace_viewer_role, DbId(private_ws.id))
+        .get_by_name_opt(
+            &store_ctx,
+            SYSTEM_CONST.workspace_viewer_role,
+            DbId(private_ws.id),
+        )
         .await?
         .expect("WorkspaceViewer role not found in private test workspace");
 
