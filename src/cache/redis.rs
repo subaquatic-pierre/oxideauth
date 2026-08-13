@@ -33,10 +33,21 @@ impl RedisChx {
             conn: Mutex::new(None),
         }
     }
-}
 
-#[async_trait]
-impl CacheExecutor for RedisChx {
+    async fn query_async<RV: FromRedisValue + Send + Sync>(&self, cmd: Cmd) -> CacheResult<RV> {
+        let mut conn = self.conn().await?;
+        let res = match cmd.query_async::<RV>(&mut conn).await {
+            Ok(res) => res,
+            Err(e) => {
+                // connection dead (runtime was dropped) → rebuild on *this* runtime, retry once
+                self.invalidate_conn().await;
+                let mut conn = self.conn().await?;
+                cmd.query_async::<RV>(&mut conn).await?
+            }
+        };
+        Ok(res)
+    }
+
     async fn conn(&self) -> CacheResult<MultiplexedConnection> {
         let mut guard = self.conn.lock().await;
         if let Some(c) = guard.as_ref() {
@@ -51,7 +62,10 @@ impl CacheExecutor for RedisChx {
     async fn invalidate_conn(&self) {
         *self.conn.lock().await = None;
     }
+}
 
+#[async_trait]
+impl CacheExecutor for RedisChx {
     async fn get(&self, key: &str) -> CacheResult<Option<String>> {
         let mut cmd = redis::cmd("GET");
 
@@ -79,6 +93,7 @@ impl CacheExecutor for RedisChx {
 
     async fn del(&self, key: &str) -> CacheResult<u64> {
         let mut cmd = redis::cmd("DEL");
+        cmd.arg(key);
 
         let val: u64 = self.query_async(cmd).await?;
 
@@ -129,11 +144,11 @@ impl CacheExecutor for RedisChx {
     }
 
     /// Atomically increments the plain string value at `key` by one.
-    async fn incr(&self, key: &str) -> CacheResult<u64> {
+    async fn incr(&self, key: &str) -> CacheResult<i64> {
         let mut cmd = redis::cmd("INCR");
         cmd.arg(&key);
 
-        let n: u64 = self.query_async(cmd).await?;
+        let n: i64 = self.query_async(cmd).await?;
         Ok(n)
     }
 }

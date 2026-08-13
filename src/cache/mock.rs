@@ -24,15 +24,6 @@ impl CacheExecutor for MockChx {
         Ok(None)
     }
 
-    async fn conn(&self) -> CacheResult<MultiplexedConnection> {
-        unimplemented!()
-    }
-
-    /// Drop the cached connection so the next `conn()` re-establishes it.
-    async fn invalidate_conn(&self) {
-        unimplemented!()
-    }
-
     async fn json_set<T>(
         &self,
         _key: &str,
@@ -53,7 +44,7 @@ impl CacheExecutor for MockChx {
         Ok(42)
     }
 
-    async fn incr(&self, _key: &str) -> CacheResult<u64> {
+    async fn incr(&self, _key: &str) -> CacheResult<i64> {
         Ok(0)
     }
 

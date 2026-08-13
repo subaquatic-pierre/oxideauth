@@ -26,27 +26,6 @@ pub trait CacheExecutor: Send + Sync {
     where
         T: DeserializeOwned + Serialize + Send + Sync;
 
-    /// Reuse the cached connection if present; otherwise establish a new one
-    /// bound to the *current* runtime (so it's alive for this caller).
-    async fn conn(&self) -> CacheResult<MultiplexedConnection>;
-
-    /// Drop the cached connection so the next `conn()` re-establishes it.
-    async fn invalidate_conn(&self);
-
-    async fn query_async<RV: FromRedisValue + Send + Sync>(&self, cmd: Cmd) -> CacheResult<RV> {
-        let mut conn = self.conn().await?;
-        let res = match cmd.query_async::<RV>(&mut conn).await {
-            Ok(res) => res,
-            Err(e) => {
-                // connection dead (runtime was dropped) → rebuild on *this* runtime, retry once
-                self.invalidate_conn().await;
-                let mut conn = self.conn().await?;
-                cmd.query_async::<RV>(&mut conn).await?
-            }
-        };
-        Ok(res)
-    }
-
     // Removes a key from the cache.
     async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<u64>
     where
@@ -54,7 +33,7 @@ pub trait CacheExecutor: Send + Sync {
 
     /// Atomically increments the plain string value at `key` by one and returns
     /// the new value. Keys that do not exist are created with value `0` first.
-    async fn incr(&self, key: &str) -> CacheResult<u64>;
+    async fn incr(&self, key: &str) -> CacheResult<i64>;
 
     async fn set(&self, key: &str, val: &str, ttl_seconds: Option<u64>) -> CacheResult<()>;
     async fn get(&self, key: &str) -> CacheResult<Option<String>>;
