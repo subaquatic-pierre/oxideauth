@@ -43,6 +43,7 @@ pub struct Membership {
     pub audit: CoreAuditFields,
 }
 
+// TODO: change From<MembershipRow> for Membership
 impl From<(MembershipRow, Vec<Role>, Account)> for Membership {
     fn from((row, roles, account): (MembershipRow, Vec<Role>, Account)) -> Self {
         Self {

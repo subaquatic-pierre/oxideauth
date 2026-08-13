@@ -37,6 +37,7 @@ pub struct MembershipDescribeRes {
     pub account_id: Uuid,
     pub project_id: Option<Uuid>,
     pub scope: MembershipScope,
+    pub version: i64,
     pub status: MembershipStatus,
     pub roles: Vec<Role>,
     pub tags: Vec<String>,
@@ -54,6 +55,7 @@ impl From<Membership> for MembershipDescribeRes {
             workspace_id: m.workspace_id,
             account_id: m.account.id,
             project_id: m.project_id,
+            version: m.version,
             scope: m.scope,
             status: m.status,
             roles: m.roles,
@@ -93,6 +95,8 @@ impl IntoParams<MembershipCreateParams> for MembershipCreateReq {
 }
 
 // --- MembershipUpdateReq ---
+// Note: dont need version on this struct
+// version is always bumped at service layer
 #[derive(Deserialize)]
 pub struct MembershipUpdateReq {
     pub id: Uuid,
