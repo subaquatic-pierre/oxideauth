@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     core::{
+        error::{CoreError, CoreResult},
         models::{
             audit::CoreAuditFields,
             list::{RequestFilterParams, RequestListOptions},
@@ -17,6 +18,7 @@ use crate::{
         AccountFilter as StoreAccountFilter, AccountForCreate, AccountForUpdate,
         AccountKind as StoreAccountKind, AccountMeta as StoreAccountMeta, AccountRow,
     },
+    utils::id::id_or_string,
 };
 
 pub type AccountKind = StoreAccountKind;
@@ -108,6 +110,12 @@ impl From<AccountCreateParams> for AccountForCreate {
     }
 }
 
+impl AccountDescribeParams {
+    fn id_or_email(&self) -> CoreResult<String> {
+        id_or_string(self.id, self.email.clone(), Some("ID or email required"))
+    }
+}
+
 #[derive(Default)]
 pub struct AccountDescribeParams {
     pub email: Option<String>,
@@ -117,6 +125,12 @@ pub struct AccountDescribeParams {
 pub struct AccountDeleteParams {
     pub email: Option<String>,
     pub id: Option<Uuid>,
+}
+
+impl AccountDeleteParams {
+    pub fn id_or_email(&self) -> CoreResult<String> {
+        id_or_string(self.id, self.email.clone(), Some("ID or email required"))
+    }
 }
 
 pub struct AccountUpdateParams {
@@ -147,6 +161,10 @@ impl AccountUpdateParams {
             tags: self.tags,
             meta: self.meta,
         }
+    }
+
+    pub fn id_or_email(&self) -> CoreResult<String> {
+        id_or_string(self.id, self.email.clone(), Some("ID or email required"))
     }
 }
 pub struct AccountListParams {

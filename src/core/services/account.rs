@@ -80,17 +80,6 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
         Self { sm, cm, ws_svc }
     }
 
-    fn id_or_email(id: Option<Uuid>, email: Option<String>) -> CoreResult<String> {
-        let res = id
-            .map(|id| id.to_string())
-            .or(email.clone())
-            .ok_or(CoreError::InvalidParams(
-                "Email or ID required ".to_string(),
-            ));
-
-        res
-    }
-
     async fn get_account_by_id_or_email(
         &self,
         ctx: &mut CoreCtx,
@@ -242,19 +231,21 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
         // TODO: updating email constraints need to be enforced
-        // if email is updated then need to set verified as false
-        // ensure email does not already exist for a different account
-        // force reverify
-        // this email acts primarily as ID, if a user wants to update email
-        // to login then can update credential used for that namespace instead
-        let identifier = Self::id_or_email(params.id.clone(), params.email.clone())?;
+        // currently cannot change account email
+        let identifier = params.id_or_email()?;
 
         let current = self.get_account_by_id_or_email(ctx, &identifier).await?;
         let id = current.id;
 
         let security_change = params.enabled.map_or(false, |e| e != current.enabled);
 
-        let mut update_data: AccountForUpdate = params.into_store_params(Some(current.version + 1));
+        let new_version = if security_change {
+            Some(current.version + 1)
+        } else {
+            Some(current.version)
+        };
+
+        let mut update_data: AccountForUpdate = params.into_store_params(new_version);
 
         let updated_account = store.update(&store_ctx, &id.into(), update_data).await?;
 
@@ -279,7 +270,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
         auth_validator.validate_ctx_perms(&[Self::DELETE_PERMISSION])?;
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        let identifier = Self::id_or_email(params.id.clone(), params.email.clone())?;
+        let identifier = params.id_or_email()?;
         let acc = self.get_account_by_id_or_email(ctx, &identifier).await?;
 
         let deleted = store.delete(&store_ctx, &acc.id.into()).await?.into();
