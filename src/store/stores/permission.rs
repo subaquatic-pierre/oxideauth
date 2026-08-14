@@ -122,43 +122,51 @@ impl<D: DbExecutor> ContainsFilterStore for PermissionStore<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        cache::redis::RedisChx,
-        dev::init::init_test,
-        store::{
-            ctx::StoreCtx,
-            entities::{permission::PermissionForCreate, workspace::WorkspaceForCreate},
-            error::StoreError,
-            traits::{contains::FilterByContains, crud::*},
-        },
+    use crate::store::{
+        ctx::StoreCtx,
+        dbx::MockDbx,
+        entities::{audit::AuditFields, permission::PermissionMeta},
+        error::StoreError,
+        traits::{contains::FilterByContains, crud::*},
     };
     use anyhow::Result;
     use serde_json::json;
-    use serial_test::serial;
     use uuid::Uuid;
 
-    /// Helper function to seed the necessary Workspace for a Permission.
-    async fn seed_prerequisite(
-        ctx: &StoreCtx,
-        app: &crate::app::AppState<PgDbx, RedisChx>,
-    ) -> Result<Uuid> {
-        let workspace = app
-            .sm
-            .workspace
-            .create(ctx, WorkspaceForCreate::default())
-            .await?;
-        Ok(workspace.id.into())
+    /// Helper to build a `PermissionRow` with default-ish values for the mock.
+    fn permission_row() -> PermissionRow {
+        PermissionRow {
+            id: DbId::from(Uuid::new_v4()),
+            workspace_id: Uuid::new_v4(),
+            name: String::new(),
+            description: None,
+            tags: vec![],
+            meta: PermissionMeta::default(),
+            audit: AuditFields::default(),
+        }
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_create_get_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let workspace_id = Uuid::new_v4();
+        let permission_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<PermissionRow>(PermissionRow {
+                    id: permission_id,
+                    name: "project:create".into(),
+                    workspace_id,
+                    ..permission_row()
+                })
+                .with_optional::<PermissionRow>(Some(PermissionRow {
+                    id: permission_id,
+                    name: "project:create".into(),
+                    ..permission_row()
+                })),
+        );
         let store = PermissionStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let data = PermissionForCreate {
             name: "project:create".to_string(),
@@ -180,33 +188,34 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_update_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<PermissionRow>(permission_row())
+                .with_optional::<PermissionRow>(Some(PermissionRow {
+                    name: "user:create".into(),
+                    ..permission_row()
+                }))
+                .with_optional::<PermissionRow>(Some(PermissionRow {
+                    name: "user:create".into(),
+                    ..permission_row()
+                })),
+        );
         let store = PermissionStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
-        let created_permission = store
-            .create(
+        // -- Execute
+        let created_permission = store.create(&ctx, PermissionForCreate::default()).await?;
+        let updated_permission = store
+            .update(
                 &ctx,
-                PermissionForCreate {
-                    workspace_id,
+                &created_permission.id,
+                PermissionForUpdate {
+                    name: Some("user:create".into()),
                     ..Default::default()
                 },
             )
-            .await?;
-
-        let update_data = PermissionForUpdate {
-            name: Some("user:create".into()),
-            ..Default::default()
-        };
-
-        // -- Execute
-        let updated_permission = store
-            .update(&ctx, &created_permission.id, update_data)
             .await?;
         let fetched_permission = store.get(&ctx, &created_permission.id).await?;
 
@@ -218,31 +227,26 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_delete_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let permission_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_optional::<PermissionRow>(Some(PermissionRow {
+                    id: permission_id,
+                    ..permission_row()
+                }))
+                .with_optional::<PermissionRow>(None),
+        );
         let store = PermissionStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
-
-        let created_permission = store
-            .create(
-                &ctx,
-                PermissionForCreate {
-                    workspace_id,
-                    ..Default::default()
-                },
-            )
-            .await?;
 
         // -- Execute
-        let deleted_permission = store.delete(&ctx, &created_permission.id).await?;
-        let get_result = store.get(&ctx, &created_permission.id).await;
+        let deleted_permission = store.delete(&ctx, &permission_id).await?;
+        let get_result = store.get(&ctx, &permission_id).await;
 
         // -- Assert
-        assert_eq!(deleted_permission.id, created_permission.id);
+        assert_eq!(deleted_permission.id, permission_id);
         assert!(
             matches!(get_result, Err(StoreError::EntityNotFound { .. })),
             "Getting the permission after deletion should fail"
@@ -252,30 +256,27 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_list_with_filter_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<PermissionRow>(vec![permission_row(), permission_row()])
+                .with_all::<PermissionRow>(vec![PermissionRow {
+                    name: "perm:list:b".into(),
+                    ..permission_row()
+                }]),
+        );
         let store = PermissionStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
-
-        let perms_to_create = vec![
-            PermissionForCreate {
-                name: "perm:list:a".to_string(),
-                workspace_id,
-                ..Default::default()
-            },
-            PermissionForCreate {
-                name: "perm:list:b".to_string(),
-                workspace_id,
-                ..Default::default()
-            },
-        ];
-        store.create_many(&ctx, perms_to_create).await?;
 
         // -- Execute
+        store
+            .create_many(
+                &ctx,
+                vec![PermissionForCreate::default(), PermissionForCreate::default()],
+            )
+            .await?;
+
         let filter: PermissionFilter = json!({ "name": "perm:list:b" }).try_into()?;
         let permissions = store.list(&ctx, Some(filter), None).await?;
 
@@ -287,38 +288,23 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_filter_by_contains_tags() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
-        let store = PermissionStore::new(dbx);
-        let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
-
-        // -- Create test data with different tags
-        store
-            .create(
-                &ctx,
-                PermissionForCreate {
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<PermissionRow>(vec![PermissionRow {
                     name: "tags-perm-a".into(),
                     tags: vec!["resource".into(), "project".into()],
-                    workspace_id,
-                    ..Default::default()
-                },
-            )
-            .await?;
-        store
-            .create(
-                &ctx,
-                PermissionForCreate {
+                    ..permission_row()
+                }])
+                .with_all::<PermissionRow>(vec![PermissionRow {
                     name: "tags-perm-b".into(),
                     tags: vec!["action".into(), "delete".into()],
-                    workspace_id,
-                    ..Default::default()
-                },
-            )
-            .await?;
+                    ..permission_row()
+                }]),
+        );
+        let store = PermissionStore::new(dbx);
+        let ctx = StoreCtx::bootstrap();
 
         // -- Execute & Assert
         let project_perms = store

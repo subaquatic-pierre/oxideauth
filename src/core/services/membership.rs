@@ -438,7 +438,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Membershi
 
 #[cfg(test)]
 mod tests {
-    use std::mem;
     use std::sync::Arc;
 
     use super::*;
@@ -447,10 +446,10 @@ mod tests {
         cache::{mock::MockChx, redis::RedisChx},
         config::Config,
         core::services::registry::ServiceRegistry,
-        create_dbx_mock_unsafe,
         dev::init::init_test,
         store::{
             ctx::StoreCtx,
+            dbx::MockDbx,
             entities::{
                 account::AccountRow,
                 credential::{CredentialForCreate, CredentialProvider},
@@ -512,6 +511,7 @@ mod tests {
         Ok((ws.id, acc.id))
     }
 
+    #[cfg(feature = "integration")]
     #[tokio::test]
     #[serial]
     async fn test_membership_crud_lifecycle() -> CoreResult<()> {
@@ -603,26 +603,13 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_create_mock_membership_success() -> CoreResult<()> {
-        create_dbx_mock_unsafe!(
-            MockDbxAccountRegister,
-            fetch_one: {
-                let acc = AccountRow::default();
-                let result = unsafe { mem::transmute_copy::<AccountRow, O>(&acc) };
-                mem::forget(acc);
-                Ok(result)
-            },
-            fetch_optional: { Ok(None) },
-            fetch_all: { Ok(vec![]) },
-            execute: { Ok(1) }
-        );
-
         let config = Config::test_config();
 
-        // build store manager
-        let dbx = Arc::new(MockDbxAccountRegister);
+        // build store manager backed by an in-memory fake database
+        let dbx = Arc::new(MockDbx::new());
         let sm = Arc::new(StoreManager::new(dbx));
 
-        // build cache manager with mock (no real Redis connection needed)
+        // build cache manager with an in-memory cache (no real Redis connection)
         let mock_cache = Arc::new(MockChx::default());
         let cm = Arc::new(CacheManager::new(mock_cache));
         let svc_reg = ServiceRegistry::new(&config, sm, cm);

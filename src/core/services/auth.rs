@@ -1166,20 +1166,11 @@ impl<'a> AuthValidator<'a> {
 mod tests {
     use serial_test::serial;
 
-    use crate::dev::init::init_test;
-
     use super::*;
-
-    fn setup_checker() -> CoreResult<PermissionEngine> {
-        PermissionEngine::from_str_slice(&["project:read", "project:create", "account:*", "*:read"])
-    }
 
     #[tokio::test]
     #[serial]
     async fn test_validate_perms() -> CoreResult<()> {
-        let app = init_test().await;
-        let granted = setup_checker()?;
-
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.create])?;
         let auth = AuthValidator::new(&ctx);

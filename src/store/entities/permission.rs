@@ -109,7 +109,7 @@ impl TryFrom<JsonValue> for PermissionFilter {
 }
 
 // --- Defaults for testing ---
-#[cfg(test)]
+#[cfg(any(test, feature = "integration"))]
 impl Default for PermissionForCreate {
     fn default() -> Self {
         use crate::store::utils::gen_rand_str;

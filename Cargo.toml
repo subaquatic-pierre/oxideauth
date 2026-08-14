@@ -117,12 +117,17 @@ serial_test = "0.6"
 mockall = "0.13.0"
 
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-check-cfg = ["cfg(feature, values(\"db-self-test\"))"]
+# [lints.rust.unexpected_cfgs]
+# level = "warn"
+# check-cfg = ["cfg(feature, values(\"integration\"))"]
 
-[lints.rust.unused]
-level = "allow"
+# [lints.rust.unused]
+# level = "allow"
+
+[lints.rust]
+async_fn_in_trait = "allow"
+unexpected_cfgs = "allow"
+unused = "allow"
 
 # [lints.rust.unused_imports]
 # level = "warn"
@@ -132,4 +137,7 @@ level = "allow"
 
 [features]
 default = []
+# Enables tests that require a live Postgres (and, transitively, Redis) instance.
+# Run with: cargo test --features integration
+integration = []
 

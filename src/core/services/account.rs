@@ -285,7 +285,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
 
 #[cfg(test)]
 mod tests {
-    use std::mem;
     use std::sync::Arc;
 
     use super::*;
@@ -294,9 +293,9 @@ mod tests {
         cache::{manager::CacheManager, mock::MockChx, redis::RedisChx},
         config::Config,
         core::services::registry::ServiceRegistry,
-        create_dbx_mock_unsafe,
         dev::init::init_test,
         store::{
+            dbx::MockDbx,
             ctx::StoreCtx,
             entities::{
                 account::AccountRow,
@@ -314,86 +313,62 @@ mod tests {
     use modql::filter::{ListOptions, OpValsString};
     use serde_json::json;
     use serial_test::serial;
-    use std::any::TypeId;
     use uuid::Uuid;
 
     #[tokio::test]
     #[serial]
-    async fn test_account_create() -> CoreResult<()> {
-        let app = init_test().await;
-        let acc_svc = app.svc_reg.account.clone();
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["account:create"])?;
-
-        let system_ws = app
-            .sm
-            .workspace
-            .get_by_slug_opt(&(&ctx).into(), SYSTEM_CONST.system_ws_slug)
-            .await?
-            .expect("system workspace not seeded");
-
-        let mut params = AccountCreateParams::default();
-        params.email = "new_exist@new.com".to_string();
-
-        let new_acc = acc_svc.create(&mut ctx, params).await?;
-
-        println!("{new_acc:?}");
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
     async fn test_account_list() -> CoreResult<()> {
-        let app = init_test().await;
-        let acc_svc = app.svc_reg.account.clone();
+        let config = Config::test_config();
+
+        // build store manager backed by an in-memory fake database
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<AccountRow>(vec![AccountRow {
+                    email: "list@example.com".into(),
+                    ..Default::default()
+                }])
+                .with_one::<(i64,)>( (1,) ),
+        );
+        let sm = Arc::new(StoreManager::new(dbx));
+
+        // build cache manager with an in-memory cache (no real Redis connection)
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
+        let svc = svc_reg.account.clone();
+
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["account:list"])?;
 
-        let system_ws = app
-            .sm
-            .workspace
-            .get_by_slug_opt(&(&ctx).into(), SYSTEM_CONST.system_ws_slug)
-            .await?
-            .expect("system workspace not seeded");
+        let accounts = svc
+            .list(
+                &mut ctx,
+                AccountListParams {
+                    filter: None,
+                    options: None,
+                },
+            )
+            .await?;
 
-        let params = AccountListParams {
-            filter: None,
-            options: None,
-        };
+        assert_eq!(accounts.data.len(), 1);
+        assert_eq!(accounts.metadata.total, 1);
 
-        let accounts = acc_svc.list(&mut ctx, params).await?;
-
-        println!("{accounts:?}");
         Ok(())
     }
 
     #[tokio::test]
     #[serial]
     async fn test_create_mock_account_success() -> CoreResult<()> {
-        create_dbx_mock_unsafe!(
-            MockDbxAccountRegister,
-            fetch_one: {
-                let acc = AccountRow::default();
-                let result = unsafe { mem::transmute_copy::<AccountRow, O>(&acc) };
-                mem::forget(acc);
-                Ok(result)
-            },
-            fetch_optional: {
-                let ws = WorkspaceRow::default();
-                let result = unsafe { mem::transmute_copy::<WorkspaceRow, O>(&ws) };
-                mem::forget(ws);
-                Ok(Some(result))
-             },
-            fetch_all: { Ok(vec![]) },
-            execute: { Ok(1) }
-        );
         let config = Config::test_config();
 
-        // build store manager
-        let dbx = Arc::new(MockDbxAccountRegister);
+        // build store manager backed by an in-memory fake database
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<AccountRow>(vec![]) // duplicate-email check -> none found
+                .with_one::<AccountRow>(AccountRow::default()), // INSERT ... RETURNING
+        );
         let sm = Arc::new(StoreManager::new(dbx));
 
-        // build cache manager with mock (no real Redis connection needed)
+        // build cache manager with an in-memory cache (no real Redis connection)
         let mock_cache = Arc::new(MockChx::default());
         let cm = Arc::new(CacheManager::new(mock_cache));
         let svc_reg = ServiceRegistry::new(&config, sm, cm);
@@ -418,39 +393,18 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_create_mock_account_error() -> CoreResult<()> {
-        create_dbx_mock_unsafe!(
-            MockDbxAccountRegister,
-            fetch_one: {
-                // workspace lookup via fetch_one
-                let ws = WorkspaceRow::default();
-                let result = unsafe { mem::transmute_copy::<WorkspaceRow, O>(&ws) };
-                mem::forget(ws);
-                Ok(result)
-            },
-            fetch_optional: {
-                // workspace lookup via fetch_one
-                let ws = WorkspaceRow::default();
-                let result = unsafe { mem::transmute_copy::<WorkspaceRow, O>(&ws) };
-                mem::forget(ws);
-                Ok(Some(result))
-             },
-            fetch_all: {
-                let mut acc = AccountRow::default();
-                acc.email = "user@user.com".to_string();
-                let result = unsafe { mem::transmute_copy::<AccountRow, O>(&acc) };
-                mem::forget(acc);
-                Ok(vec![result])
-            },
-            execute: { Err(StoreError::MockReturn) }
-        );
-
         let config = Config::test_config();
 
-        // build store manager
-        let dbx = Arc::new(MockDbxAccountRegister);
+        // A matching account already exists -> the duplicate-email check finds it
+        let existing = AccountRow {
+            email: "user@user.com".to_string(),
+            ..Default::default()
+        };
+
+        let dbx = Arc::new(MockDbx::new().with_all::<AccountRow>(vec![existing]));
         let sm = Arc::new(StoreManager::new(dbx));
 
-        // build cache manager with mock (no real Redis connection needed)
+        // build cache manager with an in-memory cache (no real Redis connection)
         let mock_cache = Arc::new(MockChx::default());
         let cm = Arc::new(CacheManager::new(mock_cache));
         let svc_reg = ServiceRegistry::new(&config, sm, cm);
@@ -461,8 +415,6 @@ mod tests {
 
         let params = AccountCreateParams::default();
         let new_acc = svc.create(&mut ctx, params).await;
-
-        // println!("new_acc: {:?}", new_acc);
 
         assert!(
             matches!(new_acc, Err(CoreError::AlreadyExists(..))),

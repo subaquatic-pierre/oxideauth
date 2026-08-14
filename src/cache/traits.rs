@@ -48,11 +48,6 @@ pub trait CacheExecutor: Send + Sync {
 /// obtains them from the entity via `keys()` and passes them to Redis
 /// commands through `AsRef<str>`.
 ///
-/// # Example
-///
-/// ```rust,ignore
-/// let key = CacheKey::new("oxauth", "mem_v", "550e8400-...");
-/// assert_eq!(key.as_ref(), "oxauth:mem_v:550e8400-...");
 /// ```
 #[derive(Debug, Clone)]
 pub struct CacheKey {

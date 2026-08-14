@@ -462,48 +462,40 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Workspace
 
 #[cfg(test)]
 mod tests {
-    use std::mem;
     use std::sync::Arc;
 
     use super::*;
     use crate::{
-        core::models::list::RequestFilterParams,
-        create_dbx_mock_unsafe,
+        cache::{manager::CacheManager, mock::MockChx},
+        config::Config,
+        core::services::registry::ServiceRegistry,
         dev::init::init_test,
-        store::{
-            ctx::StoreCtx,
-            entities::{
-                account::AccountRow,
-                credential::{CredentialForCreate, CredentialProvider},
-            },
-            error::StoreError,
-            meta::StoreId,
-            stores::workspace::{SYSTEM_CONST, WorkspaceStore},
-            traits::{contains::FilterByContains, crud::*, join::GetOneToMany},
-        },
+        store::{dbx::MockDbx, entities::workspace::WorkspaceRow},
     };
-    use anyhow::Result;
-    use modql::filter::{ListOptions, OpValsString};
-    use serde_json::json;
     use serial_test::serial;
     use uuid::Uuid;
+
+    /// Builds a `WorkspaceService` backed by an in-memory `MockDbx` + `MockChx`
+    /// so tests exercise the service logic without a real database or Redis.
+    fn mock_svc(dbx: MockDbx) -> Arc<WorkspaceService<MockDbx, MockChx>> {
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
+        svc_reg.workspace.clone()
+    }
 
     #[tokio::test]
     #[serial]
     async fn test_workspace_describe() -> CoreResult<()> {
-        let app = init_test().await;
-        let svc = app.svc_reg.workspace.clone();
+        let dbx = MockDbx::new()
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow::default())) // get_workspace_by_slug_or_id
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow::default())); // store.get
+        let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
 
-        let system_ws = app
-            .sm
-            .workspace
-            .get_by_slug_opt(&(&ctx).into(), SYSTEM_CONST.system_ws_slug)
-            .await?
-            .expect("system workspace not seeded");
-
         let mut params = WorkspaceDescribeParams::default();
-        params.id = Some(system_ws.id.into());
+        params.id = Some(Uuid::new_v4());
 
         let ok = svc.describe(&mut ctx, params).await;
 
@@ -512,6 +504,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "integration")]
     #[tokio::test]
     #[serial]
     async fn test_workspace_create() -> CoreResult<()> {
@@ -540,35 +533,17 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_workspace_list() -> CoreResult<()> {
-        let app = init_test().await;
-        let svc = app.svc_reg.workspace.clone();
+        let dbx = MockDbx::new()
+            .with_all::<WorkspaceRow>(vec![WorkspaceRow {
+                name: "list-ns-a".to_string(),
+                ..Default::default()
+            }])
+            .with_one::<(i64,)>( (1,) );
+        let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["workspace:create"])?;
-
-        let mut params = WorkspaceCreateParams::default();
-        params.name = "list-ns-a".to_string();
-        params.slug = "list-ns-a-test-a".to_string();
-        params.description = Some("LIST_BY_DESCRIPTION".to_string());
-        let workspace = svc.create(&mut ctx, params.clone()).await?;
-        params.name = "list-ns-b".to_string();
-        params.slug = "list-ns-a-test-b".to_string();
-        let workspace = svc.create(&mut ctx, params.clone()).await?;
-
         ctx.extend_perms(&["workspace:list"])?;
 
-        let filter: WorkspaceFilter = json!({ "description": "LIST_BY_DESCRIPTION" }).try_into()?;
-        let filter = RequestFilterParams {
-            fields: Some(filter),
-            tags: None,
-        };
-        let options = ListOptions::from_limit(1);
-
-        let params = WorkspaceListParams {
-            filter: Some(filter),
-            options: Some(options),
-        };
-
-        let res = svc.list(&mut ctx, params).await?;
+        let res = svc.list(&mut ctx, WorkspaceListParams::default()).await?;
 
         assert!(res.data.len() == 1);
         assert!(res.metadata.total >= 1);
@@ -579,34 +554,31 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_workspace_update() -> CoreResult<()> {
-        let app = init_test().await;
-        let svc = app.svc_reg.workspace.clone();
+        let ws_id = Uuid::new_v4();
+        let dbx = MockDbx::new()
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                name: "Original Name".to_string(),
+                ..Default::default()
+            })) // get_workspace_by_slug_or_id
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                name: "Updated Name".to_string(),
+                ..Default::default()
+            })); // store.update
+        let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["workspace:update"])?;
 
-        // Setup: Create a workspace to update
-        ctx.extend_perms(&["workspace:update", "workspace:create"])?;
-        let slug = format!("update-me-{}", Uuid::new_v4());
-        let created = svc
-            .create(
-                &mut ctx,
-                WorkspaceCreateParams {
-                    name: "Original Name".to_string(),
-                    slug,
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        // Update name
         let update_params = WorkspaceUpdateParams {
-            id: Some(created.id),
+            id: Some(ws_id),
             name: Some("Updated Name".to_string()),
             ..Default::default()
         };
 
         let updated = svc.update(&mut ctx, update_params).await?;
         assert_eq!(updated.name, "Updated Name");
-        assert_eq!(updated.id, created.id);
+        assert_eq!(updated.id, ws_id);
 
         Ok(())
     }
@@ -614,36 +586,31 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_workspace_delete() -> CoreResult<()> {
-        let app = init_test().await;
-        let svc = app.svc_reg.workspace.clone();
+        let ws_id = Uuid::new_v4();
+        let dbx = MockDbx::new()
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            })) // get_workspace_by_slug_or_id
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            })) // store.delete
+            .with_optional::<WorkspaceRow>(None); // describe after delete -> NotFound
+        let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["workspace:delete", "workspace:describe"])?;
 
-        ctx.extend_perms(&["workspace:create", "workspace:delete", "workspace:describe"])?;
-
-        // Setup: Create workspace
-        let slug = format!("delete-me-{}", Uuid::new_v4());
-        let created = svc
-            .create(
-                &mut ctx,
-                WorkspaceCreateParams {
-                    name: "To Be Deleted".to_string(),
-                    slug: slug.clone(),
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        // Delete
         let delete_params = WorkspaceDeleteParams {
-            id: Some(created.id),
+            id: Some(ws_id),
             ..Default::default()
         };
         let deleted = svc.delete(&mut ctx, delete_params).await?;
-        assert_eq!(deleted.id, created.id);
+        assert_eq!(deleted.id, ws_id);
 
         // Verify it's gone
         let desc_params = WorkspaceDescribeParams {
-            id: Some(created.id),
+            id: Some(ws_id),
             ..Default::default()
         };
         let err = svc.describe(&mut ctx, desc_params).await;

@@ -30,7 +30,7 @@ pub trait DbExecutor: Send + Sync + Unpin {
     /// If a transaction is active, runs against it; otherwise uses the pool.
     async fn fetch_one<'q, O, A>(&self, query: QueryAs<'q, Postgres, O, A>) -> StoreResult<O>
     where
-        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin + 'static,
         A: IntoArguments<'q, Postgres> + 'q;
 
     /// Execute a `query_as` and fetch an optional row.
@@ -40,14 +40,14 @@ pub trait DbExecutor: Send + Sync + Unpin {
         query: QueryAs<'q, Postgres, O, A>,
     ) -> StoreResult<Option<O>>
     where
-        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin + 'static,
         A: IntoArguments<'q, Postgres> + 'q;
 
     /// Execute a `query_as` and fetch all rows.
     /// If a transaction is active, runs against it; otherwise uses the pool.
     async fn fetch_all<'q, O, A>(&self, query: QueryAs<'q, Postgres, O, A>) -> StoreResult<Vec<O>>
     where
-        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin + 'static,
         A: IntoArguments<'q, Postgres> + 'q;
 
     /// Execute a `query` (no mapping) and return rows affected.
@@ -61,7 +61,7 @@ pub trait DbExecutor: Send + Sync + Unpin {
 impl<T: DbExecutor> DbExecutor for Arc<T> {
     async fn fetch_one<'q, O, A>(&self, query: QueryAs<'q, Postgres, O, A>) -> StoreResult<O>
     where
-        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin + 'static,
         A: IntoArguments<'q, Postgres> + 'q,
     {
         self.as_ref().fetch_one(query).await
@@ -72,7 +72,7 @@ impl<T: DbExecutor> DbExecutor for Arc<T> {
         query: QueryAs<'q, Postgres, O, A>,
     ) -> StoreResult<Option<O>>
     where
-        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin + 'static,
         A: IntoArguments<'q, Postgres> + 'q,
     {
         self.as_ref().fetch_optional(query).await
@@ -80,7 +80,7 @@ impl<T: DbExecutor> DbExecutor for Arc<T> {
 
     async fn fetch_all<'q, O, A>(&self, query: QueryAs<'q, Postgres, O, A>) -> StoreResult<Vec<O>>
     where
-        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+        O: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin + 'static,
         A: IntoArguments<'q, Postgres> + 'q,
     {
         self.as_ref().fetch_all(query).await

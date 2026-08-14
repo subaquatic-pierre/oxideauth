@@ -72,13 +72,16 @@ pub fn get_sql_dir() -> PathBuf {
 //     (store_manager, mock_pool)
 // }
 
-#[cfg(feature = "db-self-test")]
+#[cfg(feature = "integration")]
 #[cfg(test)]
 mod tests {
     use crate::store::init::new_db_pool;
 
     use super::*;
-    use crate::config::Config;
+    use crate::{
+        app::{AppEnv, new_app_data},
+        config::Config,
+    };
     use anyhow::{Context, Result};
     use serial_test::serial;
 
@@ -131,10 +134,9 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_init_test_db() -> Result<()> {
-        let config = Config::test_config();
-        let db = new_db_pool(&config.database_url, 1).await;
+        let app = new_app_data(AppEnv::Test).await;
 
-        init_test_db(&db).await;
+        init_test_db(&app).await;
 
         Ok(())
     }
@@ -142,10 +144,9 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_init_dev_db() -> Result<()> {
-        let config = Config::test_config();
-        let db = new_db_pool(&config.database_url, 1).await;
+        let app = new_app_data(AppEnv::Test).await;
 
-        init_dev_db(&db).await;
+        init_dev_db(&app).await;
 
         Ok(())
     }

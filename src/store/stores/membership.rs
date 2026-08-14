@@ -145,57 +145,65 @@ impl<D: DbExecutor> ContainsFilterStore for MembershipStore<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        cache::redis::RedisChx,
-        dev::init::init_test,
-        store::{
-            ctx::StoreCtx,
-            entities::{
-                account::AccountForCreate,
-                id::DbId,
-                membership::{MembershipForCreate, MembershipMeta},
-                role::RoleForCreate,
-                workspace::WorkspaceForCreate,
-            },
-            error::StoreError,
-            traits::{
-                contains::FilterByContains,
-                crud::*,
-                join::{GetManyToMany, LinkManyToMany},
-            },
+    use crate::store::{
+        ctx::StoreCtx,
+        dbx::MockDbx,
+        entities::{
+            audit::AuditFields,
+            membership::{JoinedRoleOnMembership, MembershipMeta, MembershipScope, MembershipStatus},
+            role::RoleMeta,
+        },
+        error::StoreError,
+        traits::{
+            contains::FilterByContains,
+            crud::*,
+            join::GetManyToMany,
         },
     };
     use anyhow::Result;
     use serde_json::json;
-    use serial_test::serial;
+    use time::OffsetDateTime;
+    use uuid::Uuid;
 
-    /// Helper function to seed the necessary Account and Space for a Membership.
-    async fn seed_prerequisites(
-        ctx: &StoreCtx,
-        app: &crate::app::AppState<PgDbx, RedisChx>,
-    ) -> Result<(uuid::Uuid, uuid::Uuid)> {
-        let account = app
-            .sm
-            .account
-            .create(ctx, AccountForCreate::default())
-            .await?;
-        let workspace = app
-            .sm
-            .workspace
-            .create(ctx, WorkspaceForCreate::default())
-            .await?;
-        Ok((account.id.into(), workspace.id.into()))
+    /// Helper to build a `MembershipRow` with default-ish values for the mock.
+    fn membership_row() -> MembershipRow {
+        MembershipRow {
+            id: DbId::from(Uuid::new_v4()),
+            account_id: Uuid::new_v4(),
+            workspace_id: Uuid::new_v4(),
+            scope: MembershipScope::Workspace,
+            status: MembershipStatus::Active,
+            project_id: None,
+            version: 1,
+            tags: vec![],
+            meta: MembershipMeta::default(),
+            audit: AuditFields::default(),
+        }
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_create_get_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let account_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        let membership_id = DbId::from(Uuid::new_v4());
+
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<MembershipRow>(MembershipRow {
+                    id: membership_id,
+                    account_id,
+                    workspace_id,
+                    ..membership_row()
+                })
+                .with_optional::<MembershipRow>(Some(MembershipRow {
+                    id: membership_id,
+                    account_id,
+                    ..membership_row()
+                })),
+        );
         let store = MembershipStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 
         let data = MembershipForCreate {
             account_id,
@@ -217,36 +225,42 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_update_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<MembershipRow>(membership_row())
+                .with_optional::<MembershipRow>(Some(MembershipRow {
+                    meta: MembershipMeta {
+                        schema_version: "1".to_string(),
+                    },
+                    ..membership_row()
+                }))
+                .with_optional::<MembershipRow>(Some(MembershipRow {
+                    meta: MembershipMeta {
+                        schema_version: "1".to_string(),
+                    },
+                    ..membership_row()
+                })),
+        );
         let store = MembershipStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 
+        // -- Execute
         let created_membership = store
-            .create(
+            .create(&ctx, MembershipForCreate::default())
+            .await?;
+        let updated_membership = store
+            .update(
                 &ctx,
-                MembershipForCreate {
-                    account_id,
-                    workspace_id,
+                &created_membership.id,
+                MembershipForUpdate {
+                    meta: Some(MembershipMeta {
+                        schema_version: "1".to_string(),
+                    }),
                     ..Default::default()
                 },
             )
-            .await?;
-
-        let update_data = MembershipForUpdate {
-            meta: Some(MembershipMeta {
-                schema_version: "1".to_string(),
-            }),
-            ..Default::default()
-        };
-
-        // -- Execute
-        let updated_membership = store
-            .update(&ctx, &created_membership.id, update_data)
             .await?;
         let fetched_membership = store.get(&ctx, &created_membership.id).await?;
 
@@ -258,32 +272,26 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_delete_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let membership_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_optional::<MembershipRow>(Some(MembershipRow {
+                    id: membership_id,
+                    ..membership_row()
+                }))
+                .with_optional::<MembershipRow>(None),
+        );
         let store = MembershipStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
-
-        let created_membership = store
-            .create(
-                &ctx,
-                MembershipForCreate {
-                    account_id,
-                    workspace_id,
-                    ..Default::default()
-                },
-            )
-            .await?;
 
         // -- Execute
-        let deleted_membership = store.delete(&ctx, &created_membership.id).await?;
-        let get_result = store.get(&ctx, &created_membership.id).await;
+        let deleted_membership = store.delete(&ctx, &membership_id).await?;
+        let get_result = store.get(&ctx, &membership_id).await;
 
         // -- Assert
-        assert_eq!(deleted_membership.id, created_membership.id);
+        assert_eq!(deleted_membership.id, membership_id);
         assert!(
             matches!(get_result, Err(StoreError::EntityNotFound { .. })),
             "Getting the membership after deletion should fail"
@@ -293,32 +301,28 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_list_with_filter_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let account_id_2 = Uuid::new_v4();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<MembershipRow>(vec![membership_row(), membership_row()])
+                .with_all::<MembershipRow>(vec![MembershipRow {
+                    account_id: account_id_2,
+                    ..membership_row()
+                }]),
+        );
         let store = MembershipStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let (account_id_1, space_id_1) = seed_prerequisites(&ctx, &app).await?;
-        let (account_id_2, space_id_2) = seed_prerequisites(&ctx, &app).await?;
-
-        let memberships_to_create = vec![
-            MembershipForCreate {
-                account_id: account_id_1,
-                workspace_id: space_id_1,
-                ..Default::default()
-            },
-            MembershipForCreate {
-                account_id: account_id_2,
-                workspace_id: space_id_2,
-                ..Default::default()
-            },
-        ];
-        store.create_many(&ctx, memberships_to_create).await?;
-
         // -- Execute
+        store
+            .create_many(
+                &ctx,
+                vec![MembershipForCreate::default(), MembershipForCreate::default()],
+            )
+            .await?;
+
         let filter: MembershipFilter = json!({ "account_id": account_id_2 }).try_into()?;
         let memberships = store.list(&ctx, Some(filter), None).await?;
 
@@ -330,66 +334,43 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_get_many_to_many_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let membership_id = DbId::from(Uuid::new_v4());
+
+        let joined_role = |name: &str| JoinedRoleOnMembership {
+            id: DbId::from(Uuid::new_v4()),
+            workspace_id: Uuid::new_v4(),
+            name: name.to_string(),
+            description: None,
+            tags: vec![],
+            meta: RoleMeta::default(),
+            created_by: DbId::default(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_by: None,
+            updated_at: None,
+        };
+
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<(i64,)>( (2,) )
+                .with_optional::<MembershipWithRoles>(Some(MembershipWithRoles {
+                    id: membership_id,
+                    membership: MembershipRow {
+                        id: membership_id,
+                        ..membership_row()
+                    },
+                    roles: vec![joined_role("admin"), joined_role("editor")],
+                })),
+        );
         let store = MembershipStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
-        let membership = store
-            .create(
-                &ctx,
-                MembershipForCreate {
-                    account_id,
-                    workspace_id,
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        // Create and link roles
-        let role_admin = app
-            .sm
-            .role
-            .create(
-                &ctx,
-                RoleForCreate {
-                    name: "admin".into(),
-                    workspace_id,
-                    ..Default::default()
-                },
-            )
-            .await?;
-        let role_editor = app
-            .sm
-            .role
-            .create(
-                &ctx,
-                RoleForCreate {
-                    name: "editor".into(),
-                    workspace_id,
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        app.sm
-            .membership
-            .attach_link(&ctx, &membership.id, &role_admin.id)
-            .await?;
-
-        app.sm
-            .membership
-            .attach_link(&ctx, &membership.id, &role_editor.id)
-            .await?;
         // -- Execute
-        let membership_with_roles = store.get_many_to_many(&ctx, &membership.id).await?;
+        let membership_with_roles = store.get_many_to_many(&ctx, &membership_id).await?;
 
         // -- Assert
-        assert_eq!(membership_with_roles.id, membership.id);
+        assert_eq!(membership_with_roles.id, membership_id);
         assert_eq!(
             membership_with_roles.roles.len(),
             2,
@@ -411,44 +392,23 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_filter_by_contains_tags() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<MembershipRow>(vec![MembershipRow {
+                    tags: vec!["system".into(), "critical".into()],
+                    ..membership_row()
+                }])
+                .with_all::<MembershipRow>(vec![MembershipRow {
+                    tags: vec!["user".into(), "general".into()],
+                    ..membership_row()
+                }]),
+        );
         let store = MembershipStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
-
-        // -- Create test data with different tags
-        store
-            .create(
-                &ctx,
-                MembershipForCreate {
-                    account_id,
-                    workspace_id,
-                    tags: vec!["system".into(), "critical".into()],
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
-        store
-            .create(
-                &ctx,
-                MembershipForCreate {
-                    account_id,
-                    workspace_id,
-                    tags: vec!["user".into(), "general".into()],
-                    ..Default::default()
-                },
-            )
-            .await?;
 
         // -- Execute & Assert
-        // NOTE: the programmatic seed creates 6 memberships all tagged "system",
-        // so filtering by "system" would match seed data. Use unique tags instead.
         let critical_memberships = store
             .filter_by_tags_contain(&ctx, vec!["critical".into()], None)
             .await?;

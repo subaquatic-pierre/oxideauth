@@ -173,49 +173,60 @@ impl<D: DbExecutor> ContainsFilterStore for RoleStore<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        cache::redis::RedisChx,
-        dev::init::init_test,
-        store::{
-            ctx::StoreCtx,
-            entities::{
-                permission::PermissionForCreate, role::RoleForCreate, workspace::WorkspaceForCreate,
-            },
-            error::StoreError,
-            traits::{
-                contains::FilterByContains,
-                crud::*,
-                join::{GetManyToMany, LinkManyToMany},
-            },
+    use crate::store::{
+        ctx::StoreCtx,
+        dbx::MockDbx,
+        entities::{
+            audit::AuditFields,
+            permission::PermissionMeta,
+            role::{JoinedPermissionOnRole, RoleMeta},
+        },
+        error::StoreError,
+        traits::{
+            contains::FilterByContains,
+            crud::*,
+            join::GetManyToMany,
         },
     };
     use anyhow::Result;
     use serde_json::json;
-    use serial_test::serial;
+    use time::OffsetDateTime;
     use uuid::Uuid;
 
-    /// Helper function to seed the necessary Workspace for a Role.
-    async fn seed_prerequisite(
-        ctx: &StoreCtx,
-        app: &crate::app::AppState<PgDbx, RedisChx>,
-    ) -> Result<Uuid> {
-        let workspace = app
-            .sm
-            .workspace
-            .create(ctx, WorkspaceForCreate::default())
-            .await?;
-        Ok(workspace.id.into())
+    /// Helper to build a `RoleRow` with default-ish values for the mock.
+    fn role_row() -> RoleRow {
+        RoleRow {
+            id: DbId::from(Uuid::new_v4()),
+            workspace_id: Uuid::new_v4(),
+            name: String::new(),
+            description: None,
+            tags: vec![],
+            meta: RoleMeta::default(),
+            audit: AuditFields::default(),
+        }
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_create_get_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let workspace_id = Uuid::new_v4();
+        let role_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<RoleRow>(RoleRow {
+                    id: role_id,
+                    workspace_id,
+                    name: "test-role-create".into(),
+                    ..role_row()
+                })
+                .with_optional::<RoleRow>(Some(RoleRow {
+                    id: role_id,
+                    name: "test-role-create".into(),
+                    ..role_row()
+                })),
+        );
         let store = RoleStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let data = RoleForCreate {
             workspace_id,
@@ -237,32 +248,35 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_update_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<RoleRow>(role_row())
+                .with_optional::<RoleRow>(Some(RoleRow {
+                    name: "admin".into(),
+                    ..role_row()
+                }))
+                .with_optional::<RoleRow>(Some(RoleRow {
+                    name: "admin".into(),
+                    ..role_row()
+                })),
+        );
         let store = RoleStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
-        let created_role = store
-            .create(
+        // -- Execute
+        let created_role = store.create(&ctx, RoleForCreate::default()).await?;
+        let updated_role = store
+            .update(
                 &ctx,
-                RoleForCreate {
-                    workspace_id,
+                &created_role.id,
+                RoleForUpdate {
+                    name: Some("admin".to_string()),
                     ..Default::default()
                 },
             )
             .await?;
-
-        let update_data = RoleForUpdate {
-            name: Some("admin".to_string()),
-            ..Default::default()
-        };
-
-        // -- Execute
-        let updated_role = store.update(&ctx, &created_role.id, update_data).await?;
         let fetched_role = store.get(&ctx, &created_role.id).await?;
 
         // -- Assert
@@ -273,31 +287,26 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_delete_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let role_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_optional::<RoleRow>(Some(RoleRow {
+                    id: role_id,
+                    ..role_row()
+                }))
+                .with_optional::<RoleRow>(None),
+        );
         let store = RoleStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
-
-        let created_role = store
-            .create(
-                &ctx,
-                RoleForCreate {
-                    workspace_id,
-                    ..Default::default()
-                },
-            )
-            .await?;
 
         // -- Execute
-        let deleted_role = store.delete(&ctx, &created_role.id).await?;
-        let get_result = store.get(&ctx, &created_role.id).await;
+        let deleted_role = store.delete(&ctx, &role_id).await?;
+        let get_result = store.get(&ctx, &role_id).await;
 
         // -- Assert
-        assert_eq!(deleted_role.id, created_role.id);
+        assert_eq!(deleted_role.id, role_id);
         assert!(
             matches!(get_result, Err(StoreError::EntityNotFound { .. })),
             "Getting the role after deletion should fail"
@@ -307,30 +316,24 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_list_with_filter_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<RoleRow>(vec![role_row(), role_row()])
+                .with_all::<RoleRow>(vec![RoleRow {
+                    name: "list-role-b".into(),
+                    ..role_row()
+                }]),
+        );
         let store = RoleStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
-
-        let roles_to_create = vec![
-            RoleForCreate {
-                workspace_id,
-                name: "list-role-a".to_string(),
-                ..Default::default()
-            },
-            RoleForCreate {
-                workspace_id,
-                name: "list-role-b".to_string(),
-                ..Default::default()
-            },
-        ];
-        store.create_many(&ctx, roles_to_create).await?;
 
         // -- Execute
+        store
+            .create_many(&ctx, vec![RoleForCreate::default(), RoleForCreate::default()])
+            .await?;
+
         let filter: RoleFilter = json!({ "name": "list-role-b" }).try_into()?;
         let roles = store.list(&ctx, Some(filter), None).await?;
 
@@ -342,66 +345,45 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_get_many_to_many_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let role_id = DbId::from(Uuid::new_v4());
+
+        let joined_perm = |name: &str| JoinedPermissionOnRole {
+            id: DbId::from(Uuid::new_v4()),
+            workspace_id: Uuid::new_v4(),
+            name: name.to_string(),
+            code: None,
+            description: None,
+            tags: vec![],
+            meta: PermissionMeta::default(),
+            created_by: DbId::default(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_by: None,
+            updated_at: None,
+        };
+
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<(i64,)>( (2,) )
+                .with_optional::<RoleWithPermissions>(Some(RoleWithPermissions {
+                    id: role_id,
+                    role: RoleRow {
+                        id: role_id,
+                        name: "role-with-perms".into(),
+                        ..role_row()
+                    },
+                    permissions: vec![joined_perm("entity:read"), joined_perm("entity:write")],
+                })),
+        );
         let store = RoleStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
-
-        let role = store
-            .create(
-                &ctx,
-                RoleForCreate {
-                    workspace_id,
-                    name: "role-with-perms".into(),
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        // Create and link permissions
-        let perm_read = app
-            .sm
-            .permission
-            .create(
-                &ctx,
-                PermissionForCreate {
-                    name: "entity:read".into(),
-                    workspace_id,
-                    ..Default::default()
-                },
-            )
-            .await?;
-        let perm_write = app
-            .sm
-            .permission
-            .create(
-                &ctx,
-                PermissionForCreate {
-                    name: "entity:write".into(),
-                    workspace_id,
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        app.sm
-            .role
-            .attach_link(&ctx, &role.id, &perm_read.id)
-            .await?;
-        app.sm
-            .role
-            .attach_link(&ctx, &role.id, &perm_write.id)
-            .await?;
 
         // -- Execute
-        let role_with_perms = store.get_many_to_many(&ctx, &role.id).await?;
+        let role_with_perms = store.get_many_to_many(&ctx, &role_id).await?;
 
         // -- Assert
-        assert_eq!(role_with_perms.id, role.id);
+        assert_eq!(role_with_perms.id, role_id);
         assert_eq!(
             role_with_perms.permissions.len(),
             2,
@@ -423,38 +405,23 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_filter_by_contains_tags() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
-        let store = RoleStore::new(dbx);
-        let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
-
-        // -- Create test data with different tags
-        store
-            .create(
-                &ctx,
-                RoleForCreate {
-                    workspace_id,
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<RoleRow>(vec![RoleRow {
                     name: "tags-role-a".into(),
                     tags: vec!["billing".into(), "admin".into()],
-                    ..Default::default()
-                },
-            )
-            .await?;
-        store
-            .create(
-                &ctx,
-                RoleForCreate {
-                    workspace_id,
+                    ..role_row()
+                }])
+                .with_all::<RoleRow>(vec![RoleRow {
                     name: "tags-role-b".into(),
                     tags: vec!["technical".into(), "editor".into()],
-                    ..Default::default()
-                },
-            )
-            .await?;
+                    ..role_row()
+                }]),
+        );
+        let store = RoleStore::new(dbx);
+        let ctx = StoreCtx::bootstrap();
 
         // -- Execute & Assert
         let billing_roles = store
@@ -481,14 +448,30 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_create_multiple_roles_unique_defaults() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let workspace_id = Uuid::new_v4();
+        let role_id = |name: &str| {
+            let id = DbId::from(Uuid::new_v4());
+            RoleRow {
+                id,
+                workspace_id,
+                name: name.into(),
+                ..role_row()
+            }
+        };
+
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<RoleRow>(role_id("role-a"))
+                .with_one::<RoleRow>(role_id("role-b"))
+                .with_one::<RoleRow>(role_id("role-c"))
+                .with_optional::<RoleRow>(Some(role_id("role-a")))
+                .with_optional::<RoleRow>(Some(role_id("role-b")))
+                .with_optional::<RoleRow>(Some(role_id("role-c"))),
+        );
         let store = RoleStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         // -- Execute: create 3 roles using Default::default() with same workspace
         let role1 = store

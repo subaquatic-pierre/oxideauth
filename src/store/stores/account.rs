@@ -172,69 +172,85 @@ impl<D: DbExecutor> ContainsFilterStore for AccountStore<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        dev::init::init_test,
-        store::{
-            ctx::StoreCtx,
-            entities::{
-                credential::{CredentialForCreate, CredentialKind, CredentialProvider},
-                workspace::WorkspaceForCreate,
-            },
-            error::StoreError,
-            traits::{contains::FilterByContains, crud::*, join::GetOneToMany},
+    use crate::store::{
+        dbx::MockDbx,
+        entities::{
+            account::JoinedCredentialOnAccount,
+            credential::{CredentialKind, CredentialProvider, CredentialStatus},
+            id::DbId,
         },
+        error::StoreError,
+        traits::{contains::FilterByContains, crud::*, join::GetOneToMany},
     };
     use anyhow::Result;
-    use modql::filter::{ListOptions, OpValsString};
     use serde_json::json;
-    use serial_test::serial;
+    use time::OffsetDateTime;
     use uuid::Uuid;
 
     #[tokio::test]
-    #[serial]
     async fn test_create_get_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<AccountRow>(AccountRow {
+                    email: "create-get@example.com".into(),
+                    name: "Test User".into(),
+                    ..Default::default()
+                })
+                .with_optional::<AccountRow>(Some(AccountRow {
+                    email: "create-get@example.com".into(),
+                    name: "Test User".into(),
+                    ..Default::default()
+                })),
+        );
         let store = AccountStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let data = AccountForCreate {
-            email: "create-get@example.com".to_string(),
-            name: "Test User".to_string(),
-            ..Default::default()
-        };
-
         // -- Execute
-        let created_account = store.create(&ctx, data).await?;
+        let created_account = store.create(&ctx, AccountForCreate::default()).await?;
         let fetched_account = store.get(&ctx, &created_account.id).await?;
 
         // -- Assert
         assert_eq!(created_account.email, "create-get@example.com");
         assert_eq!(fetched_account.id, created_account.id);
-        assert_eq!(fetched_account.name, created_account.name);
+        assert_eq!(fetched_account.name, "Test User");
 
         Ok(())
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_update_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<AccountRow>(AccountRow {
+                    name: "Test User".into(),
+                    ..Default::default()
+                })
+                .with_optional::<AccountRow>(Some(AccountRow {
+                    name: "User After Update".into(),
+                    ..Default::default()
+                }))
+                .with_optional::<AccountRow>(Some(AccountRow {
+                    name: "User After Update".into(),
+                    ..Default::default()
+                })),
+        );
         let store = AccountStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let created_account = store.create(&ctx, AccountForCreate::default()).await?;
-
-        let update_data = AccountForUpdate {
-            name: Some("User After Update".to_string()),
-            ..Default::default()
-        };
-
         // -- Execute
-        let updated_account = store.update(&ctx, &created_account.id, update_data).await?;
+        let created_account = store.create(&ctx, AccountForCreate::default()).await?;
+        let updated_account = store
+            .update(
+                &ctx,
+                &created_account.id,
+                AccountForUpdate {
+                    name: Some("User After Update".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await?;
         let fetched_account = store.get(&ctx, &created_account.id).await?;
 
         // -- Assert
@@ -245,22 +261,26 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_delete_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx();
+        let account_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_optional::<AccountRow>(Some(AccountRow {
+                    id: account_id,
+                    ..Default::default()
+                }))
+                .with_optional::<AccountRow>(None),
+        );
         let store = AccountStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let created_account = store.create(&ctx, AccountForCreate::default()).await?;
-
         // -- Execute
-        let deleted_account = store.delete(&ctx, &created_account.id).await?;
-        let get_result = store.get(&ctx, &created_account.id).await;
+        let deleted_account = store.delete(&ctx, &account_id).await?;
+        let get_result = store.get(&ctx, &account_id).await;
 
         // -- Assert
-        assert_eq!(deleted_account.id, created_account.id);
+        assert_eq!(deleted_account.id, account_id);
         assert!(
             matches!(get_result, Err(StoreError::EntityNotFound { .. })),
             "Getting the account after deletion should fail"
@@ -270,27 +290,27 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_list_with_filter_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<AccountRow>(vec![AccountRow::default(), AccountRow::default()])
+                .with_all::<AccountRow>(vec![AccountRow {
+                    email: "list-b@example.com".into(),
+                    ..Default::default()
+                }]),
+        );
         let store = AccountStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let accounts_to_create = vec![
-            AccountForCreate {
-                email: "list-a@example.com".to_string(),
-                ..Default::default()
-            },
-            AccountForCreate {
-                email: "list-b@example.com".to_string(),
-                ..Default::default()
-            },
-        ];
-        store.create_many(&ctx, accounts_to_create).await?;
-
         // -- Execute
+        store
+            .create_many(
+                &ctx,
+                vec![AccountForCreate::default(), AccountForCreate::default()],
+            )
+            .await?;
+
         let filter: AccountFilter = json!({"email":{"$contains":"list-b"}}).try_into()?;
         let accounts = store.list(&ctx, Some(filter), None).await?;
 
@@ -302,53 +322,52 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_get_one_to_many_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx();
+        let account_id = DbId::from(Uuid::new_v4());
+
+        let cred = |provider| JoinedCredentialOnAccount {
+            id: DbId::from(Uuid::new_v4()),
+            account_id,
+            workspace_id: DbId::from(Uuid::new_v4()),
+            kind: CredentialKind::OAuth,
+            provider,
+            status: CredentialStatus::Active,
+            provider_id: None,
+            email: None,
+            secret: None,
+            last_used_at: None,
+            tags: vec![],
+            created_by: DbId::default(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_by: None,
+            updated_at: None,
+        };
+
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<(i64,)>( (2,) )
+                .with_optional::<AccountWithCredentials>(Some(AccountWithCredentials {
+                    id: account_id,
+                    account: AccountRow {
+                        id: account_id,
+                        email: "one-to-many@example.com".into(),
+                        ..Default::default()
+                    },
+                    credentials: vec![
+                        cred(CredentialProvider::Google),
+                        cred(CredentialProvider::Local),
+                    ],
+                })),
+        );
         let store = AccountStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let account = store
-            .create(
-                &ctx,
-                AccountForCreate {
-                    email: "one-to-many@example.com".into(),
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        // Create a valid workspace to scope the credentials under (StoreCtx::bootstrap()
-        // uses a nil workspace_id, which no longer references a seeded workspace).
-        let workspace = app
-            .sm
-            .workspace
-            .create(&ctx, WorkspaceForCreate::default())
-            .await?;
-
-        // Manually insert related credentials
-        let mut n_cred = CredentialForCreate::default();
-        n_cred.account_id = account.id.into();
-        n_cred.workspace_id = workspace.id.into();
-        // Google is an OAuth provider; keep it out of the unique active-password
-        // index (one active password credential per workspace+account).
-        n_cred.kind = CredentialKind::OAuth;
-        n_cred.provider = CredentialProvider::Google;
-        app.sm.credential.create(&ctx, n_cred).await?;
-
-        let mut n_cred = CredentialForCreate::default();
-        n_cred.account_id = account.id.into();
-        n_cred.workspace_id = workspace.id.into();
-        n_cred.provider = CredentialProvider::Local;
-        app.sm.credential.create(&ctx, n_cred).await?;
-
         // -- Execute
-        let account_with_creds = store.get_one_to_many(&ctx, &account.id).await?;
+        let account_with_creds = store.get_one_to_many(&ctx, &account_id).await?;
 
         // -- Assert
-        assert_eq!(account_with_creds.id, account.id);
+        assert_eq!(account_with_creds.id, account_id);
         assert_eq!(
             account_with_creds.credentials.len(),
             2,
@@ -370,37 +389,23 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_filter_by_contains_tags() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx();
-        let store = AccountStore::new(dbx);
-        let ctx = StoreCtx::bootstrap();
-
-        // -- Create test data with different tags
-        // NOTE: tags are prefixed with "test-filter-" to avoid colliding with the
-        // seed data (the seeded system/owner accounts carry a "system" tag).
-        store
-            .create(
-                &ctx,
-                AccountForCreate {
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<AccountRow>(vec![AccountRow {
                     email: "tags-a@example.com".into(),
                     tags: vec!["test-filter-system".into(), "test-filter-critical".into()],
                     ..Default::default()
-                },
-            )
-            .await?;
-        store
-            .create(
-                &ctx,
-                AccountForCreate {
+                }])
+                .with_all::<AccountRow>(vec![AccountRow {
                     email: "tags-b@example.com".into(),
                     tags: vec!["test-filter-user".into(), "test-filter-general".into()],
                     ..Default::default()
-                },
-            )
-            .await?;
+                }]),
+        );
+        let store = AccountStore::new(dbx);
+        let ctx = StoreCtx::bootstrap();
 
         // -- Execute & Assert
         let system_accounts = store

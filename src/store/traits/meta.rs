@@ -49,10 +49,10 @@ pub trait HasId {
 }
 
 /// A trait that combines `HasId` and `sqlx::FromRow` for any struct that can be mapped from a `PgRow`.
-pub trait StoreRow: HasId + for<'r> FromRow<'r, PgRow> + Unpin + Send + Sync {}
+pub trait StoreRow: HasId + for<'r> FromRow<'r, PgRow> + Unpin + Send + Sync + 'static {}
 
 // Blanket implementations for the core abstractions.
-impl<T> StoreRow for T where T: HasId + for<'r> FromRow<'r, PgRow> + Unpin + Send + Sync {}
+impl<T> StoreRow for T where T: HasId + for<'r> FromRow<'r, PgRow> + Unpin + Send + Sync + 'static {}
 impl<T> StoreId for T where T: ToString + Into<sea_query::Value> + Send + Sync + Clone + Copy {}
 impl<T: 'static + Copy + Iden + Send + Sync> TableIden for T {}
 

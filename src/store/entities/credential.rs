@@ -232,7 +232,7 @@ impl From<CredentialConfig> for SeaValue {
 }
 
 // --- Defaults for testing ---
-#[cfg(test)]
+#[cfg(any(test, feature = "integration"))]
 impl Default for CredentialForCreate {
     fn default() -> Self {
         let email = format!("{}@{}.com", gen_rand_str(5), gen_rand_str(5));

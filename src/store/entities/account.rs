@@ -211,7 +211,7 @@ impl TryFrom<JsonValue> for AccountFilter {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "integration"))]
 impl Default for AccountForCreate {
     fn default() -> Self {
         use crate::store::utils::gen_rand_str;
@@ -233,7 +233,7 @@ impl Default for AccountForCreate {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "integration"))]
 impl Default for AccountForUpdate {
     fn default() -> Self {
         Self {

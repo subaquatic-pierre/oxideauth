@@ -112,43 +112,54 @@ impl<D: DbExecutor> ContainsFilterStore for ProjectStore<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        cache::redis::RedisChx,
-        dev::init::init_test,
-        store::{
-            ctx::StoreCtx,
-            entities::{project::ProjectForCreate, workspace::WorkspaceForCreate},
-            error::StoreError,
-            traits::{contains::FilterByContains, crud::*},
-        },
+    use crate::store::{
+        ctx::StoreCtx,
+        dbx::MockDbx,
+        entities::{audit::AuditFields, project::{ProjectConfig, ProjectMeta}},
+        error::StoreError,
+        traits::{contains::FilterByContains, crud::*},
     };
     use anyhow::Result;
     use serde_json::json;
-    use serial_test::serial;
     use uuid::Uuid;
 
-    /// Helper function to seed the necessary Workspace for a Project.
-    async fn seed_prerequisite(
-        ctx: &StoreCtx,
-        app: &crate::app::AppState<PgDbx, RedisChx>,
-    ) -> Result<Uuid> {
-        let workspace = app
-            .sm
-            .workspace
-            .create(ctx, WorkspaceForCreate::default())
-            .await?;
-        Ok(workspace.id.into())
+    /// Helper to build a `ProjectRow` with default-ish values for the mock.
+    fn project_row() -> ProjectRow {
+        ProjectRow {
+            id: DbId::from(Uuid::new_v4()),
+            workspace_id: Uuid::new_v4(),
+            name: String::new(),
+            code: None,
+            description: None,
+            owner: DbId::default(),
+            config: ProjectConfig::default(),
+            tags: vec![],
+            meta: ProjectMeta::default(),
+            audit: AuditFields::default(),
+        }
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_create_get_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let workspace_id = Uuid::new_v4();
+        let project_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<ProjectRow>(ProjectRow {
+                    id: project_id,
+                    workspace_id,
+                    name: "test-project-create".into(),
+                    ..project_row()
+                })
+                .with_optional::<ProjectRow>(Some(ProjectRow {
+                    id: project_id,
+                    name: "test-project-create".into(),
+                    ..project_row()
+                })),
+        );
         let store = ProjectStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         let data = ProjectForCreate {
             workspace_id,
@@ -170,32 +181,35 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_update_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<ProjectRow>(project_row())
+                .with_optional::<ProjectRow>(Some(ProjectRow {
+                    name: "updated-project-name".into(),
+                    ..project_row()
+                }))
+                .with_optional::<ProjectRow>(Some(ProjectRow {
+                    name: "updated-project-name".into(),
+                    ..project_row()
+                })),
+        );
         let store = ProjectStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
-        let created_project = store
-            .create(
+        // -- Execute
+        let created_project = store.create(&ctx, ProjectForCreate::default()).await?;
+        let updated_project = store
+            .update(
                 &ctx,
-                ProjectForCreate {
-                    workspace_id,
+                &created_project.id,
+                ProjectForUpdate {
+                    name: Some("updated-project-name".to_string()),
                     ..Default::default()
                 },
             )
             .await?;
-
-        let update_data = ProjectForUpdate {
-            name: Some("updated-project-name".to_string()),
-            ..Default::default()
-        };
-
-        // -- Execute
-        let updated_project = store.update(&ctx, &created_project.id, update_data).await?;
         let fetched_project = store.get(&ctx, &created_project.id).await?;
 
         // -- Assert
@@ -206,31 +220,26 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_delete_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let project_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_optional::<ProjectRow>(Some(ProjectRow {
+                    id: project_id,
+                    ..project_row()
+                }))
+                .with_optional::<ProjectRow>(None),
+        );
         let store = ProjectStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
-
-        let created_project = store
-            .create(
-                &ctx,
-                ProjectForCreate {
-                    workspace_id,
-                    ..Default::default()
-                },
-            )
-            .await?;
 
         // -- Execute
-        let deleted_project = store.delete(&ctx, &created_project.id).await?;
-        let get_result = store.get(&ctx, &created_project.id).await;
+        let deleted_project = store.delete(&ctx, &project_id).await?;
+        let get_result = store.get(&ctx, &project_id).await;
 
         // -- Assert
-        assert_eq!(deleted_project.id, created_project.id);
+        assert_eq!(deleted_project.id, project_id);
         assert!(
             matches!(get_result, Err(StoreError::EntityNotFound { .. })),
             "Getting the project after deletion should fail"
@@ -240,30 +249,27 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_list_with_filter_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<ProjectRow>(vec![project_row(), project_row()])
+                .with_all::<ProjectRow>(vec![ProjectRow {
+                    name: "list-proj-b".into(),
+                    ..project_row()
+                }]),
+        );
         let store = ProjectStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
-
-        let projects_to_create = vec![
-            ProjectForCreate {
-                workspace_id,
-                name: "list-proj-a".to_string(),
-                ..Default::default()
-            },
-            ProjectForCreate {
-                workspace_id,
-                name: "list-proj-b".to_string(),
-                ..Default::default()
-            },
-        ];
-        store.create_many(&ctx, projects_to_create).await?;
 
         // -- Execute
+        store
+            .create_many(
+                &ctx,
+                vec![ProjectForCreate::default(), ProjectForCreate::default()],
+            )
+            .await?;
+
         let filter: ProjectFilter = json!({ "name": "list-proj-b" }).try_into()?;
         let projects = store.list(&ctx, Some(filter), None).await?;
 
@@ -275,38 +281,23 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_filter_by_contains_tags() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
-        let store = ProjectStore::new(dbx);
-        let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
-
-        // -- Create test data with different tags
-        store
-            .create(
-                &ctx,
-                ProjectForCreate {
-                    workspace_id,
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<ProjectRow>(vec![ProjectRow {
                     name: "tags-proj-a".into(),
                     tags: vec!["frontend".into(), "critical".into()],
-                    ..Default::default()
-                },
-            )
-            .await?;
-        store
-            .create(
-                &ctx,
-                ProjectForCreate {
-                    workspace_id,
+                    ..project_row()
+                }])
+                .with_all::<ProjectRow>(vec![ProjectRow {
                     name: "tags-proj-b".into(),
                     tags: vec!["backend".into(), "api".into()],
-                    ..Default::default()
-                },
-            )
-            .await?;
+                    ..project_row()
+                }]),
+        );
+        let store = ProjectStore::new(dbx);
+        let ctx = StoreCtx::bootstrap();
 
         // -- Execute & Assert
         let frontend_projects = store
@@ -333,14 +324,31 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_create_multiple_projects_unique_defaults() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let workspace_id = Uuid::new_v4();
+        let proj_id = |name: &str| {
+            let id = DbId::from(Uuid::new_v4());
+            ProjectRow {
+                id,
+                workspace_id,
+                name: name.into(),
+                code: Some(format!("code-{name}")),
+                ..project_row()
+            }
+        };
+
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<ProjectRow>(proj_id("project-a"))
+                .with_one::<ProjectRow>(proj_id("project-b"))
+                .with_one::<ProjectRow>(proj_id("project-c"))
+                .with_optional::<ProjectRow>(Some(proj_id("project-a")))
+                .with_optional::<ProjectRow>(Some(proj_id("project-b")))
+                .with_optional::<ProjectRow>(Some(proj_id("project-c"))),
+        );
         let store = ProjectStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-        let workspace_id = seed_prerequisite(&ctx, &app).await?;
 
         // -- Execute: create 3 projects using Default::default() with same workspace
         let proj1 = store

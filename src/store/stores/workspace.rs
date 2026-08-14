@@ -169,35 +169,40 @@ pub const SYSTEM_CONST: SystemConstants = SystemConstants {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        dev::init::init_test,
-        store::{
-            ctx::StoreCtx,
-            entities::{project::ProjectForCreate, workspace::WorkspaceForCreate},
-            error::StoreError,
-            traits::{contains::FilterByContains, crud::*, join::GetOneToMany},
+    use crate::store::{
+        dbx::MockDbx,
+        entities::{
+            id::DbId,
+            project::{ProjectConfig, ProjectMeta},
+            workspace::JoinedProjectOnWorkspace,
         },
+        error::StoreError,
+        traits::{contains::FilterByContains, crud::*, join::GetOneToMany},
     };
     use anyhow::Result;
     use serde_json::json;
-    use serial_test::serial;
+    use time::OffsetDateTime;
+    use uuid::Uuid;
 
     #[tokio::test]
-    #[serial]
     async fn test_create_get_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<WorkspaceRow>(WorkspaceRow {
+                    name: "test-workspace-create".into(),
+                    ..Default::default()
+                })
+                .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                    name: "test-workspace-create".into(),
+                    ..Default::default()
+                })),
+        );
         let store = WorkspaceStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let data = WorkspaceForCreate {
-            name: "test-workspace-create".to_string(),
-            ..Default::default()
-        };
-
         // -- Execute
-        let created_workspace = store.create(&ctx, data).await?;
+        let created_workspace = store.create(&ctx, WorkspaceForCreate::default()).await?;
         let fetched_workspace = store.get(&ctx, &created_workspace.id).await?;
 
         // -- Assert
@@ -209,24 +214,34 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_update_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<WorkspaceRow>(WorkspaceRow::default())
+                .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                    name: "updated-workspace-name".into(),
+                    ..Default::default()
+                }))
+                .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                    name: "updated-workspace-name".into(),
+                    ..Default::default()
+                })),
+        );
         let store = WorkspaceStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let created_workspace = store.create(&ctx, WorkspaceForCreate::default()).await?;
-
-        let update_data = WorkspaceForUpdate {
-            name: Some("updated-workspace-name".to_string()),
-            ..Default::default()
-        };
-
         // -- Execute
+        let created_workspace = store.create(&ctx, WorkspaceForCreate::default()).await?;
         let updated_workspace = store
-            .update(&ctx, &created_workspace.id, update_data)
+            .update(
+                &ctx,
+                &created_workspace.id,
+                WorkspaceForUpdate {
+                    name: Some("updated-workspace-name".to_string()),
+                    ..Default::default()
+                },
+            )
             .await?;
         let fetched_workspace = store.get(&ctx, &created_workspace.id).await?;
 
@@ -238,22 +253,26 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_delete_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let workspace_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                    id: workspace_id,
+                    ..Default::default()
+                }))
+                .with_optional::<WorkspaceRow>(None),
+        );
         let store = WorkspaceStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let created_workspace = store.create(&ctx, WorkspaceForCreate::default()).await?;
-
         // -- Execute
-        let deleted_workspace = store.delete(&ctx, &created_workspace.id).await?;
-        let get_result = store.get(&ctx, &created_workspace.id).await;
+        let deleted_workspace = store.delete(&ctx, &workspace_id).await?;
+        let get_result = store.get(&ctx, &workspace_id).await;
 
         // -- Assert
-        assert_eq!(deleted_workspace.id, created_workspace.id);
+        assert_eq!(deleted_workspace.id, workspace_id);
         assert!(
             matches!(get_result, Err(StoreError::EntityNotFound { .. })),
             "Getting the workspace after deletion should fail"
@@ -263,27 +282,27 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_list_with_filter_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<WorkspaceRow>(vec![WorkspaceRow::default(), WorkspaceRow::default()])
+                .with_all::<WorkspaceRow>(vec![WorkspaceRow {
+                    name: "list-ns-XY".into(),
+                    ..Default::default()
+                }]),
+        );
         let store = WorkspaceStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let ns_to_create = vec![
-            WorkspaceForCreate {
-                name: "list-ns-XY".to_string(),
-                ..Default::default()
-            },
-            WorkspaceForCreate {
-                name: "list-ns-ZB".to_string(),
-                ..Default::default()
-            },
-        ];
-        store.create_many(&ctx, ns_to_create).await?;
-
         // -- Execute
+        store
+            .create_many(
+                &ctx,
+                vec![WorkspaceForCreate::default(), WorkspaceForCreate::default()],
+            )
+            .await?;
+
         let filter: WorkspaceFilter = json!({ "name": "list-ns-XY" }).try_into()?;
         let workspaces = store.list(&ctx, Some(filter), None).await?;
 
@@ -295,53 +314,47 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_get_one_to_many_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let workspace_id = DbId::from(Uuid::new_v4());
+
+        let joined_project = |name: &str| JoinedProjectOnWorkspace {
+            id: DbId::from(Uuid::new_v4()),
+            workspace_id: workspace_id.into(),
+            name: name.to_string(),
+            code: None,
+            description: None,
+            owner: DbId::default(),
+            config: ProjectConfig::default(),
+            tags: vec![],
+            meta: ProjectMeta::default(),
+            created_by: DbId::default(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_by: None,
+            updated_at: None,
+        };
+
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<(i64,)>( (2,) )
+                .with_optional::<WorkspaceWithProjects>(Some(WorkspaceWithProjects {
+                    id: workspace_id,
+                    workspace: WorkspaceRow {
+                        id: workspace_id,
+                        name: "one-to-many-ns".into(),
+                        ..Default::default()
+                    },
+                    projects: vec![joined_project("project-a"), joined_project("project-b")],
+                })),
+        );
         let store = WorkspaceStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let workspace = store
-            .create(
-                &ctx,
-                WorkspaceForCreate {
-                    name: "one-to-many-ns".into(),
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        // Manually insert related projects
-        app.sm
-            .project
-            .create(
-                &ctx,
-                ProjectForCreate {
-                    workspace_id: workspace.id.into(),
-                    name: "project-a".into(),
-                    ..Default::default()
-                },
-            )
-            .await?;
-        app.sm
-            .project
-            .create(
-                &ctx,
-                ProjectForCreate {
-                    workspace_id: workspace.id.into(),
-                    name: "project-b".into(),
-                    ..Default::default()
-                },
-            )
-            .await?;
-
         // -- Execute
-        let ns_with_projects = store.get_one_to_many(&ctx, &workspace.id).await?;
+        let ns_with_projects = store.get_one_to_many(&ctx, &workspace_id).await?;
 
         // -- Assert
-        assert_eq!(ns_with_projects.id, workspace.id);
+        assert_eq!(ns_with_projects.id, workspace_id);
         assert_eq!(
             ns_with_projects.projects.len(),
             2,
@@ -363,35 +376,23 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_filter_by_contains_tags() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
-        let store = WorkspaceStore::new(dbx);
-        let ctx = StoreCtx::bootstrap();
-
-        // -- Create test data with different tags
-        store
-            .create(
-                &ctx,
-                WorkspaceForCreate {
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<WorkspaceRow>(vec![WorkspaceRow {
                     name: "tags-ns-a".into(),
                     tags: vec!["org".into(), "production".into()],
                     ..Default::default()
-                },
-            )
-            .await?;
-        store
-            .create(
-                &ctx,
-                WorkspaceForCreate {
+                }])
+                .with_all::<WorkspaceRow>(vec![WorkspaceRow {
                     name: "tags-ns-b".into(),
                     tags: vec!["user".into(), "personal".into()],
                     ..Default::default()
-                },
-            )
-            .await?;
+                }]),
+        );
+        let store = WorkspaceStore::new(dbx);
+        let ctx = StoreCtx::bootstrap();
 
         // -- Execute & Assert
         let org_workspaces = store

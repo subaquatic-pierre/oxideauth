@@ -151,7 +151,7 @@ impl TryFrom<JsonValue> for RoleFilter {
 }
 
 // --- Defaults for testing ---
-#[cfg(test)]
+#[cfg(any(test, feature = "integration"))]
 impl Default for RoleForCreate {
     fn default() -> Self {
         Self {

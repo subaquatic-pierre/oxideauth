@@ -90,59 +90,72 @@ impl<D: DbExecutor> ContainsFilterStore for CredentialStore<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        cache::redis::RedisChx,
-        dev::init::init_test,
-        store::{
-            ctx::StoreCtx,
-            entities::{
-                account::AccountForCreate,
-                credential::{CredentialKind, CredentialProvider, CredentialStatus},
-                workspace::WorkspaceForCreate,
+    use crate::store::{
+        ctx::StoreCtx,
+        dbx::MockDbx,
+        entities::{
+            audit::AuditFields,
+            credential::{
+                CredentialConfig, CredentialKind, CredentialMeta, CredentialProvider,
+                CredentialStatus,
             },
-            error::StoreError,
-            traits::{contains::FilterByContains, crud::*},
+            id::DbId,
         },
+        error::StoreError,
+        traits::{contains::FilterByContains, crud::*},
     };
     use anyhow::Result;
     use serde_json::json;
-    use serial_test::serial;
     use uuid::Uuid;
 
-    /// Helper function to seed the necessary Account and Workspace for a Credential.
-    async fn seed_prerequisites(
-        ctx: &StoreCtx,
-        app: &crate::app::AppState<PgDbx, RedisChx>,
-    ) -> Result<(Uuid, Uuid)> {
-        let account = app
-            .sm
-            .account
-            .create(ctx, AccountForCreate::default())
-            .await?;
-        let workspace = app
-            .sm
-            .workspace
-            .create(ctx, WorkspaceForCreate::default())
-            .await?;
-        Ok((account.id.into(), workspace.id.into()))
+    /// Helper to build a `CredentialRow` with default-ish values for the mock.
+    fn credential_row() -> CredentialRow {
+        CredentialRow {
+            id: DbId::from(Uuid::new_v4()),
+            account_id: DbId::default(),
+            workspace_id: DbId::default(),
+            kind: CredentialKind::ApiKey,
+            provider: CredentialProvider::Local,
+            status: CredentialStatus::Active,
+            provider_id: None,
+            email: None,
+            secret: None,
+            last_used_at: None,
+            config: CredentialConfig::default(),
+            tags: vec![],
+            meta: CredentialMeta::default(),
+            audit: AuditFields::default(),
+        }
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_create_get_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let account_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        let credential_id = DbId::from(Uuid::new_v4());
+
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<CredentialRow>(CredentialRow {
+                    id: credential_id,
+                    account_id: account_id.into(),
+                    workspace_id: workspace_id.into(),
+                    provider: CredentialProvider::Google,
+                    ..credential_row()
+                })
+                .with_optional::<CredentialRow>(Some(CredentialRow {
+                    id: credential_id,
+                    provider: CredentialProvider::Google,
+                    ..credential_row()
+                })),
+        );
         let store = CredentialStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-
-        // Prerequisite: Create an account and workspace to link the credential to.
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
 
         let mut data = CredentialForCreate::default();
         data.account_id = account_id;
         data.workspace_id = workspace_id;
-
         data.provider = CredentialProvider::Google;
 
         // -- Execute
@@ -160,27 +173,35 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_update_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_one::<CredentialRow>(credential_row())
+                .with_optional::<CredentialRow>(Some(CredentialRow {
+                    status: CredentialStatus::Revoked,
+                    ..credential_row()
+                }))
+                .with_optional::<CredentialRow>(Some(CredentialRow {
+                    status: CredentialStatus::Revoked,
+                    ..credential_row()
+                })),
+        );
         let store = CredentialStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
-        let mut data = CredentialForCreate::default();
-        data.account_id = account_id;
-        data.workspace_id = workspace_id;
-        let created_cred = store.create(&ctx, data).await?;
-
-        let update_data = CredentialForUpdate {
-            status: Some(CredentialStatus::Revoked),
-            ..Default::default()
-        };
-
         // -- Execute
-        let updated_cred = store.update(&ctx, &created_cred.id, update_data).await?;
+        let created_cred = store.create(&ctx, CredentialForCreate::default()).await?;
+        let updated_cred = store
+            .update(
+                &ctx,
+                &created_cred.id,
+                CredentialForUpdate {
+                    status: Some(CredentialStatus::Revoked),
+                    ..Default::default()
+                },
+            )
+            .await?;
         let fetched_cred = store.get(&ctx, &created_cred.id).await?;
 
         // -- Assert
@@ -191,26 +212,26 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_delete_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let credential_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_optional::<CredentialRow>(Some(CredentialRow {
+                    id: credential_id,
+                    ..credential_row()
+                }))
+                .with_optional::<CredentialRow>(None),
+        );
         let store = CredentialStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
-        let mut data = CredentialForCreate::default();
-        data.account_id = account_id;
-        data.workspace_id = workspace_id;
-        let created_cred = store.create(&ctx, data).await?;
-
         // -- Execute
-        let deleted_cred = store.delete(&ctx, &created_cred.id).await?;
-        let get_result = store.get(&ctx, &created_cred.id).await;
+        let deleted_cred = store.delete(&ctx, &credential_id).await?;
+        let get_result = store.get(&ctx, &credential_id).await;
 
         // -- Assert
-        assert_eq!(deleted_cred.id, created_cred.id);
+        assert_eq!(deleted_cred.id, credential_id);
         assert!(
             matches!(get_result, Err(StoreError::EntityNotFound { .. })),
             "Getting the credential after deletion should fail"
@@ -220,35 +241,27 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_list_with_filter_ok() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<CredentialRow>(vec![credential_row(), credential_row()])
+                .with_all::<CredentialRow>(vec![CredentialRow {
+                    provider: CredentialProvider::Google,
+                    ..credential_row()
+                }]),
+        );
         let store = CredentialStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
 
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
-
-        let creds_to_create = vec![
-            CredentialForCreate {
-                account_id,
-                workspace_id,
-                provider: CredentialProvider::Local,
-                kind: CredentialKind::ApiKey,
-                ..Default::default()
-            },
-            CredentialForCreate {
-                account_id,
-                workspace_id,
-                secret: Some("cool".to_string()),
-                provider: CredentialProvider::Google,
-                ..Default::default()
-            },
-        ];
-        store.create_many(&ctx, creds_to_create).await?;
-
         // -- Execute
+        store
+            .create_many(
+                &ctx,
+                vec![CredentialForCreate::default(), CredentialForCreate::default()],
+            )
+            .await?;
+
         let filter: CredentialFilter =
             json!({"provider":CredentialProvider::Google.to_string(),"secret":"cool"})
                 .try_into()?;
@@ -262,32 +275,21 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_filter_by_contains_tags() -> Result<()> {
         // -- Setup
-        let app = init_test().await;
-        let dbx = app.sm.dbx().clone();
+        let dbx = Arc::new(
+            MockDbx::new()
+                .with_all::<CredentialRow>(vec![CredentialRow {
+                    tags: vec!["primary".into(), "oauth".into()],
+                    ..credential_row()
+                }])
+                .with_all::<CredentialRow>(vec![CredentialRow {
+                    tags: vec!["secondary".into(), "mfa".into()],
+                    ..credential_row()
+                }]),
+        );
         let store = CredentialStore::new(dbx);
         let ctx = StoreCtx::bootstrap();
-
-        let (account_id, workspace_id) = seed_prerequisites(&ctx, &app).await?;
-
-        let creds_to_create = vec![
-            CredentialForCreate {
-                account_id,
-                workspace_id,
-                tags: vec!["primary".into(), "oauth".into()],
-                kind: CredentialKind::ApiKey,
-                ..Default::default()
-            },
-            CredentialForCreate {
-                account_id,
-                workspace_id,
-                tags: vec!["secondary".into(), "mfa".into()],
-                ..Default::default()
-            },
-        ];
-        store.create_many(&ctx, creds_to_create).await?;
 
         // -- Execute & Assert
         let primary_creds = store

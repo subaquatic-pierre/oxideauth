@@ -1,25 +1,13 @@
-use std::{env, io, str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use dotenv::dotenv;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use axum::{Router, routing::get};
-use std::net::SocketAddr;
-
-mod app;
-mod cache;
-mod config;
-mod core;
-mod dev;
-mod macros;
-mod store;
-mod utils;
-mod web;
-
-use app::new_app_data;
-
-use crate::{app::AppEnv, web::router::AppRouter};
+use oxideauth::{
+    app::{new_app_data, AppEnv},
+    web::router::AppRouter,
+};
 
 #[tokio::main]
 async fn main() {
@@ -36,7 +24,6 @@ async fn main() {
     // Define the address to run the server on.
     let bind_addr = format!("{}:{}", app.config.host, app.config.port);
     info!("Server listening at {bind_addr} ... ",);
-    let addr = SocketAddr::from_str(&bind_addr);
 
     // Create a TCP listener and serve the application.
     let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
