@@ -94,7 +94,6 @@ impl IntoParams<AccountCreateParams> for AccountCreateReq {
         Ok(AccountCreateParams {
             email: self.email,
             kind: self.kind.unwrap_or(AccountKind::User),
-            password: self.password,
             name: self.name,
             description: self.description,
             avatar_url: self.avatar_url,
@@ -210,9 +209,12 @@ mod tests {
 
     #[test]
     fn test_account_describe_req_into_params_all_none() {
-        let params = AccountDescribeReq { email: None, id: None }
-            .into_params(Uuid::new_v4())
-            .unwrap();
+        let params = AccountDescribeReq {
+            email: None,
+            id: None,
+        }
+        .into_params(Uuid::new_v4())
+        .unwrap();
         assert!(params.id.is_none());
         assert!(params.email.is_none());
     }
@@ -235,7 +237,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(params.email, "ada@example.com");
-        assert_eq!(params.password, "s3cret");
         assert_eq!(params.kind.to_string(), "user");
         assert!(!params.enabled);
         assert!(!params.verified);

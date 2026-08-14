@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::cache::{
     error::{CacheError, CacheResult},
@@ -37,6 +38,7 @@ pub struct OAuthStateCache {
     pub redirect_url: String,
     pub created_at: i64,
     pub provider: OAuthProvider,
+    pub workspace_id: Uuid,
 }
 
 impl Default for OAuthStateCache {
@@ -46,6 +48,7 @@ impl Default for OAuthStateCache {
             redirect_url: String::new(),
             created_at: 0,
             provider: OAuthProvider::default(),
+            workspace_id: Uuid::nil(),
         }
     }
 }

@@ -82,7 +82,6 @@ impl Default for Account {
 #[derive(Default)]
 pub struct AccountCreateParams {
     pub email: String,
-    pub password: String,
     pub name: String,
     pub kind: AccountKind,
 
@@ -259,7 +258,6 @@ mod tests {
     fn test_account_create_params_into_store() {
         let params = AccountCreateParams {
             email: "a@b.com".to_string(),
-            password: "hunter2".to_string(),
             name: "Alice".to_string(),
             kind: AccountKind::Service,
             description: Some("desc".to_string()),
@@ -288,7 +286,6 @@ mod tests {
     fn test_account_create_params_defaults_tags_and_meta() {
         let params = AccountCreateParams {
             email: "a@b.com".to_string(),
-            password: String::new(),
             name: String::new(),
             kind: AccountKind::default(),
             description: None,
@@ -307,7 +304,10 @@ mod tests {
 
     #[test]
     fn test_account_describe_params_id_or_email() {
-        let params = AccountDescribeParams { email: None, id: None };
+        let params = AccountDescribeParams {
+            email: None,
+            id: None,
+        };
         assert!(matches!(
             params.id_or_email().unwrap_err(),
             CoreError::InvalidParams(_)

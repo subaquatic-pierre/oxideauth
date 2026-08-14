@@ -251,7 +251,6 @@ where
         let default_avatar = format!("https://www.gravatar.com/avatar/{}?d=identicon", "default");
         let account_create_params = AccountCreateParams {
             email: email.clone(),
-            password: String::new(), // password goes to credential, not account
             name: name.unwrap_or_else(|| "".to_string()),
             description: None,
             avatar_url: Some(default_avatar),
@@ -916,6 +915,7 @@ where
         &self,
         ctx: &mut CoreCtx,
         redirect_url: &str,
+        workspace_id: Uuid,
     ) -> CoreResult<String> {
         // Generate the CSRF token used as the OAuth `state` parameter.
         let csrf_token = Uuid::new_v4().to_string();
@@ -926,8 +926,11 @@ where
             redirect_url: redirect_url.to_string(),
             created_at: now_utc().unix_timestamp(),
             provider: OAuthProvider::Google,
+            workspace_id,
         };
         self.cm.oauth_state.write(&oauth_entity, 600).await?;
+
+        // TODO: get google_oauth_client_id from ws_cache
 
         // Build the Google authorization URL.
         let auth_url = format!(
@@ -992,7 +995,6 @@ where
                 // 5. Create the account from the Google profile.
                 let account_create_params = AccountCreateParams {
                     email: google_user.email.clone(),
-                    password: String::new(),
                     name: google_user.name,
                     description: None,
                     avatar_url: google_user.picture.clone(),
@@ -1292,7 +1294,7 @@ mod tests {
         // -- Execute
         let url = registry
             .auth
-            .initiate_google_oauth(&mut ctx, "http://localhost/callback")
+            .initiate_google_oauth(&mut ctx, "http://localhost/callback", Uuid::nil())
             .await?;
 
         // -- Assert
@@ -1356,7 +1358,10 @@ mod tests {
         let mut ctx = CoreCtx::bootstrap()?;
 
         // -- Execute
-        let err = registry.auth.login(&mut ctx, "ghost@example.com", "secret").await;
+        let err = registry
+            .auth
+            .login(&mut ctx, "ghost@example.com", "secret")
+            .await;
 
         // -- Assert
         assert!(matches!(err, Err(CoreError::Auth(_))));

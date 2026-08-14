@@ -58,11 +58,10 @@ impl<C: CacheExecutor> OAuthStateCacheStore<C> {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::*;
-    use crate::cache::{
-        entities::oauth_state::OAuthProvider,
-        mock::MockChx,
-    };
+    use crate::cache::{entities::oauth_state::OAuthProvider, mock::MockChx};
 
     #[tokio::test]
     async fn test_write_is_noop_ok() {
@@ -87,6 +86,7 @@ mod tests {
             redirect_url: "https://example.com/callback".into(),
             created_at: 42,
             provider: OAuthProvider::Google,
+            workspace_id: Uuid::nil(),
         };
 
         // `write` is a no-op, so seed the store directly through the mock.

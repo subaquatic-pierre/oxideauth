@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::core::models::{account::Account, auth::RegisterParams};
+use crate::core::models::{
+    account::Account, auth::RegisterParams, workspace::WorkspaceDescribeParams,
+};
 
 // --- AuthRegisterReq ---
 #[derive(Debug, Serialize, Deserialize)]
@@ -144,6 +146,7 @@ pub struct AuthRevokeRes {
 #[serde(rename_all = "camelCase")]
 pub struct AuthOAuthInitiateReq {
     pub redirect_url: String,
+    pub workspace_id: Uuid,
 }
 
 // --- AuthOAuthInitiateRes ---

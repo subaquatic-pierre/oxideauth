@@ -156,7 +156,7 @@ pub async fn oauth_google_initiate(
     let mut ctx = app.system_context()?;
     let svc = app.svc_reg.auth.clone();
     let auth_url = svc
-        .initiate_google_oauth(&mut ctx, &body.redirect_url)
+        .initiate_google_oauth(&mut ctx, &body.redirect_url, body.workspace_id)
         .await?;
     WebResponse::json(AuthOAuthInitiateRes { auth_url })
 }
