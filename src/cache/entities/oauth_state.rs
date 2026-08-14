@@ -75,3 +75,47 @@ impl CacheEntity for OAuthStateCache {
         CacheKey::new(prefix, name, csrf_token)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_provider_as_str() {
+        assert_eq!(OAuthProvider::Google.as_str(), "google");
+    }
+
+    #[test]
+    fn test_provider_default_is_google() {
+        let provider = OAuthProvider::default();
+        assert_eq!(provider, OAuthProvider::Google);
+    }
+
+    #[test]
+    fn test_provider_partial_eq() {
+        assert_eq!(OAuthProvider::Google, OAuthProvider::Google);
+    }
+
+    #[test]
+    fn test_oauth_state_default() {
+        let state = OAuthStateCache::default();
+        assert_eq!(state.csrf_token, "");
+        assert_eq!(state.redirect_url, "");
+        assert_eq!(state.created_at, 0);
+        assert_eq!(state.provider, OAuthProvider::Google);
+    }
+
+    #[test]
+    fn test_oauth_state_key_format() {
+        let state = OAuthStateCache {
+            csrf_token: "csrf-token-123".into(),
+            ..Default::default()
+        };
+        assert_eq!(state.key().as_ref(), "oxauth:oauth:csrf-token-123");
+        assert_eq!(
+            OAuthStateCache::new_key("csrf-token-123").as_ref(),
+            "oxauth:oauth:csrf-token-123"
+        );
+        assert_eq!(OAuthStateCache::_key(), ("oxauth", "oauth"));
+    }
+}

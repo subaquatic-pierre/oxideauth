@@ -28,3 +28,41 @@ impl ValidateParams for RegisterParams {
         Ok(Self { email, ..self })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params(email: &str, password: &str) -> RegisterParams {
+        RegisterParams {
+            email: email.to_string(),
+            password: password.to_string(),
+            name: Some("User".to_string()),
+            workspace_id: "ws-1".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_register_params_validate_trims_and_lowercases_email() {
+        let params = params("  User@Example.COM ", "secret");
+        let params = params.validate().expect("valid params should validate");
+        assert_eq!(params.email, "user@example.com");
+        assert_eq!(params.password, "secret");
+        assert_eq!(params.name.as_deref(), Some("User"));
+        assert_eq!(params.workspace_id, "ws-1");
+    }
+
+    #[test]
+    fn test_register_params_validate_whitespace_only_email_fails() {
+        let params = params("   ", "secret");
+        let err = params.validate().err().expect("expected validation error");
+        assert!(matches!(err, CoreError::InvalidParams(ref msg) if msg == "email required"));
+    }
+
+    #[test]
+    fn test_register_params_validate_empty_password_fails() {
+        let params = params("user@example.com", "");
+        let err = params.validate().err().expect("expected validation error");
+        assert!(matches!(err, CoreError::InvalidParams(ref msg) if msg == "password required"));
+    }
+}

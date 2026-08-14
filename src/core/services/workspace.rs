@@ -469,7 +469,6 @@ mod tests {
         cache::{manager::CacheManager, mock::MockChx},
         config::Config,
         core::services::registry::ServiceRegistry,
-        dev::init::init_test,
         store::{dbx::MockDbx, entities::workspace::WorkspaceRow},
     };
     use serial_test::serial;
@@ -504,28 +503,32 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "integration")]
     #[tokio::test]
     #[serial]
-    async fn test_workspace_create() -> CoreResult<()> {
-        let app = init_test().await;
-        let svc = app.svc_reg.workspace.clone();
+    async fn test_workspace_create_duplicate_slug() -> CoreResult<()> {
+        // -- Setup
+        let dbx = MockDbx::new()
+            // get_by_slug_opt -> list (a workspace with this slug already exists)
+            .with_all::<WorkspaceRow>(vec![WorkspaceRow {
+                slug: "existing-slug".to_string(),
+                ..Default::default()
+            }]);
+        let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["workspace:create"])?;
 
-        let slug = format!("test-ws-{}", Uuid::new_v4());
         let mut params = WorkspaceCreateParams::default();
-        params.slug = slug.clone();
+        params.slug = "existing-slug".to_string();
         params.name = "Test Workspace".to_string();
 
-        // Test success
-        let workspace = svc.create(&mut ctx, params.clone()).await?;
+        // -- Execute
+        let err = svc.create(&mut ctx, params).await;
 
-        assert_eq!(workspace.name, "Test Workspace");
-        assert_eq!(workspace.slug, slug);
-
-        // Test duplicate slug
-        let err_dup = svc.create(&mut ctx, params).await;
-        assert!(matches!(err_dup, Err(CoreError::AlreadyExists(_))));
+        // -- Assert
+        assert!(
+            matches!(err, Err(CoreError::AlreadyExists(_))),
+            "creating a workspace with an existing slug must fail with AlreadyExists"
+        );
 
         Ok(())
     }

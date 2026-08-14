@@ -83,3 +83,72 @@ pub fn pg_type_of(v: &sea_query::Value) -> &'static str {
         _ => "", // safe fallback if you truly don’t know
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_query::{ArrayType, Value as SeaValue};
+    use sqlx::QueryBuilder;
+    use time::{OffsetDateTime, PrimitiveDateTime};
+    use uuid::Uuid;
+
+    #[test]
+    fn test_pg_type_of() {
+        // -- Setup
+        let uuid = Uuid::new_v4();
+        let cases = vec![
+            (SeaValue::String(Some("x".to_string())), "text"),
+            (SeaValue::Bool(Some(true)), "bool"),
+            (SeaValue::Int(Some(1)), "int4"),
+            (SeaValue::SmallInt(Some(1)), "int4"),
+            (SeaValue::TinyInt(Some(1)), "int4"),
+            (SeaValue::BigInt(Some(1)), "int8"),
+            (SeaValue::Uuid(Some(uuid)), "uuid"),
+            (
+                SeaValue::Json(Some(Box::new(serde_json::json!({"a": 1})))),
+                "jsonb",
+            ),
+            (
+                SeaValue::TimeDateTimeWithTimeZone(Some(OffsetDateTime::UNIX_EPOCH)),
+                "timestamptz",
+            ),
+            (
+                SeaValue::TimeDateTime(Some(PrimitiveDateTime::MIN)),
+                "time",
+            ),
+            (
+                SeaValue::Array(
+                    ArrayType::String,
+                    Some(Box::new(vec![SeaValue::String(Some("a".to_string()))])),
+                ),
+                "text[]",
+            ),
+            // Unknown/unsupported -> safe fallback
+            (SeaValue::Char(Some('a')), ""),
+        ];
+
+        // -- Execute & Assert
+        for (value, expected) in cases {
+            assert_eq!(pg_type_of(&value), expected, "for value {value:?}");
+        }
+    }
+
+    #[test]
+    fn test_push_sq_value_binds_and_null() {
+        // -- Setup
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("");
+
+        // -- Execute
+        push_sq_value(&mut qb, &SeaValue::String(Some("hello".to_string())));
+        push_sq_value(&mut qb, &SeaValue::Int(Some(42)));
+        push_sq_value(&mut qb, &SeaValue::BigInt(Some(1234567890123)));
+        push_sq_value(&mut qb, &SeaValue::String(None)); // null -> literal NULL
+
+        // -- Assert
+        let sql = qb.sql();
+        assert!(sql.contains("$1"), "expected first bind placeholder, got {sql}");
+        assert!(sql.contains("$2"), "expected second bind placeholder, got {sql}");
+        assert!(sql.contains("$3"), "expected third bind placeholder, got {sql}");
+        assert!(sql.contains("NULL"), "expected NULL literal, got {sql}");
+    }
+}

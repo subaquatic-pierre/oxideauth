@@ -27,3 +27,82 @@ pub fn try_time_from_string(time: &str) -> StoreResult<OffsetDateTime> {
 pub fn time_from_string(time: &str) -> OffsetDateTime {
     try_time_from_string(time).unwrap()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::error::StoreError;
+    use sea_query::Value as SeaValue;
+    use serde_json::json;
+    use time::OffsetDateTime;
+
+    #[test]
+    fn test_try_time_to_string_rfc3339() {
+        // -- Setup
+        let epoch = OffsetDateTime::UNIX_EPOCH;
+
+        // -- Execute
+        let s = try_time_to_string(epoch).unwrap();
+
+        // -- Assert
+        assert_eq!(s, "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_time_to_string_matches_rfc3339() {
+        // -- Setup
+        let t = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+
+        // -- Execute
+        let s = time_to_string(t);
+
+        // -- Assert
+        assert_eq!(s, t.format(&Rfc3339).unwrap());
+    }
+
+    #[test]
+    fn test_try_time_from_string_ok() {
+        // -- Execute
+        let t = try_time_from_string("1970-01-01T00:00:00Z").unwrap();
+
+        // -- Assert
+        assert_eq!(t, OffsetDateTime::UNIX_EPOCH);
+    }
+
+    #[test]
+    fn test_time_from_string_roundtrip() {
+        // -- Setup
+        let original = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+
+        // -- Execute
+        let s = time_to_string(original);
+        let back = time_from_string(&s);
+
+        // -- Assert
+        assert_eq!(back, original);
+    }
+
+    #[test]
+    fn test_try_time_from_string_err() {
+        // -- Execute
+        let res = try_time_from_string("not-a-timestamp");
+
+        // -- Assert
+        assert!(matches!(res, Err(StoreError::TimeParseError(_))));
+    }
+
+    #[test]
+    fn test_time_to_sea_value() {
+        // -- Setup
+        let epoch_json = json!("1970-01-01T00:00:00Z");
+
+        // -- Execute
+        let v = time_to_sea_value(epoch_json).unwrap();
+
+        // -- Assert
+        assert_eq!(
+            v,
+            SeaValue::TimeDateTimeWithTimeZone(Some(OffsetDateTime::UNIX_EPOCH))
+        );
+    }
+}

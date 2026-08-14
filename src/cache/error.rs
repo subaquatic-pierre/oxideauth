@@ -30,3 +30,37 @@ impl Display for CacheError {
 }
 
 impl Error for CacheError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::error::StoreError;
+
+    #[test]
+    fn test_display_is_non_empty() {
+        let err = CacheError::NotFound("x".into());
+        assert!(!err.to_string().is_empty());
+        assert!(err.to_string().contains("NotFound"));
+    }
+
+    #[test]
+    fn test_from_serde_json_error() {
+        let serde_err = serde_json::from_str::<serde_json::Value>("not json").unwrap_err();
+        let err = CacheError::from(serde_err);
+        assert!(matches!(err, CacheError::SerdeError(_)));
+    }
+
+    #[test]
+    fn test_from_redis_error() {
+        let redis_err = redis::RedisError::from((redis::ErrorKind::IoError, "test"));
+        let err = CacheError::from(redis_err);
+        assert!(matches!(err, CacheError::RedisError(_)));
+    }
+
+    #[test]
+    fn test_from_store_error() {
+        let store_err = StoreError::MockReturn;
+        let err = CacheError::from(store_err);
+        assert!(matches!(err, CacheError::StoreError(_)));
+    }
+}

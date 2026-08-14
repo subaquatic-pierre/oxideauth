@@ -113,3 +113,73 @@ impl StorageService for MockStorageService {
         Ok("contents".to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{config::Config, core::error::CoreResult};
+    use serial_test::serial;
+
+    #[tokio::test]
+    #[serial]
+    async fn test_local_storage_get_file() -> CoreResult<()> {
+        // -- Setup
+        let svc = LocalStorageService::new("/tmp/oxideauth-templates");
+
+        // -- Execute
+        let contents = svc.get_file("email.html").await?;
+
+        // -- Assert
+        assert_eq!(contents, "ok");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_mock_storage_get_file() -> CoreResult<()> {
+        // -- Setup
+        let svc = MockStorageService {};
+
+        // -- Execute
+        let contents = svc.get_file("email.html").await?;
+
+        // -- Assert
+        assert_eq!(contents, "contents");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_s3_storage_get_file() -> CoreResult<()> {
+        // -- Setup: client construction + get_file are offline (stubbed), no AWS calls.
+        let config = Config::test_config();
+        let svc = S3StorageService::new("test-bucket", &config);
+
+        // -- Execute
+        let contents = svc.get_file("email.html").await?;
+
+        // -- Assert
+        assert_eq!(contents, "ok");
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_storage_service_type_serde_roundtrip() {
+        // -- Execute / -- Assert: camelCase serialization of the enum variants
+        let local = StorageServiceType::Local;
+        let json = serde_json::to_string(&local).unwrap();
+        assert_eq!(json, r#""local""#);
+        let parsed: StorageServiceType = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, StorageServiceType::Local));
+
+        let s3 = StorageServiceType::S3;
+        let json = serde_json::to_string(&s3).unwrap();
+        assert_eq!(json, r#""s3""#);
+        let parsed: StorageServiceType = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, StorageServiceType::S3));
+    }
+}

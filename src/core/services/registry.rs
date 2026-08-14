@@ -125,3 +125,77 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::{
+        cache::{manager::CacheManager, mock::MockChx},
+        config::Config,
+        core::{
+            ctx::CoreCtx,
+            error::CoreResult,
+            models::token::{TokenClaims, TokenType},
+        },
+        store::dbx::MockDbx,
+        utils::time::now_utc,
+    };
+    use serial_test::serial;
+    use time::Duration as TimeDuration;
+    use uuid::Uuid;
+
+    /// Constructs a `ServiceRegistry` backed by in-memory `MockDbx` + `MockChx`
+    /// so the constructor wiring can be exercised without a real DB or Redis.
+    #[tokio::test]
+    #[serial]
+    async fn test_service_registry_constructs_all_services() -> CoreResult<()> {
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(MockDbx::new())));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+
+        let registry = ServiceRegistry::new(&config, sm.clone(), cm.clone());
+
+        // The store/cache managers are the same instances that were passed in.
+        assert!(Arc::ptr_eq(&registry.sm, &sm));
+        assert!(Arc::ptr_eq(&registry.cm, &cm));
+
+        // Every service field must be present and wired.
+        let _ = registry.workspace.as_ref();
+        let _ = registry.role.as_ref();
+        let _ = registry.permission.as_ref();
+        let _ = registry.account.as_ref();
+        let _ = registry.project.as_ref();
+        let _ = registry.token.as_ref();
+        let _ = registry.credential.as_ref();
+        let _ = registry.membership.as_ref();
+        let _ = registry.client.as_ref();
+        let _ = registry.auth.as_ref();
+        let _ = registry.ctx_factory.as_ref();
+
+        // The token service is fully functional end-to-end (encode -> decode).
+        let claims = TokenClaims::new(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            now_utc() + TimeDuration::hours(1),
+            TokenType::Auth,
+            0,
+            0,
+            None,
+            None,
+        );
+        let encoded = registry.token.encode_token_claims(&claims)?;
+        let decoded = registry.token.decode_token_str(&encoded)?;
+        assert_eq!(decoded.sub, claims.sub);
+        assert_eq!(decoded.ws, claims.ws);
+        assert_eq!(decoded.mem, claims.mem);
+        assert_eq!(decoded.ty, claims.ty);
+
+        // A bootstrap CoreCtx still resolves with the registry alive.
+        let _ctx = CoreCtx::bootstrap()?;
+
+        Ok(())
+    }
+}

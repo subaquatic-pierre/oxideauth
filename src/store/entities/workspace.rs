@@ -237,3 +237,97 @@ impl Default for WorkspaceForUpdate {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_query::{Nullable, Value as SeaValue};
+    use serde_json::json;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_workspace_config_default() {
+        // -- Execute
+        let config = WorkspaceConfig::default();
+
+        // -- Assert
+        assert_eq!(config.jwt_max_age, DEFAULT_JWT_MAX_AGE);
+        assert!(!config.public);
+        assert!(config.allowed_auth_providers.is_empty());
+        assert_eq!(config.jwt_secret, "");
+    }
+
+    #[test]
+    fn test_workspace_row_default() {
+        // -- Execute
+        let row = WorkspaceRow::default();
+
+        // -- Assert
+        assert_eq!(row.id.0, Uuid::nil());
+        assert_eq!(row.name, "");
+        assert_eq!(row.slug, "");
+        assert!(row.description.is_none());
+        assert_eq!(row.owner.0, Uuid::nil());
+        assert_eq!(row.config.jwt_max_age, DEFAULT_JWT_MAX_AGE);
+        assert!(row.tags.is_empty());
+        assert_eq!(row.meta.schema_version, "");
+    }
+
+    #[test]
+    fn test_workspace_filter_try_from_json() {
+        // -- Setup
+        let slug_filter: WorkspaceFilter = json!({"slug": "my-workspace"}).try_into().unwrap();
+        let name_filter: WorkspaceFilter = json!({"name": {"$contains": "my"}}).try_into().unwrap();
+
+        // -- Assert
+        assert!(
+            slug_filter.slug.is_some(),
+            "slug filter should parse into an OpValsString"
+        );
+        assert!(
+            name_filter.name.is_some(),
+            "name filter should parse into an OpValsString"
+        );
+    }
+
+    #[test]
+    fn test_workspace_meta_sea_value_and_nullable() {
+        // -- Setup
+        let meta = WorkspaceMeta::default();
+
+        // -- Execute
+        let v: SeaValue = meta.clone().into();
+        let null = <WorkspaceMeta as Nullable>::null();
+
+        // -- Assert
+        assert_eq!(null, SeaValue::Json(None));
+        match v {
+            SeaValue::Json(Some(boxed)) => {
+                let parsed: WorkspaceMeta = serde_json::from_value(*boxed).unwrap();
+                assert_eq!(parsed.schema_version, "");
+            }
+            other => panic!("expected SeaValue::Json(Some(_)), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_workspace_config_sea_value_and_nullable() {
+        // -- Setup
+        let config = WorkspaceConfig::default();
+
+        // -- Execute
+        let v: SeaValue = config.clone().into();
+        let null = <WorkspaceConfig as Nullable>::null();
+
+        // -- Assert
+        assert_eq!(null, SeaValue::Json(None));
+        match v {
+            SeaValue::Json(Some(boxed)) => {
+                let parsed: WorkspaceConfig = serde_json::from_value(*boxed).unwrap();
+                assert_eq!(parsed.jwt_max_age, DEFAULT_JWT_MAX_AGE);
+                assert!(!parsed.public);
+            }
+            other => panic!("expected SeaValue::Json(Some(_)), got {other:?}"),
+        }
+    }
+}

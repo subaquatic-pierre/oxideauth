@@ -135,3 +135,125 @@ impl CacheEntity for WorkspaceCache {
         CacheKey::new(prefix, name, id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{
+        dbx::MockDbx,
+        entities::workspace::{WorkspaceConfig, WorkspaceMeta, WorkspaceRow},
+        manager::StoreManager,
+    };
+
+    #[test]
+    fn test_new_keyed() {
+        let id = Uuid::new_v4();
+        let ws = WorkspaceCache::new_keyed(id);
+
+        assert_eq!(ws.id, id);
+        assert_eq!(ws.name, "");
+        assert_eq!(ws.slug, "");
+        assert_eq!(ws.description, None);
+        assert_eq!(ws.owner, Uuid::nil());
+        assert_eq!(ws.config.jwt_max_age, WorkspaceConfig::default().jwt_max_age);
+        assert!(ws.tags.is_empty());
+        assert_eq!(ws.meta.schema_version, WorkspaceMeta::default().schema_version);
+    }
+
+    #[test]
+    fn test_bootstrap() {
+        let ws = WorkspaceCache::bootstrap();
+        assert_eq!(ws.slug, "system");
+        assert_eq!(ws.id, Uuid::nil());
+        assert_eq!(ws.owner, Uuid::nil());
+    }
+
+    #[test]
+    fn test_default() {
+        let ws = WorkspaceCache::default();
+        assert_eq!(ws.id, Uuid::nil());
+        assert_eq!(ws.slug, "");
+    }
+
+    #[test]
+    fn test_from_workspace_row_maps_all_fields() {
+        let id = Uuid::new_v4();
+        let owner = Uuid::new_v4();
+        let row = WorkspaceRow {
+            id: id.into(),
+            name: "Acme".into(),
+            slug: "acme".into(),
+            description: Some("desc".into()),
+            owner: owner.into(),
+            tags: vec!["tag-a".into()],
+            ..Default::default()
+        };
+
+        let ws = WorkspaceCache::from(row);
+        assert_eq!(ws.id, id);
+        assert_eq!(ws.name, "Acme");
+        assert_eq!(ws.slug, "acme");
+        assert_eq!(ws.description.as_deref(), Some("desc"));
+        assert_eq!(ws.owner, owner);
+        assert_eq!(ws.config.jwt_max_age, WorkspaceConfig::default().jwt_max_age);
+        assert_eq!(ws.tags, vec!["tag-a".to_string()]);
+    }
+
+    #[test]
+    fn test_from_workspace_maps_all_fields() {
+        let id = Uuid::new_v4();
+        let owner = Uuid::new_v4();
+        let model = Workspace {
+            id,
+            name: "Acme".into(),
+            slug: "acme".into(),
+            description: Some("desc".into()),
+            owner,
+            tags: vec!["tag-a".into()],
+            ..Default::default()
+        };
+
+        let ws = WorkspaceCache::from(model);
+        assert_eq!(ws.id, id);
+        assert_eq!(ws.name, "Acme");
+        assert_eq!(ws.slug, "acme");
+        assert_eq!(ws.description.as_deref(), Some("desc"));
+        assert_eq!(ws.owner, owner);
+        assert_eq!(ws.tags, vec!["tag-a".to_string()]);
+    }
+
+    #[test]
+    fn test_key_format() {
+        let id = Uuid::new_v4();
+        let ws = WorkspaceCache::new_keyed(id);
+
+        assert_eq!(ws.key().as_ref(), format!("oxauth:ws:{}", id));
+        assert_eq!(WorkspaceCache::new_key(id).as_ref(), format!("oxauth:ws:{}", id));
+        assert_eq!(WorkspaceCache::_key(), ("oxauth", "ws"));
+    }
+
+    #[tokio::test]
+    async fn test_build_from_db_fetches_and_converts_row() {
+        let ws_id = Uuid::new_v4();
+        let row = WorkspaceRow {
+            id: ws_id.into(),
+            name: "Acme".into(),
+            slug: "acme".into(),
+            description: Some("desc".into()),
+            owner: Uuid::new_v4().into(),
+            tags: vec!["tag-a".into()],
+            ..Default::default()
+        };
+
+        let dbx = Arc::new(MockDbx::new().with_optional::<WorkspaceRow>(Some(row)));
+        let sm = Arc::new(StoreManager::new(dbx));
+
+        let ws = WorkspaceCache::build_from_db(sm, ws_id).await.unwrap();
+
+        assert_eq!(ws.id, ws_id);
+        assert_eq!(ws.name, "Acme");
+        assert_eq!(ws.slug, "acme");
+        assert_eq!(ws.description.as_deref(), Some("desc"));
+        assert_eq!(ws.tags, vec!["tag-a".to_string()]);
+    }
+}

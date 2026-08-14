@@ -495,3 +495,266 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for ClientSer
         Ok(to_delete)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::{
+        cache::{manager::CacheManager, mock::MockChx},
+        config::Config,
+        core::services::registry::ServiceRegistry,
+        store::{
+            dbx::MockDbx,
+            entities::{
+                audit::AuditFields,
+                client::{ClientMeta, ClientRow},
+                id::DbId,
+                workspace::WorkspaceRow,
+            },
+        },
+    };
+    use serial_test::serial;
+    use uuid::Uuid;
+
+    /// Builds a `ClientRow` for the in-memory mock.
+    fn client_row(id: Uuid, ws_id: Uuid) -> ClientRow {
+        ClientRow {
+            id: id.into(),
+            workspace_id: ws_id,
+            name: "test-client".to_string(),
+            secret_hash: "stored-hash".to_string(),
+            endpoint: None,
+            description: None,
+            tags: vec![],
+            meta: ClientMeta {
+                schema_version: "1".to_string(),
+            },
+            audit: AuditFields::default(),
+        }
+    }
+
+    /// Builds a `ClientService` backed by an in-memory `MockDbx` + `MockChx`.
+    fn mock_svc(dbx: MockDbx) -> Arc<ClientService<MockDbx, MockChx>> {
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
+        svc_reg.client.clone()
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_client_create() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let client_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace -> get by id
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // store.create
+            .with_one::<ClientRow>(client_row(client_id, ws_id));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["client:create"])?;
+
+        let params = ClientCreateParams {
+            workspace_id: ws_id,
+            name: "test-client".to_string(),
+            endpoint: None,
+            description: None,
+            tags: vec![],
+            meta: ClientMeta {
+                schema_version: "1".to_string(),
+            },
+        };
+
+        let client = svc.create(&mut ctx, params).await?;
+
+        assert_eq!(client.id, client_id);
+        assert_eq!(client.workspace_id, ws_id);
+        assert_eq!(client.name, "test-client");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_client_describe() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let client_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // store.get
+            .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["client:describe"])?;
+
+        let client = svc
+            .describe(
+                &mut ctx,
+                ClientDescribeParams {
+                    id: client_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        assert_eq!(client.id, client_id);
+        assert_eq!(client.workspace_id, ws_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_client_list() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let client_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // list_with_tags_and_filter
+            .with_all::<ClientRow>(vec![client_row(client_id, ws_id)])
+            // count_with_tags_and_filter
+            .with_one::<(i64,)>( (1,) );
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["client:list"])?;
+
+        let res = svc
+            .list(
+                &mut ctx,
+                ClientListParams {
+                    workspace_id: ws_id,
+                    filter: None,
+                    options: None,
+                },
+            )
+            .await?;
+
+        assert_eq!(res.data.len(), 1);
+        assert_eq!(res.data[0].id, client_id);
+        assert_eq!(res.metadata.total, 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_client_update() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let client_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // store.update
+            .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["client:update"])?;
+
+        let params = ClientUpdateParams {
+            id: client_id,
+            workspace_id: ws_id,
+            name: Some("renamed".to_string()),
+            endpoint: None,
+            description: None,
+            tags: None,
+            meta: None,
+        };
+
+        let updated = svc.update(&mut ctx, params).await?;
+
+        assert_eq!(updated.id, client_id);
+        assert_eq!(updated.workspace_id, ws_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_client_delete() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let client_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // delete -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // delete -> describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // delete -> describe -> store.get
+            .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)))
+            // delete -> store.delete
+            .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["client:delete", "client:describe"])?;
+
+        let deleted = svc
+            .delete(
+                &mut ctx,
+                ClientDeleteParams {
+                    id: client_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        assert_eq!(deleted.id, client_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_client_regenerate_secret() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let client_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // store.update (secret rotation)
+            .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["client:regenerateSecret"])?;
+
+        let res = svc.regenerate_secret(&mut ctx, client_id, ws_id).await?;
+
+        assert_eq!(res.client.id, client_id);
+        // Plaintext secret must be a 48-char alphanumeric string, shown once.
+        assert_eq!(res.plaintext_secret.len(), 48);
+        assert!(res.plaintext_secret.chars().all(|c| c.is_ascii_alphanumeric()));
+
+        Ok(())
+    }
+}

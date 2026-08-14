@@ -50,3 +50,59 @@ impl<S: Send + Sync> FromRequestParts<S> for ReqStamp {
             .ok_or(WebError::ReqStampNotInReqExt)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::time::now_utc;
+    use axum::body::Body;
+    use axum::http::StatusCode;
+    use axum::http::request::Parts;
+    use axum::middleware;
+    use axum::routing::get;
+    use axum::Router;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn test_reqstamp_extractor_missing_extension() {
+        let (parts, _) = Request::new(Body::empty()).into_parts();
+        let mut parts: Parts = parts;
+        let res = ReqStamp::from_request_parts(&mut parts, &()).await;
+        assert!(matches!(res, Err(WebError::ReqStampNotInReqExt)));
+    }
+
+    #[tokio::test]
+    async fn test_reqstamp_extractor_present() {
+        let stamp = ReqStamp {
+            id: Uuid::new_v4(),
+            ts: now_utc(),
+        };
+        let (mut parts, _) = Request::new(Body::empty()).into_parts();
+        parts.extensions.insert(stamp.clone());
+
+        let res = ReqStamp::from_request_parts(&mut parts, &()).await;
+        let got = res.unwrap();
+        assert_eq!(got.id, stamp.id);
+    }
+
+    #[tokio::test]
+    async fn test_request_map_handler_inserts_reqstamp() {
+        async fn read_stamp(stamp: ReqStamp) -> String {
+            stamp.id.to_string()
+        }
+
+        let app = Router::new()
+            .route("/", get(read_stamp))
+            .layer(middleware::from_fn(RequestMw::request_map_handler));
+
+        let res = app
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(res.into_body(), 4096).await.unwrap();
+        let id_str = std::str::from_utf8(&bytes).unwrap();
+        assert!(Uuid::parse_str(id_str).is_ok(), "expected a uuid, got: {id_str}");
+    }
+}

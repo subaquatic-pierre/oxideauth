@@ -51,3 +51,18 @@ pub async fn init_test() -> AppState<PgDbx, RedisChx> {
     ensure_seeded().await;
     new_app_data(AppEnv::Test).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `init_tracing_for_tests` is the only DB-free helper in this module;
+    /// `init_test()`/`ensure_seeded()` require a live Postgres/Redis, so they
+    /// are intentionally not unit-tested here.
+    #[test]
+    fn test_init_tracing_for_tests_is_idempotent() {
+        // Must not panic even when invoked multiple times.
+        init_tracing_for_tests();
+        init_tracing_for_tests();
+    }
+}

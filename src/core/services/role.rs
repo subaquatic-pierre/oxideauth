@@ -355,3 +355,350 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for RoleServi
         Ok(to_delete)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::{
+        cache::{manager::CacheManager, mock::MockChx},
+        config::Config,
+        core::services::registry::ServiceRegistry,
+        store::{
+            dbx::MockDbx,
+            entities::{
+                audit::AuditFields,
+                id::DbId,
+                membership::MembershipWithRoles,
+                role::{RoleMeta, RoleWithPermissions},
+                workspace::WorkspaceRow,
+            },
+        },
+    };
+    use serial_test::serial;
+    use uuid::Uuid;
+
+    /// Builds a `RoleRow` for the in-memory mock.
+    fn role_row(id: Uuid, ws_id: Uuid, name: &str) -> RoleRow {
+        RoleRow {
+            id: id.into(),
+            workspace_id: ws_id,
+            name: name.to_string(),
+            description: None,
+            tags: vec![],
+            meta: RoleMeta::default(),
+            audit: AuditFields::default(),
+        }
+    }
+
+    /// Builds a `RoleWithPermissions` (many-to-many joined row) for the mock.
+    fn role_with_perms(id: Uuid, ws_id: Uuid, name: &str) -> RoleWithPermissions {
+        RoleWithPermissions {
+            id: id.into(),
+            role: role_row(id, ws_id, name),
+            permissions: vec![],
+        }
+    }
+
+    /// Builds a `RoleService` backed by an in-memory `MockDbx` + `MockChx`.
+    fn mock_svc(dbx: MockDbx) -> Arc<RoleService<MockDbx, MockChx>> {
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
+        svc_reg.role.clone()
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_role_describe() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let role_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // get_many_to_many -> count_many guard
+            .with_one::<(i64,)>( (0,) )
+            // get_many_to_many -> fetch_optional joined row
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(
+                role_id, ws_id, "admin",
+            )));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["role:describe"])?;
+
+        let role = svc
+            .describe(
+                &mut ctx,
+                RoleDescribeParams {
+                    id: role_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        assert_eq!(role.id, role_id);
+        assert_eq!(role.workspace_id, ws_id);
+        assert_eq!(role.name, "admin");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_role_create() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let role_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // create -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // create -> store.create
+            .with_one::<RoleRow>(role_row(role_id, ws_id, "dev"))
+            // create -> set_many_to_many_links (delete existing join rows)
+            .with_execute(Ok(0))
+            // describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // describe -> get_many_to_many -> count_many guard
+            .with_one::<(i64,)>( (0,) )
+            // describe -> get_many_to_many -> joined row
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(
+                role_id, ws_id, "dev",
+            )));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["role:create", "role:describe"])?;
+
+        let params = RoleCreateParams {
+            workspace_id: ws_id,
+            name: "dev".to_string(),
+            description: None,
+            permission_ids: vec![],
+            tags: vec![],
+            meta: RoleMeta::default(),
+        };
+
+        let role = svc.create(&mut ctx, params).await?;
+
+        assert_eq!(role.id, role_id);
+        assert_eq!(role.name, "dev");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_role_create_workspace_viewer_role() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let role_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            .with_one::<RoleRow>(role_row(role_id, ws_id, SYSTEM_CONST.workspace_viewer_role))
+            .with_execute(Ok(0))
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            .with_one::<(i64,)>( (0,) )
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(
+                role_id,
+                ws_id,
+                SYSTEM_CONST.workspace_viewer_role,
+            )));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["role:create", "role:describe"])?;
+
+        let role = svc
+            .create_workspace_viewer_role(&mut ctx, ws_id, vec![])
+            .await?;
+
+        assert_eq!(role.id, role_id);
+        assert_eq!(role.name, SYSTEM_CONST.workspace_viewer_role);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_role_list() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let role_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // list_many_to_many -> count guard
+            .with_one::<(i64,)>( (1,) )
+            // list_many_to_many -> joined rows
+            .with_all::<RoleWithPermissions>(vec![role_with_perms(role_id, ws_id, "dev")])
+            // count_with_tags_and_filter
+            .with_one::<(i64,)>( (1,) );
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["role:list"])?;
+
+        let res = svc
+            .list(
+                &mut ctx,
+                RoleListParams {
+                    workspace_id: ws_id,
+                    filter: None,
+                    options: None,
+                },
+            )
+            .await?;
+
+        assert_eq!(res.data.len(), 1);
+        assert_eq!(res.data[0].id, role_id);
+        assert_eq!(res.data[0].name, "dev");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_role_update() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let role_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // update -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // update -> store.update
+            .with_optional::<RoleRow>(Some(role_row(role_id, ws_id, "renamed")))
+            // invalidate_memberships_for_role -> list_many_to_many count guard
+            .with_one::<(i64,)>( (0,) )
+            // invalidate_memberships_for_role -> list_many_to_many rows (none)
+            .with_all::<MembershipWithRoles>(vec![])
+            // describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // describe -> get_many_to_many count_many guard
+            .with_one::<(i64,)>( (0,) )
+            // describe -> get_many_to_many joined row
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(
+                role_id, ws_id, "renamed",
+            )));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["role:update", "role:describe"])?;
+
+        let params = RoleUpdateParams {
+            id: role_id,
+            workspace_id: ws_id,
+            name: Some("renamed".to_string()),
+            description: None,
+            permission_ids: None,
+            tags: None,
+            meta: None,
+        };
+
+        let updated = svc.update(&mut ctx, params).await?;
+
+        assert_eq!(updated.id, role_id);
+        assert_eq!(updated.name, "renamed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_role_delete() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let role_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // delete -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // delete -> describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // delete -> describe -> get_many_to_many count_many guard
+            .with_one::<(i64,)>( (0,) )
+            // delete -> describe -> get_many_to_many joined row
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")))
+            // delete -> store.delete
+            .with_optional::<RoleRow>(Some(role_row(role_id, ws_id, "dev")))
+            // invalidate_memberships_for_role -> list_many_to_many count guard
+            .with_one::<(i64,)>( (0,) )
+            // invalidate_memberships_for_role -> list_many_to_many rows (none)
+            .with_all::<MembershipWithRoles>(vec![]);
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["role:delete", "role:describe"])?;
+
+        let deleted = svc
+            .delete(
+                &mut ctx,
+                RoleDeleteParams {
+                    id: role_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        assert_eq!(deleted.id, role_id);
+        assert_eq!(deleted.name, "dev");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_role_get_by_name() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let role_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // get_by_name -> list
+            .with_all::<RoleRow>(vec![role_row(role_id, ws_id, "dev")])
+            // get_many_to_many count_many guard
+            .with_one::<(i64,)>( (0,) )
+            // get_many_to_many joined row
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["role:describe"])?;
+
+        let role = svc.get_by_name(&mut ctx, "dev").await?;
+
+        assert_eq!(role.id, role_id);
+        assert_eq!(role.name, "dev");
+
+        Ok(())
+    }
+}

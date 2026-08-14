@@ -50,3 +50,32 @@ impl Default for AuditFields {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_audit_fields_default() {
+        // -- Execute
+        let audit = AuditFields::default();
+
+        // -- Assert
+        assert_eq!(audit.created_at, OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(audit.created_by, DbId::default());
+        assert_eq!(audit.created_by.0, Uuid::nil());
+        assert!(audit.updated_by.is_none());
+        assert!(audit.updated_at.is_none());
+        assert_eq!(audit.meta.schema_version, AuditMeta::default().schema_version);
+    }
+
+    #[test]
+    fn test_audit_meta_default() {
+        // -- Execute
+        let meta = AuditMeta::default();
+
+        // -- Assert
+        assert_eq!(meta.schema_version, "");
+    }
+}

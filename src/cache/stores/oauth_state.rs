@@ -55,3 +55,64 @@ impl<C: CacheExecutor> OAuthStateCacheStore<C> {
         Ok(entity)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::{
+        entities::oauth_state::OAuthProvider,
+        mock::MockChx,
+    };
+
+    #[tokio::test]
+    async fn test_write_is_noop_ok() {
+        let store = OAuthStateCacheStore::new(Arc::new(MockChx::new()));
+
+        let entity = OAuthStateCache {
+            csrf_token: "csrf-noop".into(),
+            ..Default::default()
+        };
+        // `write` is currently a no-op: it must still return Ok(()).
+        store.write(&entity, 60).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_fetch_and_consume_returns_then_removes() {
+        let chx = Arc::new(MockChx::new());
+        let store = OAuthStateCacheStore::new(chx.clone());
+
+        let token = "csrf-consume-123";
+        let entity = OAuthStateCache {
+            csrf_token: token.into(),
+            redirect_url: "https://example.com/callback".into(),
+            created_at: 42,
+            provider: OAuthProvider::Google,
+        };
+
+        // `write` is a no-op, so seed the store directly through the mock.
+        chx.json_set(&format!("oxauth:oauth:{}", token), None, &entity, None)
+            .await
+            .unwrap();
+
+        // First call returns the stored entity.
+        let consumed = store.fetch_and_consume(token).await.unwrap();
+        assert_eq!(consumed.csrf_token, token);
+        assert_eq!(consumed.redirect_url, "https://example.com/callback");
+        assert_eq!(consumed.created_at, 42);
+        assert_eq!(consumed.provider, OAuthProvider::Google);
+
+        // Second call must fail because the state was removed.
+        let second = store.fetch_and_consume(token).await;
+        assert!(
+            matches!(second, Err(CacheError::NotFound(_))),
+            "consume must remove the state so a second consume fails"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_and_consume_missing_state_errors() {
+        let store = OAuthStateCacheStore::new(Arc::new(MockChx::new()));
+        let res = store.fetch_and_consume("never-seeded").await;
+        assert!(matches!(res, Err(CacheError::NotFound(_))));
+    }
+}

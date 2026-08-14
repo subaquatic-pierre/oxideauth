@@ -205,3 +205,118 @@ impl From<QueryRejection> for WebError {
 }
 
 impl std::error::Error for WebError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::error::CoreError;
+    use crate::store::error::StoreError;
+    use axum::http::StatusCode;
+
+    #[test]
+    fn test_web_error_display_is_non_empty() {
+        for err in [
+            WebError::NotFound,
+            WebError::InternalServerError,
+            WebError::ValidationError("bad input".to_string()),
+            WebError::Unauthorized,
+            WebError::ReqStampNotInReqExt,
+        ] {
+            assert!(!format!("{err}").is_empty());
+        }
+    }
+
+    #[test]
+    fn test_web_error_display_validation_includes_message() {
+        let err = WebError::ValidationError("boom".to_string());
+        assert!(format!("{err}").contains("boom"));
+    }
+
+    #[test]
+    fn test_from_core_error_maps_to_validation_error() {
+        let err: WebError = CoreError::InvalidParams("bad input".to_string()).into();
+        assert!(matches!(err, WebError::ValidationError(msg) if msg == "bad input"));
+
+        let err: WebError = CoreError::ParseError("parse fail".to_string()).into();
+        assert!(matches!(err, WebError::ValidationError(msg) if msg == "parse fail"));
+
+        let err: WebError = CoreError::AlreadyExists("dup".to_string()).into();
+        assert!(matches!(err, WebError::ValidationError(msg) if msg == "dup"));
+    }
+
+    #[test]
+    fn test_from_core_error_maps_entity_not_found_to_not_found() {
+        let store_err = StoreError::EntityNotFound {
+            entity: "account".to_string(),
+            id: "42".to_string(),
+        };
+        let err: WebError = CoreError::StoreError(store_err).into();
+        assert!(matches!(err, WebError::NotFound));
+    }
+
+    #[test]
+    fn test_from_core_error_maps_list_limit_to_validation() {
+        let store_err = StoreError::ListLimitExceeded { max: 10, actual: 20 };
+        let err: WebError = CoreError::StoreError(store_err).into();
+        assert!(matches!(
+            err,
+            WebError::ValidationError(msg) if msg.contains("Query limit exceeded")
+        ));
+    }
+
+    #[test]
+    fn test_from_core_error_maps_auth_to_unauthorized() {
+        let err: WebError = CoreError::Auth("bad creds".to_string()).into();
+        assert!(matches!(err, WebError::Unauthorized));
+    }
+
+    #[test]
+    fn test_from_core_error_falls_back_to_internal() {
+        let err: WebError = CoreError::NotFound("gone".to_string()).into();
+        assert!(matches!(err, WebError::InternalServerError));
+    }
+
+    #[tokio::test]
+    async fn test_into_response_not_found() {
+        let resp = WebError::NotFound.into_response();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["success"], false);
+        assert_eq!(json["status"], 404);
+        assert!(json["message"].as_str().unwrap().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_into_response_validation_error_is_bad_request() {
+        let resp = WebError::ValidationError("bad body".to_string()).into_response();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["success"], false);
+        assert_eq!(json["status"], 400);
+        assert!(json["message"].as_str().unwrap().contains("bad body"));
+    }
+
+    #[tokio::test]
+    async fn test_into_response_unauthorized() {
+        let resp = WebError::Unauthorized.into_response();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["status"], 401);
+    }
+
+    #[test]
+    fn test_error_body_serialization() {
+        let body = ErrorBody {
+            success: false,
+            status: 500,
+            message: "boom".to_string(),
+        };
+        let v = serde_json::to_value(&body).unwrap();
+        assert_eq!(v["success"], false);
+        assert_eq!(v["status"], 500);
+        assert_eq!(v["message"], "boom");
+    }
+}

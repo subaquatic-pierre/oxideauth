@@ -168,3 +168,105 @@ impl IntoParams<MembershipDeleteParams> for MembershipDeleteReq {
 pub struct MembershipDeleteRes {
     pub id: Uuid,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_membership_describe_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = MembershipDescribeReq { id }.into_params(ws_id).unwrap();
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
+    }
+
+    #[test]
+    fn test_membership_create_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let project_id = Uuid::new_v4();
+        let role_id = Uuid::new_v4();
+        let params = MembershipCreateReq {
+            account_id,
+            scope: MembershipScope::Project,
+            status: MembershipStatus::Active,
+            project_id: Some(project_id),
+            role_ids: vec![role_id],
+            tags: vec!["t".to_string()],
+            meta: MembershipMeta::default(),
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.account_id, account_id);
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.scope.to_string(), "project");
+        assert_eq!(params.status.to_string(), "active");
+        assert_eq!(params.project_id, Some(project_id));
+        assert_eq!(params.role_ids, vec![role_id]);
+        assert_eq!(params.tags, vec!["t".to_string()]);
+        assert_eq!(params.meta.schema_version, MembershipMeta::default().schema_version);
+    }
+
+    #[test]
+    fn test_membership_update_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = MembershipUpdateReq {
+            id,
+            status: Some(MembershipStatus::Suspended),
+            scope: Some(MembershipScope::Workspace),
+            project_id: None,
+            role_ids: None,
+            tags: Some(vec!["a".to_string()]),
+            meta: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.status, Some(MembershipStatus::Suspended));
+        assert_eq!(params.scope, Some(MembershipScope::Workspace));
+        assert!(params.project_id.is_none());
+        assert!(params.role_ids.is_none());
+        assert_eq!(params.tags, Some(vec!["a".to_string()]));
+        assert!(params.meta.is_none());
+    }
+
+    #[test]
+    fn test_membership_list_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let params = MembershipListReq {
+            filter: None,
+            options: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.workspace_id, ws_id);
+        assert!(params.filter.is_none());
+        assert!(params.options.is_none());
+    }
+
+    #[test]
+    fn test_membership_delete_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = MembershipDeleteReq { id }.into_params(ws_id).unwrap();
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
+    }
+
+    #[test]
+    fn test_membership_describe_res_from_membership_default() {
+        let m = Membership::default();
+        let res = MembershipDescribeRes::from(m.clone());
+        assert_eq!(res.id, m.id);
+        assert_eq!(res.scope.to_string(), "workspace");
+        assert_eq!(res.status.to_string(), "active");
+        assert_eq!(res.workspace_id, Uuid::nil());
+        assert!(res.roles.is_empty());
+    }
+}

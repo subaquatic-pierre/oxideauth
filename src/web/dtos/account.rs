@@ -188,3 +188,146 @@ impl IntoParams<AccountDeleteParams> for AccountDeleteReq {
 pub struct AccountDeleteRes {
     pub id: Uuid,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_account_describe_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = AccountDescribeReq {
+            email: Some("ada@example.com".to_string()),
+            id: Some(id),
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.id, Some(id));
+        assert_eq!(params.email.as_deref(), Some("ada@example.com"));
+    }
+
+    #[test]
+    fn test_account_describe_req_into_params_all_none() {
+        let params = AccountDescribeReq { email: None, id: None }
+            .into_params(Uuid::new_v4())
+            .unwrap();
+        assert!(params.id.is_none());
+        assert!(params.email.is_none());
+    }
+
+    #[test]
+    fn test_account_create_req_into_params_defaults() {
+        let params = AccountCreateReq {
+            email: "ada@example.com".to_string(),
+            password: "s3cret".to_string(),
+            kind: None,
+            enabled: None,
+            verified: None,
+            name: "Ada".to_string(),
+            description: None,
+            avatar_url: None,
+            tags: None,
+            meta: None,
+        }
+        .into_params(Uuid::new_v4())
+        .unwrap();
+
+        assert_eq!(params.email, "ada@example.com");
+        assert_eq!(params.password, "s3cret");
+        assert_eq!(params.kind.to_string(), "user");
+        assert!(!params.enabled);
+        assert!(!params.verified);
+        assert_eq!(params.name, "Ada");
+        assert!(params.description.is_none());
+        assert!(params.tags.is_none());
+        assert!(params.meta.is_none());
+    }
+
+    #[test]
+    fn test_account_create_req_into_params_with_values() {
+        let params = AccountCreateReq {
+            email: "svc@example.com".to_string(),
+            password: "pw".to_string(),
+            kind: Some(AccountKind::Service),
+            enabled: Some(true),
+            verified: Some(true),
+            name: "Svc".to_string(),
+            description: Some("d".to_string()),
+            avatar_url: Some("http://x".to_string()),
+            tags: Some(vec!["t1".to_string()]),
+            meta: Some(AccountMeta {
+                schema_version: "2".to_string(),
+            }),
+        }
+        .into_params(Uuid::new_v4())
+        .unwrap();
+
+        assert_eq!(params.kind.to_string(), "service");
+        assert!(params.enabled);
+        assert!(params.verified);
+        assert_eq!(params.description.as_deref(), Some("d"));
+        assert_eq!(params.avatar_url.as_deref(), Some("http://x"));
+        assert_eq!(params.tags, Some(vec!["t1".to_string()]));
+        assert_eq!(params.meta.unwrap().schema_version, "2");
+    }
+
+    #[test]
+    fn test_account_update_req_into_params() {
+        let id = Uuid::new_v4();
+        let params = AccountUpdateReq {
+            email: Some("new@example.com".to_string()),
+            id: Some(id),
+            name: Some("Renamed".to_string()),
+            description: None,
+            avatar_url: None,
+            enabled: Some(false),
+            verified: None,
+            tags: Some(vec![]),
+            meta: None,
+        }
+        .into_params(Uuid::new_v4())
+        .unwrap();
+
+        assert_eq!(params.email.as_deref(), Some("new@example.com"));
+        assert_eq!(params.id, Some(id));
+        assert_eq!(params.name.as_deref(), Some("Renamed"));
+        assert_eq!(params.enabled, Some(false));
+        assert_eq!(params.verified, None);
+        assert_eq!(params.tags, Some(vec![]));
+    }
+
+    #[test]
+    fn test_account_list_req_into_params() {
+        let params = AccountListReq {
+            filter: None,
+            options: None,
+        }
+        .into_params(Uuid::new_v4())
+        .unwrap();
+        assert!(params.filter.is_none());
+        assert!(params.options.is_none());
+    }
+
+    #[test]
+    fn test_account_delete_req_into_params() {
+        let id = Uuid::new_v4();
+        let params = AccountDeleteReq {
+            email: None,
+            id: Some(id),
+        }
+        .into_params(Uuid::new_v4())
+        .unwrap();
+        assert_eq!(params.id, Some(id));
+        assert!(params.email.is_none());
+    }
+
+    #[test]
+    fn test_account_describe_res_from_account_default() {
+        let res = AccountDescribeRes::from(Account::default());
+        assert_eq!(res.id, Uuid::default());
+        assert_eq!(res.name, String::default());
+        assert!(res.tags.is_empty());
+    }
+}

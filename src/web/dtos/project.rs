@@ -205,3 +205,126 @@ pub struct ProjectListRes {
     pub projects: Vec<ProjectDescribeRes>,
     pub metadata: ListResponseMeta,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_project_describe_req_into_params_by_id() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = ProjectDescribeReq {
+            id: Some(id),
+            code: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.id, Some(id));
+        assert_eq!(params.code, None);
+        assert_eq!(params.workspace_id, ws_id);
+    }
+
+    #[test]
+    fn test_project_describe_req_into_params_by_code() {
+        let ws_id = Uuid::new_v4();
+        let params = ProjectDescribeReq {
+            id: None,
+            code: Some("p-1".to_string()),
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.id, None);
+        assert_eq!(params.code.as_deref(), Some("p-1"));
+        assert_eq!(params.workspace_id, ws_id);
+    }
+
+    #[test]
+    fn test_project_create_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let owner = Uuid::new_v4();
+        let params = ProjectCreateReq {
+            name: "payments".to_string(),
+            owner: Some(owner),
+            code: Some("pay".to_string()),
+            description: Some("Payments service".to_string()),
+            config: ProjectConfig::default(),
+            tags: vec!["svc".to_string()],
+            meta: ProjectMeta::default(),
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.name, "payments");
+        assert_eq!(params.owner, Some(owner));
+        assert_eq!(params.code.as_deref(), Some("pay"));
+        assert_eq!(params.description.as_deref(), Some("Payments service"));
+        assert_eq!(params.tags, vec!["svc".to_string()]);
+        assert_eq!(params.meta.schema_version, ProjectMeta::default().schema_version);
+    }
+
+    #[test]
+    fn test_project_update_req_into_params_maps_new_code() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = ProjectUpdateReq {
+            id: Some(id),
+            code: Some("pay".to_string()),
+            name: Some("renamed".to_string()),
+            new_code: Some("pay-v2".to_string()),
+            description: None,
+            config: None,
+            tags: None,
+            meta: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.id, Some(id));
+        assert_eq!(params.code.as_deref(), Some("pay"));
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.name.as_deref(), Some("renamed"));
+        assert_eq!(params.new_code.as_deref(), Some("pay-v2"));
+        assert!(params.config.is_none());
+        assert!(params.meta.is_none());
+    }
+
+    #[test]
+    fn test_project_delete_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let params = ProjectDeleteReq {
+            id: None,
+            code: Some("pay".to_string()),
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert!(params.id.is_none());
+        assert_eq!(params.code.as_deref(), Some("pay"));
+        assert_eq!(params.workspace_id, ws_id);
+    }
+
+    #[test]
+    fn test_project_list_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let params = ProjectListReq {
+            filter: None,
+            options: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.workspace_id, ws_id);
+        assert!(params.filter.is_none());
+        assert!(params.options.is_none());
+    }
+
+    #[test]
+    fn test_project_describe_res_from_project_default() {
+        let proj = Project::default();
+        let res = ProjectDescribeRes::from(proj);
+        assert_eq!(res.id, Uuid::default());
+        assert_eq!(res.name, String::default());
+        assert!(res.code.is_none());
+        assert_eq!(res.meta.schema_version, ProjectMeta::default().schema_version);
+    }
+}

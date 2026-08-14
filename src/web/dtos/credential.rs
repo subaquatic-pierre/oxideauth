@@ -60,7 +60,7 @@ impl From<Credential> for CredentialDescribeRes {
     fn from(c: Credential) -> Self {
         Self {
             id: c.id,
-            account_id: c.account.id,
+            account_id: c.account_id,
             kind: c.kind,
             provider: c.provider,
             status: c.status,
@@ -168,4 +168,130 @@ impl IntoParams<CredentialDeleteParams> for CredentialDeleteReq {
 #[derive(Serialize)]
 pub struct CredentialDeleteRes {
     pub id: Uuid,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_credential_describe_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let params = CredentialDescribeReq {
+            id,
+            account_id,
+            provider_id: Some("google-1".to_string()),
+            email: Some("ada@example.com".to_string()),
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.id, id);
+        assert_eq!(params.account_id, account_id);
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.provider_id.as_deref(), Some("google-1"));
+        assert_eq!(params.email.as_deref(), Some("ada@example.com"));
+    }
+
+    #[test]
+    fn test_credential_describe_req_into_params_none_fields() {
+        let ws_id = Uuid::new_v4();
+        let params = CredentialDescribeReq {
+            id: Uuid::new_v4(),
+            account_id: Uuid::new_v4(),
+            provider_id: None,
+            email: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert!(params.provider_id.is_none());
+        assert!(params.email.is_none());
+    }
+
+    #[test]
+    fn test_credential_update_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let params = CredentialUpdateReq {
+            id,
+            provider_id: Some("old-provider".to_string()),
+            email: Some("old@example.com".to_string()),
+            account_id,
+            kind: Some(CredentialKind::OAuth),
+            provider: Some(CredentialProvider::Google),
+            status: Some(CredentialStatus::Active),
+            new_provider_id: Some("new-provider".to_string()),
+            new_email: Some("new@example.com".to_string()),
+            secret: Some("rotated".to_string()),
+            config: Some(CredentialConfig::default()),
+            last_used_at: None,
+            tags: Some(vec!["t".to_string()]),
+            meta: Some(CredentialMeta::default()),
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.id, id);
+        assert_eq!(params.account_id, account_id);
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(
+            params.kind.as_ref().map(|k| k.to_string()),
+            Some("oauth".to_string())
+        );
+        assert_eq!(params.provider, Some(CredentialProvider::Google));
+        assert_eq!(params.status, Some(CredentialStatus::Active));
+        assert_eq!(params.new_provider_id.as_deref(), Some("new-provider"));
+        assert_eq!(params.new_email.as_deref(), Some("new@example.com"));
+        assert_eq!(params.secret.as_deref(), Some("rotated"));
+        assert_eq!(params.tags, Some(vec!["t".to_string()]));
+        assert_eq!(
+            params.meta.unwrap().schema_version,
+            CredentialMeta::default().schema_version
+        );
+    }
+
+    #[test]
+    fn test_credential_list_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let params = CredentialListReq {
+            filter: None,
+            options: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.workspace_id, ws_id);
+        assert!(params.filter.is_none());
+        assert!(params.options.is_none());
+    }
+
+    #[test]
+    fn test_credential_delete_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let params = CredentialDeleteReq {
+            id,
+            account_id,
+            provider_id: None,
+            email: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.id, id);
+        assert_eq!(params.account_id, account_id);
+        assert_eq!(params.workspace_id, ws_id);
+    }
+
+    #[test]
+    fn test_credential_describe_res_from_credential_default() {
+        let res = CredentialDescribeRes::from(Credential::default());
+        assert_eq!(res.id, Uuid::default());
+        assert_eq!(res.kind.to_string(), "password");
+        assert_eq!(res.provider, CredentialProvider::Local);
+        assert_eq!(res.status, CredentialStatus::Pending);
+        assert_eq!(res.account_id, Uuid::default());
+    }
 }

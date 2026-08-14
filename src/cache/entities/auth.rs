@@ -199,3 +199,124 @@ impl CacheEntity for AuthCache {
         CacheKey::new(prefix, name, mem_id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::models::token::TokenType;
+
+    #[test]
+    fn test_auth_scope_system() {
+        let scope = AuthScopeCache::system();
+        assert_eq!(scope.permissions, vec!["*:*".to_string()]);
+        assert_eq!(scope.workspace_slug, "system");
+        assert_eq!(scope.workspace_id, Uuid::nil());
+        assert!(scope.project_id.is_none());
+        assert!(scope.roles.is_empty());
+    }
+
+    #[test]
+    fn test_auth_scope_default() {
+        let scope = AuthScopeCache::default();
+        assert_eq!(scope.workspace_slug, "default");
+        assert_eq!(scope.workspace_id, Uuid::nil());
+        assert!(scope.permissions.is_empty());
+        assert!(scope.roles.is_empty());
+        assert!(scope.project_id.is_none());
+    }
+
+    #[test]
+    fn test_auth_cache_new_keyed() {
+        let mem = Uuid::new_v4();
+        let acc = Uuid::new_v4();
+        let sid = Some(Uuid::new_v4());
+        let cache = AuthCache::new_keyed(mem, acc, sid);
+
+        assert_eq!(cache.mem_id, mem);
+        assert_eq!(cache.acc_id, acc);
+        assert_eq!(cache.sid, sid);
+        assert_eq!(cache.mem_version, 0);
+        assert_eq!(cache.acc_version, 0);
+        assert!(!cache.mem_active, "keyed template starts inactive");
+        assert!(!cache.acc_enabled, "keyed template starts disabled");
+    }
+
+    #[test]
+    fn test_auth_cache_bootstrap() {
+        let cache = AuthCache::bootstrap();
+        assert!(cache.mem_active, "bootstrap membership is active");
+        assert!(cache.acc_enabled, "bootstrap account is enabled");
+        assert_eq!(cache.mem_id, Uuid::nil());
+        assert_eq!(cache.acc_id, Uuid::nil());
+        assert_eq!(cache.sid, None);
+        assert_eq!(cache.auth_scope.permissions, vec!["*:*".to_string()]);
+        assert_eq!(cache.auth_scope.workspace_slug, "system");
+    }
+
+    #[test]
+    fn test_auth_cache_from_claims_maps_fields() {
+        let mem = Uuid::new_v4();
+        let acc = Uuid::new_v4();
+        let ws = Uuid::new_v4();
+        let sid = Uuid::new_v4();
+
+        let claims = TokenClaims {
+            sub: acc,
+            ws,
+            mem,
+            iss: "iss".into(),
+            aud: "aud".into(),
+            exp: 0,
+            iat: 0,
+            ty: TokenType::Auth,
+            mem_ver: 7,
+            acc_ver: 8,
+            sid: Some(sid),
+            jti: None,
+        };
+
+        let cache = AuthCache::from_claims(&claims);
+        assert_eq!(cache.mem_id, mem);
+        assert_eq!(cache.acc_id, acc);
+        assert_eq!(cache.sid, Some(sid));
+        assert_eq!(cache.mem_version, 7);
+        assert_eq!(cache.acc_version, 8);
+        assert!(cache.mem_active, "claims-derived membership is active");
+        assert!(cache.acc_enabled, "claims-derived account is enabled");
+        assert_eq!(cache.auth_scope.workspace_id, ws);
+        assert_eq!(cache.auth_scope.workspace_slug, "");
+    }
+
+    #[test]
+    fn test_auth_cache_from_claims_without_sid() {
+        let mem = Uuid::new_v4();
+        let claims = TokenClaims {
+            sub: Uuid::new_v4(),
+            ws: Uuid::new_v4(),
+            mem,
+            iss: String::new(),
+            aud: String::new(),
+            exp: 0,
+            iat: 0,
+            ty: TokenType::Auth,
+            mem_ver: 0,
+            acc_ver: 0,
+            sid: None,
+            jti: Some(Uuid::new_v4()),
+        };
+
+        let cache = AuthCache::from_claims(&claims);
+        assert_eq!(cache.mem_id, mem);
+        assert_eq!(cache.sid, None);
+    }
+
+    #[test]
+    fn test_auth_cache_key_format() {
+        let mem = Uuid::new_v4();
+        let cache = AuthCache::new_keyed(mem, Uuid::new_v4(), None);
+
+        assert_eq!(cache.key().as_ref(), format!("oxauth:mem_id:{}", mem));
+        assert_eq!(AuthCache::new_key(mem).as_ref(), format!("oxauth:mem_id:{}", mem));
+        assert_eq!(AuthCache::_key(), ("oxauth", "mem_id"));
+    }
+}

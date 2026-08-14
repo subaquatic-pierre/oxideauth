@@ -145,3 +145,112 @@ impl IntoParams<PermissionDeleteParams> for PermissionDeleteReq {
 pub struct PermissionDeleteRes {
     pub id: Uuid,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::error::CoreError;
+    use crate::core::traits::params::ValidateParams;
+
+    #[test]
+    fn test_permission_describe_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = PermissionDescribeReq { id: Some(id) }
+            .into_params(ws_id)
+            .unwrap();
+        assert_eq!(params.id, Some(id));
+        assert_eq!(params.workspace_id, ws_id);
+    }
+
+    #[test]
+    fn test_permission_describe_req_into_params_none_id() {
+        let params = PermissionDescribeReq { id: None }
+            .into_params(Uuid::new_v4())
+            .unwrap();
+        assert!(params.id.is_none());
+    }
+
+    #[test]
+    fn test_permission_describe_params_validate_rejects_missing_id() {
+        let params = PermissionDescribeParams {
+            id: None,
+            workspace_id: Uuid::new_v4(),
+        };
+        let err = params.validate().unwrap_err();
+        assert!(matches!(err, CoreError::InvalidParams(msg) if msg == "Permission describe must contain id"));
+    }
+
+    #[test]
+    fn test_permission_describe_params_validate_accepts_id() {
+        let params = PermissionDescribeParams {
+            id: Some(Uuid::new_v4()),
+            workspace_id: Uuid::new_v4(),
+        };
+        let validated = params.validate().unwrap();
+        assert!(validated.id.is_some());
+    }
+
+    #[test]
+    fn test_permission_create_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let params = PermissionCreateReq {
+            name: "projects:read".to_string(),
+            description: Some("Read projects".to_string()),
+            tags: vec!["system".to_string()],
+            meta: PermissionMeta::default(),
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.name, "projects:read");
+        assert_eq!(params.description.as_deref(), Some("Read projects"));
+        assert_eq!(params.tags, vec!["system".to_string()]);
+        assert_eq!(params.meta.schema_version, PermissionMeta::default().schema_version);
+    }
+
+    #[test]
+    fn test_permission_update_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = PermissionUpdateReq {
+            id,
+            name: Some("new-name".to_string()),
+            description: None,
+            tags: None,
+            meta: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.name.as_deref(), Some("new-name"));
+        assert!(params.description.is_none());
+        assert!(params.meta.is_none());
+    }
+
+    #[test]
+    fn test_permission_list_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let params = PermissionListReq {
+            filter: None,
+            options: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.workspace_id, ws_id);
+        assert!(params.filter.is_none());
+        assert!(params.options.is_none());
+    }
+
+    #[test]
+    fn test_permission_delete_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = PermissionDeleteReq { id }.into_params(ws_id).unwrap();
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
+    }
+}

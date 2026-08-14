@@ -319,6 +319,321 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Permissio
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::{
+        cache::{manager::CacheManager, mock::MockChx},
+        config::Config,
+        core::services::registry::ServiceRegistry,
+        store::{
+            dbx::MockDbx,
+            entities::{
+                audit::AuditFields,
+                id::DbId,
+                permission::PermissionMeta,
+                role::RoleRow,
+                workspace::WorkspaceRow,
+            },
+        },
+    };
+    use serial_test::serial;
+    use uuid::Uuid;
+
+    /// Builds a `PermissionRow` for the in-memory mock.
+    fn perm_row(id: Uuid, ws_id: Uuid, name: &str) -> PermissionRow {
+        PermissionRow {
+            id: id.into(),
+            workspace_id: ws_id,
+            name: name.to_string(),
+            description: None,
+            tags: vec![],
+            meta: PermissionMeta::default(),
+            audit: AuditFields::default(),
+        }
+    }
+
+    /// Builds a `PermissionService` backed by an in-memory `MockDbx` + `MockChx`.
+    fn mock_svc(dbx: MockDbx) -> Arc<PermissionService<MockDbx, MockChx>> {
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
+        svc_reg.permission.clone()
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_permission_create() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let perm_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // create -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // create -> store.create
+            .with_one::<PermissionRow>(perm_row(perm_id, ws_id, "project:read"))
+            // describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // describe -> store.get
+            .with_optional::<PermissionRow>(Some(perm_row(perm_id, ws_id, "project:read")));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["permission:create", "permission:describe"])?;
+
+        let params = PermissionCreateParams {
+            workspace_id: ws_id,
+            name: "project:read".to_string(),
+            description: None,
+            tags: vec![],
+            meta: PermissionMeta::default(),
+        };
+
+        let perm = svc.create(&mut ctx, params).await?;
+
+        assert_eq!(perm.id, perm_id);
+        assert_eq!(perm.workspace_id, ws_id);
+        assert_eq!(perm.name, "project:read");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_permission_create_many() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let perm_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // store.create_many
+            .with_all::<PermissionRow>(vec![perm_row(perm_id, ws_id, "project:read")]);
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["permission:create"])?;
+
+        let perms = vec![PermissionCreateParams {
+            workspace_id: ws_id,
+            name: "project:read".to_string(),
+            description: None,
+            tags: vec![],
+            meta: PermissionMeta::default(),
+        }];
+
+        let created = svc.create_many(&mut ctx, ws_id, perms).await?;
+
+        assert_eq!(created.len(), 1);
+        assert_eq!(created[0].id, perm_id);
+        assert_eq!(created[0].name, "project:read");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_permission_describe() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let perm_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // store.get
+            .with_optional::<PermissionRow>(Some(perm_row(perm_id, ws_id, "project:read")));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["permission:describe"])?;
+
+        let perm = svc
+            .describe(
+                &mut ctx,
+                PermissionDescribeParams {
+                    id: Some(perm_id),
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        assert_eq!(perm.id, perm_id);
+        assert_eq!(perm.name, "project:read");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_permission_describe_requires_id() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["permission:describe"])?;
+
+        let res = svc
+            .describe(
+                &mut ctx,
+                PermissionDescribeParams {
+                    id: None,
+                    workspace_id: ws_id,
+                },
+            )
+            .await;
+
+        assert!(
+            matches!(res, Err(CoreError::InvalidParams(_))),
+            "describe without an id must fail with InvalidParams"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_permission_list() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let perm_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // list_with_tags_and_filter
+            .with_all::<PermissionRow>(vec![perm_row(perm_id, ws_id, "project:read")])
+            // count_with_tags_and_filter
+            .with_one::<(i64,)>( (1,) );
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["permission:list"])?;
+
+        let res = svc
+            .list(
+                &mut ctx,
+                PermissionListParams {
+                    workspace_id: ws_id,
+                    filter: None,
+                    options: None,
+                },
+            )
+            .await?;
+
+        assert_eq!(res.data.len(), 1);
+        assert_eq!(res.data[0].id, perm_id);
+        assert_eq!(res.metadata.total, 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_permission_update() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let perm_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // update -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // update -> store.update
+            .with_optional::<PermissionRow>(Some(perm_row(perm_id, ws_id, "project:write")))
+            // invalidate_memberships_for_permission -> no roles grant it
+            .with_all::<RoleRow>(vec![])
+            // describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // describe -> store.get
+            .with_optional::<PermissionRow>(Some(perm_row(perm_id, ws_id, "project:write")));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["permission:update", "permission:describe"])?;
+
+        let params = PermissionUpdateParams {
+            id: perm_id,
+            workspace_id: ws_id,
+            name: Some("project:write".to_string()),
+            description: None,
+            tags: None,
+            meta: None,
+        };
+
+        let updated = svc.update(&mut ctx, params).await?;
+
+        assert_eq!(updated.id, perm_id);
+        assert_eq!(updated.name, "project:write");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_permission_delete() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let perm_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // delete -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // delete -> describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // delete -> describe -> store.get
+            .with_optional::<PermissionRow>(Some(perm_row(perm_id, ws_id, "project:read")))
+            // delete -> store.delete
+            .with_optional::<PermissionRow>(Some(perm_row(perm_id, ws_id, "project:read")))
+            // invalidate_memberships_for_permission -> no roles grant it
+            .with_all::<RoleRow>(vec![]);
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["permission:delete", "permission:describe"])?;
+
+        let deleted = svc
+            .delete(
+                &mut ctx,
+                PermissionDeleteParams {
+                    id: perm_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        assert_eq!(deleted.id, perm_id);
+        assert_eq!(deleted.name, "project:read");
+
+        Ok(())
+    }
+}
+
 // ============================================================================
 // Per-domain permission structs
 // ============================================================================

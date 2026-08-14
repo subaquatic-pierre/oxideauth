@@ -253,3 +253,94 @@ impl Default for AccountForUpdate {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_query::{Nullable, Value as SeaValue};
+    use serde_json::json;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_account_kind_default() {
+        // -- Execute
+        let kind = AccountKind::default();
+
+        // -- Assert
+        assert!(matches!(kind, AccountKind::User));
+    }
+
+    #[test]
+    fn test_account_kind_into_sea_value() {
+        // -- Execute
+        let user: SeaValue = AccountKind::User.into();
+        let service: SeaValue = AccountKind::Service.into();
+
+        // -- Assert
+        assert_eq!(user, SeaValue::String(Some("user".to_string())));
+        assert_eq!(service, SeaValue::String(Some("service".to_string())));
+    }
+
+    #[test]
+    fn test_account_kind_nullable_null() {
+        // -- Execute
+        let null = <AccountKind as Nullable>::null();
+
+        // -- Assert
+        assert_eq!(null, SeaValue::Json(None));
+    }
+
+    #[test]
+    fn test_account_filter_try_from_json() {
+        // -- Setup
+        let email_filter: AccountFilter = json!({"email": {"$contains": "x"}}).try_into().unwrap();
+        let verified_filter: AccountFilter = json!({"verified": true}).try_into().unwrap();
+
+        // -- Assert
+        assert!(
+            email_filter.email.is_some(),
+            "email filter should parse into an OpValsString"
+        );
+        assert!(
+            verified_filter.verified.is_some(),
+            "verified filter should parse into an OpValsValue"
+        );
+    }
+
+    #[test]
+    fn test_account_filter_try_from_json_invalid() {
+        // -- Execute
+        let res: Result<AccountFilter, _> = json!({"email": 123}).try_into();
+
+        // -- Assert
+        assert!(res.is_err(), "non-string email should fail to deserialize");
+    }
+
+    #[test]
+    fn test_account_row_default() {
+        // -- Execute
+        let row = AccountRow::default();
+
+        // -- Assert
+        assert_eq!(row.id.0, Uuid::nil());
+        assert_eq!(row.email, "");
+        assert_eq!(row.name, "");
+        assert!(row.description.is_none());
+        assert!(row.avatar_url.is_none());
+        assert!(matches!(row.kind, AccountKind::User));
+        assert!(!row.enabled);
+        assert!(!row.verified);
+        assert_eq!(row.version, 0);
+        assert!(row.tags.is_empty());
+        assert_eq!(row.meta.schema_version, "");
+    }
+
+    #[test]
+    fn test_account_meta_default() {
+        // -- Execute
+        let meta = AccountMeta::default();
+
+        // -- Assert
+        assert_eq!(meta.schema_version, "");
+    }
+}

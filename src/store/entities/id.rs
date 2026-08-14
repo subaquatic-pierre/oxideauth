@@ -51,3 +51,91 @@ impl From<&DbId> for Uuid {
         value.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_query::Value as SeaValue;
+
+    #[test]
+    fn test_db_id_deref_to_uuid() {
+        // -- Setup
+        let uuid = Uuid::new_v4();
+        let id = DbId(uuid);
+
+        // -- Execute & Assert
+        assert_eq!(*id, uuid, "Deref should expose the inner Uuid");
+        assert_eq!(id.to_string(), uuid.to_string());
+    }
+
+    #[test]
+    fn test_db_id_display() {
+        // -- Setup
+        let uuid = Uuid::new_v4();
+        let id = DbId(uuid);
+
+        // -- Assert
+        assert_eq!(format!("{id}"), uuid.to_string());
+    }
+
+    #[test]
+    fn test_db_id_from_uuid() {
+        // -- Setup
+        let uuid = Uuid::new_v4();
+
+        // -- Execute
+        let id = DbId::from(uuid);
+        let id_ref = DbId::from(&uuid);
+
+        // -- Assert
+        assert_eq!(id.0, uuid);
+        assert_eq!(id_ref.0, uuid);
+    }
+
+    #[test]
+    fn test_db_id_into_uuid() {
+        // -- Setup
+        let uuid = Uuid::new_v4();
+        let id = DbId(uuid);
+
+        // -- Execute
+        let owned: Uuid = id.into();
+        let borrowed: Uuid = (&id).into();
+
+        // -- Assert
+        assert_eq!(owned, uuid);
+        assert_eq!(borrowed, uuid);
+    }
+
+    #[test]
+    fn test_db_id_into_sea_value() {
+        // -- Setup
+        let uuid = Uuid::new_v4();
+        let id = DbId(uuid);
+
+        // -- Execute
+        let v: SeaValue = id.into();
+
+        // -- Assert
+        assert_eq!(v, SeaValue::Uuid(Some(uuid)));
+    }
+
+    #[test]
+    fn test_db_id_default_is_nil() {
+        // -- Execute
+        let id = DbId::default();
+
+        // -- Assert
+        assert_eq!(id.0, Uuid::nil());
+    }
+
+    #[test]
+    fn test_db_id_partial_eq() {
+        // -- Setup
+        let uuid = Uuid::new_v4();
+
+        // -- Assert
+        assert_eq!(DbId(uuid), DbId(uuid));
+        assert_ne!(DbId(uuid), DbId(Uuid::new_v4()));
+    }
+}

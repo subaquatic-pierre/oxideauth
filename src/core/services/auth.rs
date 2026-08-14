@@ -1164,13 +1164,52 @@ impl<'a> AuthValidator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use serial_test::serial;
+    use std::sync::Arc;
 
     use super::*;
+    use crate::{
+        cache::{manager::CacheManager, mock::MockChx},
+        config::Config,
+        core::services::registry::ServiceRegistry,
+        store::{dbx::MockDbx, entities::account::AccountRow, manager::StoreManager},
+    };
+    use serial_test::serial;
+    use uuid::Uuid;
+
+    /// Builds an `AuthService` (via `ServiceRegistry`) backed by an in-memory
+    /// `MockDbx` + `MockChx`, so tests exercise the service logic without a
+    /// real database or Redis.
+    fn mock_registry(dbx: MockDbx) -> Arc<ServiceRegistry<MockDbx, MockChx>> {
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        Arc::new(ServiceRegistry::new(&config, sm, cm))
+    }
+
+    // region:    --- AuthValidator ---
+
+    #[test]
+    fn test_validate_perms_success() -> CoreResult<()> {
+        let granted = PermissionEngine::from_str_slice(&["account:create", "account:*"])?;
+        let res = AuthValidator::validate_perms(&granted, &["account:create"]);
+        assert!(res.is_ok(), "granted permission should validate");
+        Ok(())
+    }
+
+    #[test]
+    fn test_validate_perms_failure() -> CoreResult<()> {
+        let granted = PermissionEngine::from_str_slice(&["account:create"])?;
+        let res = AuthValidator::validate_perms(&granted, &["account:delete"]);
+        assert!(
+            matches!(res, Err(CoreError::Auth(_))),
+            "missing permission should fail validation"
+        );
+        Ok(())
+    }
 
     #[tokio::test]
     #[serial]
-    async fn test_validate_perms() -> CoreResult<()> {
+    async fn test_validate_ctx_perms() -> CoreResult<()> {
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.create])?;
         let auth = AuthValidator::new(&ctx);
@@ -1183,4 +1222,363 @@ mod tests {
         );
         Ok(())
     }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_validate_ctx_perms_failure() -> CoreResult<()> {
+        // A workspace-scoped context with no granted permissions.
+        let ws_cache = WorkspaceCache {
+            id: Uuid::new_v4(),
+            slug: "team-ws".to_string(),
+            ..WorkspaceCache::default()
+        };
+        let auth_cache = AuthCache::new_keyed(Uuid::new_v4(), Uuid::new_v4(), None);
+        let ctx = CoreCtx::new(auth_cache, ws_cache)?;
+        let auth = AuthValidator::new(&ctx);
+
+        let res = auth.validate_ctx_perms(&[CANONICAL_PERMISSIONS.account.create]);
+
+        assert!(
+            matches!(res, Err(CoreError::Auth(_))),
+            "missing permission should fail context validation"
+        );
+        Ok(())
+    }
+
+    // endregion: --- AuthValidator ---
+
+    // region:    --- AuthService ---
+
+    #[tokio::test]
+    #[serial]
+    async fn test_issue_token_pair() -> CoreResult<()> {
+        // -- Setup
+        let registry = mock_registry(MockDbx::new());
+        let account_id = Uuid::new_v4();
+        let ws_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+        let sid = Uuid::new_v4();
+
+        // -- Execute
+        let pair = registry
+            .auth
+            .issue_token_pair(account_id, ws_id, mem_id, 1, 2, sid, 900)?;
+
+        let access = registry.token.decode_token_str(&pair.access_token)?;
+        let refresh = registry.token.decode_token_str(&pair.refresh_token)?;
+
+        // -- Assert
+        assert_eq!(access.sub, account_id);
+        assert_eq!(access.ws, ws_id);
+        assert_eq!(access.mem, mem_id);
+        assert_eq!(access.sid, Some(sid));
+        assert_eq!(access.mem_ver, 1);
+        assert_eq!(access.acc_ver, 2);
+        assert_eq!(access.ty, TokenType::Auth);
+
+        assert_eq!(refresh.ty, TokenType::Refresh);
+        assert_eq!(refresh.sid, Some(sid));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_initiate_google_oauth() -> CoreResult<()> {
+        // -- Setup
+        let registry = mock_registry(MockDbx::new());
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let url = registry
+            .auth
+            .initiate_google_oauth(&mut ctx, "http://localhost/callback")
+            .await?;
+
+        // -- Assert
+        assert!(url.starts_with("https://accounts.google.com/o/oauth2/v2/auth"));
+        assert!(url.contains("client_id=mock-client-id"));
+        assert!(url.contains("state="), "URL must carry the CSRF state");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_register_private_workspace() -> CoreResult<()> {
+        // -- Setup: bootstrap workspace config has `public == false`
+        let registry = mock_registry(MockDbx::new());
+        let mut ctx = CoreCtx::bootstrap()?;
+        let params = RegisterParams {
+            email: "user@example.com".to_string(),
+            password: "secret".to_string(),
+            name: Some("User".to_string()),
+            workspace_id: Uuid::nil().to_string(),
+        };
+
+        // -- Execute
+        let err = registry.auth.register(&mut ctx, params).await;
+
+        // -- Assert
+        assert!(
+            matches!(err, Err(CoreError::Auth(_))),
+            "registering to a private workspace must fail"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_login_empty_credentials() -> CoreResult<()> {
+        // -- Setup
+        let registry = mock_registry(MockDbx::new());
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute / -- Assert
+        let err = registry.auth.login(&mut ctx, "  ", "secret").await;
+        assert!(matches!(err, Err(CoreError::InvalidParams(_))));
+
+        let err = registry.auth.login(&mut ctx, "user@example.com", "").await;
+        assert!(matches!(err, Err(CoreError::InvalidParams(_))));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_login_account_not_found() -> CoreResult<()> {
+        // -- Setup
+        let dbx = MockDbx::new()
+            // acc_svc.get_by_email -> list -> no rows
+            .with_all::<AccountRow>(vec![]);
+        let registry = mock_registry(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let err = registry.auth.login(&mut ctx, "ghost@example.com", "secret").await;
+
+        // -- Assert
+        assert!(matches!(err, Err(CoreError::Auth(_))));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_login_account_disabled() -> CoreResult<()> {
+        // -- Setup
+        let dbx = MockDbx::new()
+            // acc_svc.get_by_email -> list -> a disabled account
+            .with_all::<AccountRow>(vec![AccountRow {
+                enabled: false,
+                ..Default::default()
+            }]);
+        let registry = mock_registry(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let err = registry
+            .auth
+            .login(&mut ctx, "disabled@example.com", "secret")
+            .await;
+
+        // -- Assert
+        assert!(matches!(err, Err(CoreError::Auth(_))));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_request_password_reset_not_found() -> CoreResult<()> {
+        // -- Setup: anti-enumeration, silently succeeds when account missing
+        let dbx = MockDbx::new().with_all::<AccountRow>(vec![]);
+        let registry = mock_registry(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute / -- Assert
+        registry
+            .auth
+            .request_password_reset(&mut ctx, "ghost@example.com")
+            .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_request_password_reset_disabled_account() -> CoreResult<()> {
+        // -- Setup: silently succeeds for disabled accounts
+        let dbx = MockDbx::new().with_all::<AccountRow>(vec![AccountRow {
+            enabled: false,
+            ..Default::default()
+        }]);
+        let registry = mock_registry(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute / -- Assert
+        registry
+            .auth
+            .request_password_reset(&mut ctx, "user@example.com")
+            .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_request_password_reset_success() -> CoreResult<()> {
+        // -- Setup
+        let dbx = MockDbx::new().with_all::<AccountRow>(vec![AccountRow {
+            enabled: true,
+            ..Default::default()
+        }]);
+        let registry = mock_registry(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute / -- Assert (generates a token offline, no further DB)
+        registry
+            .auth
+            .request_password_reset(&mut ctx, "user@example.com")
+            .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_resend_confirmation_not_found() -> CoreResult<()> {
+        // -- Setup: anti-enumeration, silently succeeds when account missing
+        let dbx = MockDbx::new().with_all::<AccountRow>(vec![]);
+        let registry = mock_registry(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute / -- Assert
+        registry
+            .auth
+            .resend_confirmation(&mut ctx, "ghost@example.com")
+            .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_resend_confirmation_already_verified() -> CoreResult<()> {
+        // -- Setup
+        let dbx = MockDbx::new().with_all::<AccountRow>(vec![AccountRow {
+            verified: true,
+            ..Default::default()
+        }]);
+        let registry = mock_registry(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let err = registry
+            .auth
+            .resend_confirmation(&mut ctx, "user@example.com")
+            .await;
+
+        // -- Assert
+        assert!(matches!(err, Err(CoreError::AlreadyExists(_))));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_confirm_account_already_verified() -> CoreResult<()> {
+        // -- Setup
+        let account_id = Uuid::new_v4();
+        let claims = TokenClaims::new(
+            account_id,
+            Uuid::nil(),
+            Uuid::nil(),
+            now_utc() + Duration::hours(24),
+            TokenType::AccountConfirm,
+            0,
+            0,
+            None,
+            Some(Uuid::new_v4()),
+        );
+        let dbx = MockDbx::new()
+            // store.get -> an already-verified account
+            .with_optional::<AccountRow>(Some(AccountRow {
+                id: account_id.into(),
+                verified: true,
+                ..Default::default()
+            }));
+        let registry = mock_registry(dbx);
+        let token = registry.token.encode_token_claims(&claims)?;
+
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let err = registry.auth.confirm_account(&mut ctx, &token).await;
+
+        // -- Assert
+        assert!(matches!(err, Err(CoreError::AlreadyExists(_))));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_confirm_account_success() -> CoreResult<()> {
+        // -- Setup
+        let account_id = Uuid::new_v4();
+        let claims = TokenClaims::new(
+            account_id,
+            Uuid::nil(),
+            Uuid::nil(),
+            now_utc() + Duration::hours(24),
+            TokenType::AccountConfirm,
+            0,
+            0,
+            None,
+            Some(Uuid::new_v4()),
+        );
+        let dbx = MockDbx::new()
+            // store.get -> unverified account
+            .with_optional::<AccountRow>(Some(AccountRow {
+                id: account_id.into(),
+                verified: false,
+                ..Default::default()
+            }))
+            // store.update -> returning verified account
+            .with_optional::<AccountRow>(Some(AccountRow {
+                id: account_id.into(),
+                verified: true,
+                ..Default::default()
+            }));
+        let registry = mock_registry(dbx);
+        let token = registry.token.encode_token_claims(&claims)?;
+
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let res = registry.auth.confirm_account(&mut ctx, &token).await?;
+
+        // -- Assert
+        assert_eq!(res.account_id, account_id);
+        assert!(!res.was_already_verified);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_request_token() -> CoreResult<()> {
+        // -- Setup
+        let registry = mock_registry(MockDbx::new());
+        let ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute / -- Assert (currently a no-op that always succeeds)
+        registry.auth.request_token(&ctx).await?;
+
+        Ok(())
+    }
+
+    // endregion: --- AuthService ---
 }

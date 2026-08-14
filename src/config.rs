@@ -193,3 +193,40 @@ impl Config {
     //     }
     // }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mock_config_fields_are_sane() {
+        let config = Config::mock_config();
+
+        assert_eq!(config.access_token_max_age, 900, "15 minute access token");
+        assert_eq!(config.refresh_token_max_age, 604800, "7 day refresh token");
+        assert!(config.email_dry_mode, "email dry mode should be enabled in mock");
+        assert_eq!(config.app_env, "mock");
+        assert_eq!(config.host, "127.0.0.1");
+        assert_eq!(config.port, 8000);
+        assert!(!config.database_url.is_empty());
+        assert!(!config.redis_url.is_empty());
+        assert!(!config.jwt_secret.is_empty());
+        assert!(!config.google_oauth_client_id.is_empty());
+        assert!(!config.owner_email.is_empty());
+    }
+
+    #[test]
+    fn test_test_config_fields_are_sane() {
+        let config = Config::test_config();
+
+        assert_eq!(config.access_token_max_age, 900, "15 minute access token");
+        assert_eq!(config.refresh_token_max_age, 604800, "7 day refresh token");
+        assert!(config.email_dry_mode, "email dry mode should be enabled in test");
+        assert_eq!(config.app_env, "test");
+        assert_eq!(config.host, "127.0.0.1");
+        assert_eq!(config.port, 8000);
+        assert!(!config.database_url.is_empty());
+        assert!(!config.redis_url.is_empty());
+        assert!(!config.jwt_secret.is_empty());
+    }
+}

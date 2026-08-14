@@ -56,3 +56,42 @@ impl<D: DbExecutor> StoreManager<D> {
 pub trait StoreManagerTrait<D: DbExecutor> {
     fn account(&self) -> &AccountStore<D>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{dbx::MockDbx, traits::meta::Store};
+
+    #[test]
+    fn test_store_manager_new_with_mock_dbx() {
+        // -- Setup
+        let dbx = Arc::new(MockDbx::new());
+
+        // -- Execute
+        let manager = StoreManager::new(dbx.clone());
+
+        // -- Assert
+        // dbx() returns an Arc clone of the same underlying executor
+        assert!(Arc::ptr_eq(&manager.dbx(), &dbx));
+
+        // All sub-stores must be constructed and accessible
+        let _ = &manager.account;
+        let _ = &manager.client;
+        let _ = &manager.credential;
+        let _ = &manager.membership;
+        let _ = &manager.workspace;
+        let _ = &manager.permission;
+        let _ = &manager.project;
+        let _ = &manager.role;
+
+        // The Store trait is implemented for each sub-store (dbx() accessor works)
+        let _ = manager.account.dbx();
+        let _ = manager.client.dbx();
+        let _ = manager.credential.dbx();
+        let _ = manager.membership.dbx();
+        let _ = manager.workspace.dbx();
+        let _ = manager.permission.dbx();
+        let _ = manager.project.dbx();
+        let _ = manager.role.dbx();
+    }
+}

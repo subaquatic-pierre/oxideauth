@@ -242,8 +242,6 @@ impl Default for ContextFactory {
 mod tests {
     use serial_test::serial;
 
-    use crate::dev::init::init_test;
-
     use super::*;
 
     fn setup_checker() -> CoreResult<PermissionEngine> {

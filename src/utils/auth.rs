@@ -136,3 +136,79 @@ impl RegisterRedirectParams {
         todo!()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_oauth_response_deserializes() {
+        let json = r#"{"access_token":"abc123","id_token":"jwt-token"}"#;
+        let parsed: OAuthResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.access_token, "abc123");
+        assert_eq!(parsed.id_token, "jwt-token");
+    }
+
+    #[test]
+    fn test_oauth_response_missing_field_fails() {
+        let json = r#"{"access_token":"abc123"}"#;
+        assert!(serde_json::from_str::<OAuthResponse>(json).is_err());
+    }
+
+    #[test]
+    fn test_oauth_error_response_deserializes() {
+        let json = r#"{"error":"invalid_grant","error_description":"bad code"}"#;
+        let parsed: OAuthErrorResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.error, "invalid_grant");
+        assert_eq!(parsed.error_description, "bad code");
+    }
+
+    #[test]
+    fn test_google_user_result_full_payload() {
+        let json = r#"{
+            "id":"user-1",
+            "email":"alice@example.com",
+            "verified_email":true,
+            "name":"Alice Doe",
+            "given_name":"Alice",
+            "family_name":"Doe",
+            "picture":"http://img/pic.png",
+            "locale":"en"
+        }"#;
+        let parsed: GoogleUserResult = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.id, "user-1");
+        assert_eq!(parsed.email, "alice@example.com");
+        assert!(parsed.verified_email);
+        assert_eq!(parsed.name, "Alice Doe");
+        assert_eq!(parsed.given_name.as_deref(), Some("Alice"));
+        assert_eq!(parsed.family_name.as_deref(), Some("Doe"));
+        assert_eq!(parsed.picture.as_deref(), Some("http://img/pic.png"));
+        assert_eq!(parsed.locale.as_deref(), Some("en"));
+    }
+
+    #[test]
+    fn test_google_user_result_minimal_payload_optional_fields_default() {
+        let json = r#"{
+            "id":"user-2",
+            "email":"bob@example.com",
+            "verified_email":false,
+            "name":"Bob"
+        }"#;
+        let parsed: GoogleUserResult = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.id, "user-2");
+        assert_eq!(parsed.email, "bob@example.com");
+        assert!(!parsed.verified_email);
+        assert_eq!(parsed.name, "Bob");
+        assert!(parsed.given_name.is_none());
+        assert!(parsed.family_name.is_none());
+        assert!(parsed.picture.is_none());
+        assert!(parsed.locale.is_none());
+    }
+
+    #[test]
+    fn test_google_user_result_missing_required_field_fails() {
+        // `name` is required and missing.
+        let json = r#"{"id":"user-3","email":"c@example.com","verified_email":true}"#;
+        assert!(serde_json::from_str::<GoogleUserResult>(json).is_err());
+    }
+}

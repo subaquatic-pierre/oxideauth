@@ -54,3 +54,79 @@ impl<C: CacheExecutor> WorkspaceCacheStore<C> {
         Ok(t)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::mock::MockChx;
+
+    fn sample_workspace() -> WorkspaceCache {
+        WorkspaceCache {
+            id: Uuid::new_v4(),
+            name: "Acme".into(),
+            slug: "acme".into(),
+            description: Some("A test workspace".into()),
+            owner: Uuid::new_v4(),
+            config: Default::default(),
+            tags: vec!["tag-a".into()],
+            meta: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_write_then_fetch_roundtrip() {
+        let store = WorkspaceCacheStore::new(Arc::new(MockChx::new()));
+        let entity = sample_workspace();
+
+        store.write(&entity, None).await.unwrap();
+
+        let fetched = store
+            .fetch(&entity.key())
+            .await
+            .unwrap()
+            .expect("cache hit after write");
+        assert_eq!(fetched.id, entity.id);
+        assert_eq!(fetched.name, "Acme");
+        assert_eq!(fetched.slug, "acme");
+        assert_eq!(fetched.description.as_deref(), Some("A test workspace"));
+        assert_eq!(fetched.owner, entity.owner);
+        assert_eq!(fetched.tags, vec!["tag-a".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn test_write_then_fetch_by_id_roundtrip() {
+        let store = WorkspaceCacheStore::new(Arc::new(MockChx::new()));
+        let entity = sample_workspace();
+
+        store.write(&entity, None).await.unwrap();
+
+        let fetched = store
+            .fetch_by_id(entity.id)
+            .await
+            .unwrap()
+            .expect("cache hit by id");
+        assert_eq!(fetched.id, entity.id);
+        assert_eq!(fetched.slug, "acme");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_miss_returns_none() {
+        let store = WorkspaceCacheStore::new(Arc::new(MockChx::new()));
+        let fetched = store.fetch_by_id(Uuid::new_v4()).await.unwrap();
+        assert!(fetched.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_invalidate_removes_entity() {
+        let store = WorkspaceCacheStore::new(Arc::new(MockChx::new()));
+        let entity = sample_workspace();
+
+        store.write(&entity, None).await.unwrap();
+
+        let removed = store.invalidate(entity.id).await.unwrap();
+        assert_eq!(removed, 1, "invalidate should remove the stored entity");
+
+        let fetched = store.fetch_by_id(entity.id).await.unwrap();
+        assert!(fetched.is_none(), "fetch after invalidate must be a miss");
+    }
+}

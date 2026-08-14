@@ -289,31 +289,15 @@ mod tests {
 
     use super::*;
     use crate::{
-        app::{AppEnv, new_app_data},
-        cache::{manager::CacheManager, mock::MockChx, redis::RedisChx},
+        cache::{manager::CacheManager, mock::MockChx},
         config::Config,
         core::services::registry::ServiceRegistry,
-        dev::init::init_test,
         store::{
             dbx::MockDbx,
-            ctx::StoreCtx,
-            entities::{
-                account::AccountRow,
-                credential::{CredentialForCreate, CredentialProvider},
-                workspace::WorkspaceRow,
-            },
-            error::StoreError,
-            meta::StoreId,
-            stores::{account::AccountStore, workspace::SYSTEM_CONST},
-            traits::{contains::FilterByContains, crud::*, join::GetOneToMany},
+            entities::account::AccountRow,
         },
     };
-    use anyhow::Result;
-    use log::debug;
-    use modql::filter::{ListOptions, OpValsString};
-    use serde_json::json;
     use serial_test::serial;
-    use uuid::Uuid;
 
     #[tokio::test]
     #[serial]

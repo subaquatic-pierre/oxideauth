@@ -442,96 +442,104 @@ mod tests {
 
     use super::*;
     use crate::{
-        app::AppState,
-        cache::{mock::MockChx, redis::RedisChx},
+        cache::{manager::CacheManager, mock::MockChx},
         config::Config,
         core::services::registry::ServiceRegistry,
-        dev::init::init_test,
         store::{
-            ctx::StoreCtx,
             dbx::MockDbx,
             entities::{
                 account::AccountRow,
-                credential::{CredentialForCreate, CredentialProvider},
-                membership::{MembershipFilter, MembershipMeta, MembershipScope, MembershipStatus},
+                audit::AuditFields,
+                membership::{
+                    MembershipMeta, MembershipRow, MembershipScope, MembershipStatus,
+                    MembershipWithRoles,
+                },
+                workspace::WorkspaceRow,
             },
-            error::StoreError,
-            meta::StoreId,
-            stores::membership::MembershipStore,
-            traits::{contains::FilterByContains, crud::*, join::GetOneToMany},
         },
     };
-    use anyhow::Result;
-    use modql::filter::{ListOptions, OpValsString};
-    use serde_json::json;
     use serial_test::serial;
     use uuid::Uuid;
 
-    async fn setup_membership_deps<D: DbExecutor, C: CacheExecutor>(
-        app: &AppState<D, C>,
-        ctx: &mut CoreCtx,
-    ) -> CoreResult<(Uuid, Uuid)> {
-        ctx.extend_perms(&[
-            "workspace:create",
-            "account:create",
-            // "account:delete",
-            "membership:create",
-        ])?;
-
-        // 1. Create a Workspace
-        let ws = app
-            .svc_reg
-            .workspace
-            .clone()
-            .create(
-                ctx,
-                crate::core::models::workspace::WorkspaceCreateParams {
-                    name: "Test WS".to_string(),
-                    slug: format!("ws-{}", Uuid::new_v4()),
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        // 2. Create an Account
-        let acc = app
-            .svc_reg
-            .account
-            .clone()
-            .create(
-                ctx,
-                crate::core::models::account::AccountCreateParams {
-                    email: format!("test-{}@example.com", Uuid::new_v4()),
-                    name: "Member User".to_string(),
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        Ok((ws.id, acc.id))
+    /// Builds a `MembershipService` backed by an in-memory `MockDbx` + `MockChx`.
+    fn mock_svc(dbx: MockDbx) -> Arc<MembershipService<MockDbx, MockChx>> {
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
+        svc_reg.membership.clone()
     }
 
-    #[cfg(feature = "integration")]
+    fn ws_row(ws_id: Uuid) -> WorkspaceRow {
+        WorkspaceRow {
+            id: ws_id.into(),
+            ..Default::default()
+        }
+    }
+
+    fn account_row(account_id: Uuid) -> AccountRow {
+        AccountRow {
+            id: account_id.into(),
+            ..Default::default()
+        }
+    }
+
+    fn membership_row(mem_id: Uuid, account_id: Uuid, ws_id: Uuid) -> MembershipRow {
+        MembershipRow {
+            id: mem_id.into(),
+            account_id,
+            workspace_id: ws_id,
+            scope: MembershipScope::Workspace,
+            status: MembershipStatus::Active,
+            project_id: None,
+            version: 1,
+            tags: vec![],
+            meta: MembershipMeta {
+                schema_version: "1".to_string(),
+            },
+            audit: AuditFields::default(),
+        }
+    }
+
+    fn membership_with_roles(mem_id: Uuid, account_id: Uuid, ws_id: Uuid) -> MembershipWithRoles {
+        let row = membership_row(mem_id, account_id, ws_id);
+        MembershipWithRoles {
+            id: row.id,
+            membership: row,
+            roles: vec![],
+        }
+    }
+
     #[tokio::test]
     #[serial]
-    async fn test_membership_crud_lifecycle() -> CoreResult<()> {
-        let app = init_test().await;
-        let mock_cache = Arc::new(MockChx::default());
-        let cm = Arc::new(CacheManager::new(mock_cache));
-        let svc_reg = ServiceRegistry::new(&app.config, app.sm.clone(), cm);
-        let svc = svc_reg.membership.clone();
+    async fn test_membership_create() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // create -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // create -> duplicate guard -> list (no existing membership)
+            .with_all::<MembershipRow>(vec![])
+            // create -> store.create
+            .with_one::<MembershipRow>(membership_row(mem_id, account_id, ws_id))
+            // create -> describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // create -> describe -> get_many_to_many (count)
+            .with_one::<(i64,)>( (0,) )
+            // create -> describe -> get_many_to_many
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(mem_id, account_id, ws_id)))
+            // create -> describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
+        let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
 
-        // Setup Workspace and Account
-        let (workspace_id, account_id) = setup_membership_deps(&app, &mut ctx).await?;
-        // let total_memberships = svc.list(&mut ctx,).await?.len();
-
-        // --- 1. Create ---
-        ctx.extend_perms(&["membership:create", "membership:describe"])?;
         let params = MembershipCreateParams {
-            workspace_id,
             account_id,
-            role_ids: vec![], // Logic currently doesn't assign these in service
+            workspace_id: ws_id,
+            role_ids: vec![],
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
@@ -539,81 +547,221 @@ mod tests {
             meta: MembershipMeta::default(),
         };
 
+        // -- Execute
         let membership = svc.create(&mut ctx, params).await?;
-        assert_eq!(membership.workspace_id, workspace_id);
+
+        // -- Assert
+        assert_eq!(membership.id, mem_id);
+        assert_eq!(membership.workspace_id, ws_id);
         assert_eq!(membership.account.id, account_id);
-        assert!(membership.tags.contains(&"pioneer".to_string()));
-
-        // --- 2. Update ---
-        ctx.extend_perms(&["membership:update"])?;
-        let update_params = MembershipUpdateParams {
-            id: membership.id,
-            workspace_id,
-            tags: Some(vec!["veteran".to_string()]),
-            ..Default::default()
-        };
-
-        let updated = svc.update(&mut ctx, update_params).await?;
-        assert!(updated.tags.contains(&"veteran".to_string()));
-
-        // --- 3. Describe ---
-        ctx.extend_perms(&["membership:describe"])?;
-        let described = svc
-            .describe(
-                &mut ctx,
-                MembershipDescribeParams {
-                    id: membership.id,
-                    workspace_id,
-                },
-            )
-            .await?;
-        assert_eq!(described.id, membership.id);
-
-        // --- 4. List ---
-        ctx.extend_perms(&["membership:list"])?;
-        let list_params = MembershipListParams {
-            workspace_id,
-            filter: Some(RequestFilterParams {
-                fields: None,
-                tags: Some(vec!["veteran".to_string()]),
-            }),
-            ..Default::default()
-        };
-        let list = svc.list(&mut ctx, list_params).await?;
-
-        println!("Membership List: {:#?}", list);
-        assert_eq!(list.data.len(), 1);
-
-        // --- 5. Delete ---
-        ctx.extend_perms(&["membership:delete"])?;
-        let deleted = svc
-            .delete(
-                &mut ctx,
-                MembershipDeleteParams {
-                    id: membership.id,
-                    workspace_id,
-                },
-            )
-            .await?;
-        assert_eq!(deleted.id, membership.id);
 
         Ok(())
     }
 
     #[tokio::test]
     #[serial]
-    async fn test_create_mock_membership_success() -> CoreResult<()> {
-        let config = Config::test_config();
+    async fn test_membership_create_duplicate() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
 
-        // build store manager backed by an in-memory fake database
-        let dbx = Arc::new(MockDbx::new());
-        let sm = Arc::new(StoreManager::new(dbx));
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // duplicate guard -> list finds an existing membership
+            .with_all::<MembershipRow>(vec![membership_row(Uuid::new_v4(), account_id, ws_id)]);
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
 
-        // build cache manager with an in-memory cache (no real Redis connection)
-        let mock_cache = Arc::new(MockChx::default());
-        let cm = Arc::new(CacheManager::new(mock_cache));
-        let svc_reg = ServiceRegistry::new(&config, sm, cm);
-        let svc = svc_reg.membership.clone();
+        let params = MembershipCreateParams {
+            account_id,
+            workspace_id: ws_id,
+            role_ids: vec![],
+            scope: MembershipScope::Workspace,
+            status: MembershipStatus::Active,
+            project_id: None,
+            tags: vec![],
+            meta: MembershipMeta::default(),
+        };
+
+        // -- Execute
+        let err = svc.create(&mut ctx, params).await;
+
+        // -- Assert
+        assert!(
+            matches!(err, Err(CoreError::AlreadyExists(_))),
+            "creating a duplicate membership must fail with AlreadyExists"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_describe() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            .with_one::<(i64,)>( (0,) )
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(mem_id, account_id, ws_id)))
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let membership = svc
+            .describe(
+                &mut ctx,
+                MembershipDescribeParams {
+                    id: mem_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        // -- Assert
+        assert_eq!(membership.id, mem_id);
+        assert_eq!(membership.workspace_id, ws_id);
+        assert_eq!(membership.account.id, account_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_list() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // list -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // list_many_to_many -> count
+            .with_one::<(i64,)>( (1,) )
+            // list_many_to_many -> data
+            .with_all::<MembershipWithRoles>(vec![membership_with_roles(mem_id, account_id, ws_id)])
+            // count_with_tags_and_filter -> count
+            .with_one::<(i64,)>( (1,) )
+            // hydrate -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let res = svc
+            .list(
+                &mut ctx,
+                MembershipListParams {
+                    workspace_id: ws_id,
+                    filter: None,
+                    options: None,
+                },
+            )
+            .await?;
+
+        // -- Assert
+        assert_eq!(res.data.len(), 1);
+        assert_eq!(res.data[0].id, mem_id);
+        assert_eq!(res.metadata.total, 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_update() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // update -> describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // describe -> get_many_to_many (count)
+            .with_one::<(i64,)>( (0,) )
+            // describe -> get_many_to_many
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(mem_id, account_id, ws_id)))
+            // describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)))
+            // update -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // update -> store.update
+            .with_optional::<MembershipRow>(Some(membership_row(mem_id, account_id, ws_id)))
+            // update -> describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // describe -> get_many_to_many (count)
+            .with_one::<(i64,)>( (0,) )
+            // describe -> get_many_to_many
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(mem_id, account_id, ws_id)))
+            // describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let updated = svc
+            .update(
+                &mut ctx,
+                MembershipUpdateParams {
+                    id: mem_id,
+                    workspace_id: ws_id,
+                    tags: Some(vec!["veteran".to_string()]),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        // -- Assert
+        assert_eq!(updated.id, mem_id);
+        assert_eq!(updated.workspace_id, ws_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_delete() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // delete -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // delete -> describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // describe -> get_many_to_many (count)
+            .with_one::<(i64,)>( (0,) )
+            // describe -> get_many_to_many
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(mem_id, account_id, ws_id)))
+            // describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)))
+            // delete -> store.delete
+            .with_optional::<MembershipRow>(Some(membership_row(mem_id, account_id, ws_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let deleted = svc
+            .delete(
+                &mut ctx,
+                MembershipDeleteParams {
+                    id: mem_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        // -- Assert
+        assert_eq!(deleted.id, mem_id);
 
         Ok(())
     }

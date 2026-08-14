@@ -98,3 +98,29 @@ pub trait CacheEntity: Sized {
     fn key(&self) -> CacheKey;
     fn new_key(id: impl Display) -> CacheKey;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cache_key_new_produces_prefixed_key() {
+        let key = CacheKey::new("oxauth", "mem_id", "member-1");
+        assert_eq!(key.to_string(), "oxauth:mem_id:member-1");
+        assert_eq!(key.as_ref(), "oxauth:mem_id:member-1");
+    }
+
+    #[test]
+    fn test_cache_key_display_matches_as_ref() {
+        let key = CacheKey::new("oxauth", "crt", "jti-123");
+        assert_eq!(key.as_ref(), key.to_string());
+        assert_eq!(key.to_string(), "oxauth:crt:jti-123");
+    }
+
+    #[test]
+    fn test_cache_key_works_with_non_str_params() {
+        let key = CacheKey::new("oxauth", "ws", 42);
+        assert_eq!(key.as_ref(), "oxauth:ws:42");
+        assert_eq!(key.to_string(), key.as_ref());
+    }
+}

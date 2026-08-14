@@ -40,3 +40,33 @@ impl CacheEntity for RefreshTokenReplayCache {
         CacheKey::new(prefix, name, jti)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_sets_sid_none() {
+        let jti = Uuid::new_v4();
+        let replay = RefreshTokenReplayCache::new(jti);
+        assert_eq!(replay.jti, jti);
+        assert_eq!(replay.sid, None);
+    }
+
+    #[test]
+    fn test_default() {
+        let replay = RefreshTokenReplayCache::default();
+        assert_eq!(replay.jti, Uuid::nil());
+        assert_eq!(replay.sid, None);
+    }
+
+    #[test]
+    fn test_key_format() {
+        let jti = Uuid::new_v4();
+        let replay = RefreshTokenReplayCache::new(jti);
+
+        assert_eq!(replay.key().as_ref(), format!("oxauth:crt:{}", jti));
+        assert_eq!(RefreshTokenReplayCache::new_key(jti).as_ref(), format!("oxauth:crt:{}", jti));
+        assert_eq!(RefreshTokenReplayCache::_key(), ("oxauth", "crt"));
+    }
+}

@@ -152,3 +152,77 @@ pub struct AuthOAuthInitiateReq {
 pub struct AuthOAuthInitiateRes {
     pub auth_url: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::error::CoreError;
+    use crate::core::traits::params::ValidateParams;
+
+    #[test]
+    fn test_auth_register_req_to_register_params() {
+        let params = RegisterParams::from(AuthRegisterReq {
+            email: "ada@example.com".to_string(),
+            password: Some("pw".to_string()),
+            name: Some("Ada".to_string()),
+            workspace_id: "ws-1".to_string(),
+        });
+        assert_eq!(params.email, "ada@example.com");
+        assert_eq!(params.password, "pw");
+        assert_eq!(params.name.as_deref(), Some("Ada"));
+        assert_eq!(params.workspace_id, "ws-1");
+    }
+
+    #[test]
+    fn test_auth_register_req_missing_password_defaults_to_empty() {
+        let params = RegisterParams::from(AuthRegisterReq {
+            email: "ada@example.com".to_string(),
+            password: None,
+            name: None,
+            workspace_id: "ws-1".to_string(),
+        });
+        assert_eq!(params.password, "");
+        assert!(params.name.is_none());
+    }
+
+    #[test]
+    fn test_register_params_validate_trims_and_lowercases_email() {
+        let params = RegisterParams {
+            email: "  Ada@Example.COM ".to_string(),
+            password: "pw".to_string(),
+            name: None,
+            workspace_id: "ws-1".to_string(),
+        }
+        .validate()
+        .unwrap();
+        assert_eq!(params.email, "ada@example.com");
+    }
+
+    #[test]
+    fn test_register_params_validate_missing_email() {
+        let err = RegisterParams {
+            email: "   ".to_string(),
+            password: "pw".to_string(),
+            name: None,
+            workspace_id: "ws-1".to_string(),
+        }
+        .validate()
+        .err()
+        .unwrap();
+        assert!(matches!(err, CoreError::InvalidParams(msg) if msg == "email required"));
+    }
+
+    #[test]
+    fn test_register_params_validate_missing_password() {
+        let err = RegisterParams {
+            email: "ada@example.com".to_string(),
+            password: "".to_string(),
+            name: None,
+            workspace_id: "ws-1".to_string(),
+        }
+        .validate()
+        .err()
+        .unwrap();
+        assert!(matches!(err, CoreError::InvalidParams(msg) if msg == "password required"));
+    }
+}

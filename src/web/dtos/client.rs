@@ -233,3 +233,113 @@ pub struct ClientValidateReq {
 pub struct ClientValidateRes {
     pub authorized: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_meta() -> ClientMeta {
+        ClientMeta {
+            schema_version: "1".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_client_describe_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = ClientDescribeReq { id }.into_params(ws_id).unwrap();
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
+    }
+
+    #[test]
+    fn test_client_create_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let params = ClientCreateReq {
+            name: "my-app".to_string(),
+            endpoint: Some("https://cb.example.com".to_string()),
+            description: Some("desc".to_string()),
+            tags: vec!["tag".to_string()],
+            meta: sample_meta(),
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.name, "my-app");
+        assert_eq!(params.endpoint.as_deref(), Some("https://cb.example.com"));
+        assert_eq!(params.description.as_deref(), Some("desc"));
+        assert_eq!(params.tags, vec!["tag".to_string()]);
+        assert_eq!(params.meta.schema_version, "1");
+    }
+
+    #[test]
+    fn test_client_update_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = ClientUpdateReq {
+            id,
+            name: Some("renamed".to_string()),
+            endpoint: None,
+            description: Some("new desc".to_string()),
+            tags: None,
+            meta: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.name.as_deref(), Some("renamed"));
+        assert!(params.endpoint.is_none());
+        assert_eq!(params.description.as_deref(), Some("new desc"));
+        assert!(params.tags.is_none());
+    }
+
+    #[test]
+    fn test_client_delete_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = ClientDeleteReq { id }.into_params(ws_id).unwrap();
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
+    }
+
+    #[test]
+    fn test_client_list_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let params = ClientListReq {
+            filter: None,
+            options: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.workspace_id, ws_id);
+        assert!(params.filter.is_none());
+        assert!(params.options.is_none());
+    }
+
+    #[test]
+    fn test_client_describe_res_from_client_default() {
+        let res = ClientDescribeRes::from(Client::default());
+        assert_eq!(res.id, Uuid::nil());
+        assert_eq!(res.name, "New Client");
+        assert_eq!(res.meta.schema_version, "1");
+    }
+
+    #[test]
+    fn test_client_create_res_from_client_tuple() {
+        let res = ClientCreateRes::from((Client::default(), "plaintext-secret".to_string()));
+        assert_eq!(res.secret, "plaintext-secret");
+        assert_eq!(res.workspace_id, Uuid::nil());
+        assert_eq!(res.name, "New Client");
+    }
+
+    #[test]
+    fn test_client_create_res_from_client_has_empty_secret() {
+        // The plain `From<Client>` form must NOT leak a secret.
+        let res = ClientCreateRes::from(Client::default());
+        assert_eq!(res.secret, "");
+    }
+}

@@ -188,3 +188,144 @@ pub struct WorkspaceListRes {
     pub workspaces: Vec<WorkspaceDescribeRes>, // Use the response DTO for the list
     pub metadata: ListResponseMeta,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::error::CoreError;
+
+    #[test]
+    fn test_workspace_describe_req_into_params_by_id() {
+        let id = Uuid::new_v4();
+        let params = WorkspaceDescribeParams::from(WorkspaceDescribeReq {
+            id: Some(id),
+            slug: None,
+        });
+        assert_eq!(params.id, Some(id));
+        assert!(params.slug.is_none());
+    }
+
+    #[test]
+    fn test_workspace_describe_req_into_params_by_slug() {
+        let params = WorkspaceDescribeParams::from(WorkspaceDescribeReq {
+            id: None,
+            slug: Some("acme".to_string()),
+        });
+        assert!(params.id.is_none());
+        assert_eq!(params.slug.as_deref(), Some("acme"));
+    }
+
+    #[test]
+    fn test_workspace_describe_params_id_or_slug_valid() {
+        let id = Uuid::new_v4();
+        let params = WorkspaceDescribeParams {
+            id: Some(id),
+            slug: None,
+        };
+        assert_eq!(params.id_or_slug().unwrap(), id.to_string());
+
+        let params = WorkspaceDescribeParams {
+            id: None,
+            slug: Some("acme".to_string()),
+        };
+        assert_eq!(params.id_or_slug().unwrap(), "acme");
+    }
+
+    #[test]
+    fn test_workspace_describe_params_id_or_slug_missing() {
+        let params = WorkspaceDescribeParams {
+            id: None,
+            slug: None,
+        };
+        let err = params.id_or_slug().unwrap_err();
+        assert!(matches!(err, CoreError::InvalidParams(msg) if msg == "ID or slug required"));
+    }
+
+    #[test]
+    fn test_workspace_create_req_into_params_defaults() {
+        let params = WorkspaceCreateParams::from(WorkspaceCreateReq {
+            name: "Acme".to_string(),
+            slug: "acme".to_string(),
+            description: None,
+            owner: None,
+            config: None,
+            tags: vec![],
+            meta: None,
+        });
+        assert_eq!(params.name, "Acme");
+        assert_eq!(params.slug, "acme");
+        assert!(params.description.is_none());
+        assert!(params.owner.is_none());
+        assert!(params.config.allowed_auth_providers.is_empty());
+        assert_eq!(params.meta.schema_version, WorkspaceMeta::default().schema_version);
+    }
+
+    #[test]
+    fn test_workspace_create_req_into_params_with_values() {
+        let owner = Uuid::new_v4();
+        let params = WorkspaceCreateParams::from(WorkspaceCreateReq {
+            name: "Acme".to_string(),
+            slug: "acme".to_string(),
+            description: Some("desc".to_string()),
+            owner: Some(owner),
+            config: Some(WorkspaceConfig::default()),
+            tags: vec!["t".to_string()],
+            meta: Some(WorkspaceMeta::default()),
+        });
+        assert_eq!(params.description.as_deref(), Some("desc"));
+        assert_eq!(params.owner, Some(owner));
+        assert_eq!(params.tags, vec!["t".to_string()]);
+        assert_eq!(params.meta.schema_version, WorkspaceMeta::default().schema_version);
+    }
+
+    #[test]
+    fn test_workspace_update_req_into_params() {
+        let id = Uuid::new_v4();
+        let params = WorkspaceUpdateParams::from(WorkspaceUpdateReq {
+            id: Some(id),
+            slug: None,
+            owner: Some(Uuid::new_v4()),
+            name: Some("Renamed".to_string()),
+            description: None,
+            config: None,
+            tags: None,
+            meta: None,
+        });
+        assert_eq!(params.id, Some(id));
+        assert!(params.slug.is_none());
+        assert_eq!(params.name.as_deref(), Some("Renamed"));
+        assert!(params.owner.is_some());
+        assert!(params.meta.is_none());
+    }
+
+    #[test]
+    fn test_workspace_delete_req_into_params() {
+        let params = WorkspaceDeleteParams::from(WorkspaceDeleteReq {
+            id: None,
+            slug: Some("acme".to_string()),
+        });
+        assert!(params.id.is_none());
+        assert_eq!(params.slug.as_deref(), Some("acme"));
+    }
+
+    #[test]
+    fn test_workspace_list_req_into_params() {
+        let params = WorkspaceListParams::from(WorkspaceListReq {
+            filter: None,
+            options: None,
+        });
+        assert!(params.filter.is_none());
+        assert!(params.options.is_none());
+    }
+
+    #[test]
+    fn test_workspace_describe_res_from_workspace_default() {
+        let ws = Workspace::default();
+        let res = WorkspaceDescribeRes::from(ws);
+        assert_eq!(res.id, Uuid::default());
+        assert_eq!(res.name, String::default());
+        assert_eq!(res.slug, String::default());
+        assert_eq!(res.owner, Uuid::default());
+        assert!(res.tags.is_empty());
+    }
+}

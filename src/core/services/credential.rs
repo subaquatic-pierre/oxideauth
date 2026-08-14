@@ -125,8 +125,7 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
                     accounts.get(&acc_id).unwrap()
                 }
             };
-            let project =
-                Credential::from_row_with_entities(row, account.clone(), workspace.clone())?;
+            let project = Credential::from_row_with_entities(row, account.id, workspace.id)?;
             credentials.push(project);
         }
 
@@ -229,7 +228,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Credent
             )
             .await?;
 
-        let credential = Credential::from_row_with_entities(row, acc, ws)?;
+        let credential = Credential::from_row_with_entities(row, acc.id, ws.id)?;
 
         Ok(credential)
     }
@@ -291,6 +290,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Credentia
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
 
+        // TODO: invalidate auth_cache for any memberships using this credential
+
         let for_update: CredentialForUpdate = params.clone().into();
 
         store
@@ -339,8 +340,313 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Credentia
             )
             .await?;
 
+        // TODO: invalidate auth_cache for any memberships using this credential
+
         let res = store.delete(&store_ctx, &params.id.into()).await?;
 
         Ok(to_delete)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::{
+        cache::{manager::CacheManager, mock::MockChx},
+        config::Config,
+        core::services::registry::ServiceRegistry,
+        store::{
+            dbx::MockDbx,
+            entities::{
+                account::AccountRow,
+                audit::AuditFields,
+                credential::{
+                    CredentialConfig, CredentialKind, CredentialMeta, CredentialProvider,
+                    CredentialStatus,
+                },
+                id::DbId,
+                workspace::WorkspaceRow,
+            },
+        },
+    };
+    use serial_test::serial;
+    use uuid::Uuid;
+
+    /// Builds a `CredentialRow` for the in-memory mock with consistent ids.
+    fn credential_row(id: Uuid, account_id: Uuid, ws_id: Uuid) -> CredentialRow {
+        CredentialRow {
+            id: id.into(),
+            account_id: account_id.into(),
+            workspace_id: ws_id.into(),
+            kind: CredentialKind::Password,
+            provider: CredentialProvider::Local,
+            status: CredentialStatus::Active,
+            provider_id: None,
+            email: None,
+            secret: None,
+            last_used_at: None,
+            config: CredentialConfig::default(),
+            tags: vec![],
+            meta: CredentialMeta::default(),
+            audit: AuditFields::default(),
+        }
+    }
+
+    /// Builds a `CredentialService` backed by an in-memory `MockDbx` + `MockChx`.
+    fn mock_svc(dbx: MockDbx) -> Arc<CredentialService<MockDbx, MockChx>> {
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
+        svc_reg.credential.clone()
+    }
+
+    fn ws_row(ws_id: Uuid) -> WorkspaceRow {
+        WorkspaceRow {
+            id: ws_id.into(),
+            ..Default::default()
+        }
+    }
+
+    fn account_row(account_id: Uuid) -> AccountRow {
+        AccountRow {
+            id: account_id.into(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_credential_create() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let cred_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // create -> store.create
+            .with_one::<CredentialRow>(credential_row(cred_id, account_id, ws_id))
+            // create -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // describe -> store.get
+            .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)))
+            // describe -> get_account -> account describe -> store.get
+            .with_optional::<AccountRow>(Some(account_row(account_id)))
+            // describe -> ws_svc.describe -> get_workspace_by_slug_or_id
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // describe -> ws_svc.describe -> store.get
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["credential:create", "credential:describe"])?;
+
+        let params = CredentialCreateParams {
+            account_id,
+            workspace_id: ws_id,
+            kind: CredentialKind::Password,
+            provider: CredentialProvider::Local,
+            status: CredentialStatus::Active,
+            provider_id: None,
+            email: Some("user@example.com".to_string()),
+            secret: Some("hashed-secret".to_string()),
+            config: CredentialConfig::default(),
+            last_used_at: None,
+            tags: vec![],
+            meta: CredentialMeta::default(),
+        };
+
+        let credential = svc.create(&mut ctx, params).await?;
+
+        assert_eq!(credential.id, cred_id);
+        assert_eq!(credential.account_id, account_id);
+        assert_eq!(credential.workspace_id, ws_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_credential_describe() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let cred_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // store.get
+            .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)))
+            // get_account -> account describe -> store.get
+            .with_optional::<AccountRow>(Some(account_row(account_id)))
+            // ws_svc.describe -> get_workspace_by_slug_or_id
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // ws_svc.describe -> store.get
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["credential:describe"])?;
+
+        let credential = svc
+            .describe(
+                &mut ctx,
+                CredentialDescribeParams {
+                    id: cred_id,
+                    account_id,
+                    workspace_id: ws_id,
+                    provider_id: None,
+                    email: None,
+                },
+            )
+            .await?;
+
+        assert_eq!(credential.id, cred_id);
+        assert_eq!(credential.account_id, account_id);
+        assert_eq!(credential.workspace_id, ws_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_credential_list() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let cred_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // list_with_tags_and_filter
+            .with_all::<CredentialRow>(vec![credential_row(cred_id, account_id, ws_id)])
+            // count_with_tags_and_filter
+            .with_one::<(i64,)>((1,))
+            // hydrate -> ws_svc.describe -> get_workspace_by_slug_or_id
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // hydrate -> ws_svc.describe -> store.get
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // hydrate -> get_account -> account describe -> store.get
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["credential:list"])?;
+
+        let res = svc
+            .list(
+                &mut ctx,
+                CredentialListParams {
+                    workspace_id: ws_id,
+                    filter: None,
+                    options: None,
+                },
+            )
+            .await?;
+
+        assert_eq!(res.data.len(), 1);
+        assert_eq!(res.data[0].id, cred_id);
+        assert_eq!(res.data[0].account_id, account_id);
+        assert_eq!(res.metadata.total, 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_credential_update() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let cred_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // update -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // update -> store.update
+            .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)))
+            // describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // describe -> store.get
+            .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)))
+            // describe -> get_account -> store.get
+            .with_optional::<AccountRow>(Some(account_row(account_id)))
+            // describe -> ws_svc.describe -> get_workspace_by_slug_or_id
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // describe -> ws_svc.describe -> store.get
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["credential:update", "credential:describe"])?;
+
+        let params = CredentialUpdateParams {
+            id: cred_id,
+            provider_id: None,
+            email: None,
+            account_id,
+            workspace_id: ws_id,
+            kind: None,
+            provider: None,
+            status: None,
+            new_provider_id: None,
+            new_email: None,
+            secret: None,
+            last_used_at: None,
+            config: None,
+            tags: None,
+            meta: None,
+        };
+
+        let credential = svc.update(&mut ctx, params).await?;
+
+        assert_eq!(credential.id, cred_id);
+        assert_eq!(credential.account_id, account_id);
+        assert_eq!(credential.workspace_id, ws_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_credential_delete() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let cred_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // delete -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // delete -> describe -> scope_and_validate_ctx -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // delete -> describe -> store.get
+            .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)))
+            // delete -> describe -> get_account -> store.get
+            .with_optional::<AccountRow>(Some(account_row(account_id)))
+            // delete -> describe -> ws_svc.describe -> get_workspace_by_slug_or_id
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // delete -> describe -> ws_svc.describe -> store.get
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // delete -> store.delete
+            .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.extend_perms(&["credential:delete", "credential:describe"])?;
+
+        let credential = svc
+            .delete(
+                &mut ctx,
+                CredentialDeleteParams {
+                    id: cred_id,
+                    account_id,
+                    workspace_id: ws_id,
+                    provider_id: None,
+                    email: None,
+                },
+            )
+            .await?;
+
+        assert_eq!(credential.id, cred_id);
+        assert_eq!(credential.account_id, account_id);
+
+        Ok(())
     }
 }

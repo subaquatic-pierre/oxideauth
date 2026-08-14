@@ -152,3 +152,96 @@ impl IntoParams<RoleDeleteParams> for RoleDeleteReq {
 pub struct RoleDeleteRes {
     pub id: Uuid,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_role_describe_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = RoleDescribeReq { id }.into_params(ws_id).unwrap();
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
+    }
+
+    #[test]
+    fn test_role_create_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let perm_id = Uuid::new_v4();
+        let params = RoleCreateReq {
+            name: "admin".to_string(),
+            description: Some("Full access".to_string()),
+            permission_ids: vec![perm_id],
+            tags: vec!["system".to_string()],
+            meta: RoleMeta::default(),
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.name, "admin");
+        assert_eq!(params.description.as_deref(), Some("Full access"));
+        assert_eq!(params.permission_ids, vec![perm_id]);
+        assert_eq!(params.tags, vec!["system".to_string()]);
+        assert_eq!(params.meta.schema_version, RoleMeta::default().schema_version);
+    }
+
+    #[test]
+    fn test_role_update_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = RoleUpdateReq {
+            id,
+            name: Some("editor".to_string()),
+            description: None,
+            permission_ids: None,
+            tags: Some(vec![]),
+            meta: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.name.as_deref(), Some("editor"));
+        assert!(params.description.is_none());
+        assert!(params.permission_ids.is_none());
+        assert_eq!(params.tags, Some(vec![]));
+    }
+
+    #[test]
+    fn test_role_list_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let params = RoleListReq {
+            filter: None,
+            options: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.workspace_id, ws_id);
+        assert!(params.filter.is_none());
+        assert!(params.options.is_none());
+    }
+
+    #[test]
+    fn test_role_delete_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = RoleDeleteReq { id }.into_params(ws_id).unwrap();
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
+    }
+
+    #[test]
+    fn test_role_describe_res_from_role_default() {
+        let role = Role::default();
+        let res = RoleDescribeRes::from(role.clone());
+        assert_eq!(res.id, role.id);
+        assert_eq!(res.name, "New Role");
+        assert_eq!(res.workspace_id, Uuid::nil());
+        assert!(res.permissions.is_empty());
+        assert_eq!(res.meta.schema_version, "1");
+    }
+}

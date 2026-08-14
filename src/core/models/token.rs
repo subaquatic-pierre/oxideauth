@@ -179,3 +179,199 @@ pub struct RefreshClaims {
     pub sid: Uuid,
     pub jti: Uuid,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::time::now_utc;
+    use time::Duration;
+
+    fn make_claims(ty: TokenType) -> TokenClaims {
+        TokenClaims {
+            sub: Uuid::new_v4(),
+            ws: Uuid::new_v4(),
+            mem: Uuid::new_v4(),
+            iss: "oxideauth.app".to_string(),
+            aud: "oxideauth.api".to_string(),
+            exp: usize::MAX,
+            iat: 0,
+            ty,
+            mem_ver: 3,
+            acc_ver: 4,
+            sid: Some(Uuid::new_v4()),
+            jti: Some(Uuid::new_v4()),
+        }
+    }
+
+    #[test]
+    fn test_token_claims_new() {
+        let sub = Uuid::new_v4();
+        let ws = Uuid::new_v4();
+        let mem = Uuid::new_v4();
+        let sid = Uuid::new_v4();
+        let jti = Uuid::new_v4();
+        let exp = now_utc() + Duration::hours(2);
+
+        let claims = TokenClaims::new(
+            sub, ws, mem, exp, TokenType::Auth, 5, 6, Some(sid), Some(jti),
+        );
+
+        assert_eq!(claims.sub, sub);
+        assert_eq!(claims.ws, ws);
+        assert_eq!(claims.mem, mem);
+        assert_eq!(claims.iss, "oxideauth.app");
+        assert_eq!(claims.aud, "oxideauth.api");
+        assert_eq!(claims.exp, exp.unix_timestamp() as usize);
+        assert_eq!(claims.ty, TokenType::Auth);
+        assert_eq!(claims.mem_ver, 5);
+        assert_eq!(claims.acc_ver, 6);
+        assert_eq!(claims.sid, Some(sid));
+        assert_eq!(claims.jti, Some(jti));
+        // iat is set at construction time; must be in the past or now
+        assert!(claims.iat <= now_utc().unix_timestamp() as usize);
+    }
+
+    #[test]
+    fn test_token_claims_new_without_session_ids() {
+        let claims = TokenClaims::new(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            now_utc() + Duration::minutes(5),
+            TokenType::AccountConfirm,
+            0,
+            0,
+            None,
+            None,
+        );
+        assert!(claims.sid.is_none());
+        assert!(claims.jti.is_none());
+        assert_eq!(claims.ty, TokenType::AccountConfirm);
+    }
+
+    #[test]
+    fn test_token_claims_is_expired() {
+        let mut expired = make_claims(TokenType::Auth);
+        expired.exp = 0;
+        assert!(expired.is_expired());
+
+        let mut valid = make_claims(TokenType::Auth);
+        valid.exp = now_utc().unix_timestamp() as usize + 3600;
+        assert!(!valid.is_expired());
+    }
+
+    #[test]
+    fn test_token_claims_accessors() {
+        let claims = make_claims(TokenType::PasswordReset);
+        assert_eq!(claims.token_type(), TokenType::PasswordReset);
+        assert_eq!(claims.sid(), claims.sid);
+        assert_eq!(claims.jti(), claims.jti);
+    }
+
+    #[test]
+    fn test_token_validate_type() {
+        let claims = make_claims(TokenType::Refresh);
+        assert!(claims.validate_type(TokenType::Refresh).is_ok());
+        assert!(claims.validate_type(TokenType::Auth).is_err());
+    }
+
+    #[test]
+    fn test_token_validate_not_expired() {
+        let claims = make_claims(TokenType::Auth);
+        assert!(claims.validate_not_expired().is_ok());
+
+        let mut expired = make_claims(TokenType::Auth);
+        expired.exp = 0;
+        assert!(expired.validate_not_expired().is_err());
+    }
+
+    #[test]
+    fn test_token_require_sid_and_jti() {
+        let claims = make_claims(TokenType::Auth);
+        assert_eq!(claims.require_sid().unwrap(), claims.sid.unwrap());
+        assert_eq!(claims.require_jti().unwrap(), claims.jti.unwrap());
+
+        let mut no_sid = make_claims(TokenType::Auth);
+        no_sid.sid = None;
+        assert!(no_sid.require_sid().is_err());
+
+        let mut no_jti = make_claims(TokenType::Auth);
+        no_jti.jti = None;
+        assert!(no_jti.require_jti().is_err());
+    }
+
+    #[test]
+    fn test_token_validate_refresh() {
+        let claims = make_claims(TokenType::Refresh);
+        let refresh = claims
+            .validate_refresh()
+            .expect("refresh token should validate");
+        assert_eq!(refresh.sub, claims.sub);
+        assert_eq!(refresh.ws, claims.ws);
+        assert_eq!(refresh.mem, claims.mem);
+        assert_eq!(refresh.sid, claims.sid.unwrap());
+        assert_eq!(refresh.jti, claims.jti.unwrap());
+
+        // Wrong token type
+        let auth_claims = make_claims(TokenType::Auth);
+        assert!(auth_claims.validate_refresh().is_err());
+
+        // Missing sid
+        let mut no_sid = make_claims(TokenType::Refresh);
+        no_sid.sid = None;
+        assert!(no_sid.validate_refresh().is_err());
+
+        // Missing jti
+        let mut no_jti = make_claims(TokenType::Refresh);
+        no_jti.jti = None;
+        assert!(no_jti.validate_refresh().is_err());
+    }
+
+    #[test]
+    fn test_token_validate_account_confirm() {
+        let claims = make_claims(TokenType::AccountConfirm);
+        assert_eq!(claims.validate_account_confirm().unwrap(), claims.sub);
+
+        let wrong = make_claims(TokenType::Auth);
+        assert!(wrong.validate_account_confirm().is_err());
+
+        let mut expired = make_claims(TokenType::AccountConfirm);
+        expired.exp = 0;
+        assert!(expired.validate_account_confirm().is_err());
+    }
+
+    #[test]
+    fn test_token_validate_password_reset() {
+        let claims = make_claims(TokenType::PasswordReset);
+        assert_eq!(claims.validate_password_reset().unwrap(), claims.sub);
+
+        let wrong = make_claims(TokenType::Refresh);
+        assert!(wrong.validate_password_reset().is_err());
+
+        let mut expired = make_claims(TokenType::PasswordReset);
+        expired.exp = 0;
+        assert!(expired.validate_password_reset().is_err());
+    }
+
+    #[test]
+    fn test_token_claims_serde_round_trip() {
+        let claims = make_claims(TokenType::Auth);
+        let json = serde_json::to_string(&claims).expect("serialize");
+        let back: TokenClaims = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, claims);
+    }
+
+    #[test]
+    fn test_token_type_serde_round_trip() {
+        for ty in [
+            TokenType::Auth,
+            TokenType::PasswordReset,
+            TokenType::Refresh,
+            TokenType::AccountConfirm,
+        ] {
+            let json = serde_json::to_string(&ty).unwrap();
+            let back: TokenType = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, ty);
+        }
+    }
+}

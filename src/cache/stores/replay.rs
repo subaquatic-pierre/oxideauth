@@ -63,3 +63,45 @@ impl<C: CacheExecutor> RefreshTokenReplayCacheStore<C> {
         Ok(false)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::mock::MockChx;
+
+    #[tokio::test]
+    async fn test_check_and_consume_marks_then_detects_replay() {
+        let store = RefreshTokenReplayCacheStore::new(Arc::new(MockChx::new()));
+
+        let jti = Uuid::new_v4();
+        let sid = Uuid::new_v4();
+
+        // First use: fresh token, no replay.
+        let first = store.check_and_consume(jti, sid, 60).await.unwrap();
+        assert!(!first, "first use of a fresh jti must not be a replay");
+
+        // Second use with the same jti: replay detected.
+        let second = store.check_and_consume(jti, sid, 60).await.unwrap();
+        assert!(second, "second use of the same jti must be a replay");
+    }
+
+    #[tokio::test]
+    async fn test_check_and_consume_is_keyed_per_jti() {
+        let store = RefreshTokenReplayCacheStore::new(Arc::new(MockChx::new()));
+
+        let jti_a = Uuid::new_v4();
+        let jti_b = Uuid::new_v4();
+        let sid = Uuid::new_v4();
+
+        let first = store.check_and_consume(jti_a, sid, 60).await.unwrap();
+        assert!(!first);
+
+        // A different jti is still fresh.
+        let other = store.check_and_consume(jti_b, sid, 60).await.unwrap();
+        assert!(!other, "a different jti must not be flagged as replay");
+
+        // But jti_a is now consumed.
+        let replay = store.check_and_consume(jti_a, sid, 60).await.unwrap();
+        assert!(replay);
+    }
+}

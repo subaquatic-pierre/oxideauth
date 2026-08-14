@@ -40,3 +40,48 @@ impl<C: CacheExecutor> CacheManager<C> {
         self.chx.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::{
+        entities::auth::AuthCache,
+        mock::MockChx,
+        traits::CacheEntity,
+    };
+    use uuid::Uuid;
+
+    #[test]
+    fn test_new_constructs_all_sub_stores_and_returns_same_executor() {
+        let chx = Arc::new(MockChx::new());
+        let mgr = CacheManager::new(chx.clone());
+
+        // The executor returned by `executor()` is the same Arc passed to `new`.
+        assert!(Arc::ptr_eq(&mgr.executor(), &chx));
+
+        // All sub-stores are constructed and typed correctly.
+        let _ = &mgr.auth;
+        let _ = &mgr.replay;
+        let _ = &mgr.oauth_state;
+        let _ = &mgr.workspace;
+    }
+
+    #[tokio::test]
+    async fn test_sub_stores_share_the_same_executor() {
+        let chx = Arc::new(MockChx::new());
+        let mgr = CacheManager::new(chx.clone());
+
+        // A write through the auth sub-store is visible through `executor()`.
+        let mem = Uuid::new_v4();
+        let entity = AuthCache::new_keyed(mem, Uuid::new_v4(), None);
+        mgr.auth.write(&entity, None).await.unwrap();
+
+        let raw = mgr
+            .executor()
+            .json_get::<AuthCache>(entity.key().as_ref(), None)
+            .await
+            .unwrap();
+        assert!(raw.is_some(), "write via sub-store should be visible");
+        assert_eq!(raw.unwrap().mem_id, mem);
+    }
+}

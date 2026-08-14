@@ -292,3 +292,279 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::{
+        cache::{
+            entities::auth::{AuthCache, AuthScopeCache},
+            entities::workspace::WorkspaceCache,
+            manager::CacheManager,
+            mock::MockChx,
+        },
+        config::Config,
+        core::{
+            models::token::{TokenClaims, TokenType},
+            services::{
+                auth::AuthValidator, permission::CANONICAL_PERMISSIONS, registry::ServiceRegistry,
+            },
+        },
+        store::dbx::MockDbx,
+        utils::time::now_utc,
+    };
+    use axum::http::HeaderMap;
+    use serial_test::serial;
+    use time::Duration as TimeDuration;
+    use uuid::Uuid;
+
+    fn mock_ctx_service() -> CtxService<MockDbx, MockChx> {
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(MockDbx::new())));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = Arc::new(ServiceRegistry::new(&config, sm.clone(), cm.clone()));
+        CtxService::new(sm, cm, svc_reg, config)
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_parse_workspace_header() -> CoreResult<()> {
+        // -- Execute: missing header
+        let headers = HeaderMap::new();
+        // -- Assert
+        assert_eq!(
+            CtxService::<MockDbx, MockChx>::parse_workspace_header(&headers),
+            None
+        );
+
+        // -- Execute: valid UUID header
+        let ws_id = Uuid::new_v4();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            SYSTEM_CONST.workspace_header_key,
+            ws_id.to_string().parse().unwrap(),
+        );
+        // -- Assert
+        assert_eq!(
+            CtxService::<MockDbx, MockChx>::parse_workspace_header(&headers),
+            Some(ws_id)
+        );
+
+        // -- Execute: unparseable UUID header
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            SYSTEM_CONST.workspace_header_key,
+            "not-a-uuid".parse().unwrap(),
+        );
+        // -- Assert
+        assert_eq!(
+            CtxService::<MockDbx, MockChx>::parse_workspace_header(&headers),
+            None
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_ctx_bootstrap_and_extend_perms() -> CoreResult<()> {
+        // -- Setup
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.list])?;
+        let auth = AuthValidator::new(&ctx);
+
+        // -- Assert
+        assert!(auth.validate_ctx_perms(&[CANONICAL_PERMISSIONS.account.list]).is_ok());
+        assert_eq!(ctx.account_id(), Uuid::nil());
+        assert_eq!(ctx.membership_id(), Uuid::nil());
+        // The bootstrap workspace uses the system slug, so it is a global context.
+        assert!(ctx.is_system_workspace()?);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_workspace_scoping() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let mut ctx = CoreCtx::bootstrap()?;
+        let auth = AuthValidator::new(&ctx);
+
+        // -- Execute / -- Assert: system context may scope to any workspace
+        assert_eq!(auth.validate_workspace(Some(ws_id))?, Some(ws_id));
+        let store_ctx = auth.scope_store_workspace(Some(ws_id))?;
+        assert_eq!(store_ctx.workspace_scope(), Some(ws_id));
+
+        // -- Setup: non-system (workspace-scoped) context
+        let ws_cache = WorkspaceCache {
+            id: ws_id,
+            slug: "team-ws".to_string(),
+            ..WorkspaceCache::default()
+        };
+        let auth_cache = AuthCache::new_keyed(Uuid::new_v4(), Uuid::new_v4(), None);
+        let scoped_ctx = CoreCtx::new(auth_cache, ws_cache)?;
+        let auth = AuthValidator::new(&scoped_ctx);
+
+        // -- Execute / -- Assert: matching workspace is allowed
+        assert_eq!(auth.validate_workspace(Some(ws_id))?, Some(ws_id));
+        // Deriving from the context works when no workspace is requested
+        assert_eq!(auth.validate_workspace(None)?, Some(ws_id));
+        // -- Execute: mismatched workspace is rejected
+        let other = Uuid::new_v4();
+        assert!(matches!(
+            auth.validate_workspace(Some(other)),
+            Err(CoreError::Auth(_))
+        ));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_context_resolver_validation() -> CoreResult<()> {
+        // -- Setup
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(MockDbx::new())));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+
+        let acc_id = Uuid::new_v4();
+        let ws_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+        let sid = Uuid::new_v4();
+        let claims = TokenClaims::new(
+            acc_id,
+            ws_id,
+            mem_id,
+            now_utc() + TimeDuration::hours(1),
+            TokenType::Auth,
+            1,
+            2,
+            Some(sid),
+            None,
+        );
+        let resolver = ContextResolver::new(sm, cm, &config, &claims);
+
+        let auth = AuthCache {
+            mem_id,
+            acc_id,
+            sid: Some(sid),
+            mem_version: 1,
+            acc_version: 2,
+            mem_active: true,
+            acc_enabled: true,
+            auth_scope: AuthScopeCache::default(),
+        };
+
+        // -- Execute / -- Assert: all versions + status match
+        assert!(resolver.validate_auth(&auth).is_ok());
+
+        // -- Execute: membership version mismatch
+        let bad_mem = AuthCache {
+            mem_version: 99,
+            ..auth.clone()
+        };
+        assert!(matches!(
+            resolver.validate_auth(&bad_mem),
+            Err(CoreError::Auth(_))
+        ));
+
+        // -- Execute: account version mismatch
+        let bad_acc = AuthCache {
+            acc_version: 99,
+            ..auth.clone()
+        };
+        assert!(matches!(
+            resolver.validate_auth(&bad_acc),
+            Err(CoreError::Auth(_))
+        ));
+
+        // -- Execute: session revoked (cached sid differs from the claim)
+        let bad_sid = AuthCache {
+            sid: Some(Uuid::new_v4()),
+            ..auth.clone()
+        };
+        assert!(matches!(
+            resolver.validate_auth(&bad_sid),
+            Err(CoreError::Auth(_))
+        ));
+
+        // -- Execute: inactive membership
+        let inactive = AuthCache {
+            mem_active: false,
+            ..auth.clone()
+        };
+        assert!(matches!(
+            resolver.validate_auth(&inactive),
+            Err(CoreError::Auth(_))
+        ));
+
+        // -- Execute: disabled account
+        let disabled = AuthCache {
+            acc_enabled: false,
+            ..auth.clone()
+        };
+        assert!(matches!(
+            resolver.validate_auth(&disabled),
+            Err(CoreError::Auth(_))
+        ));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_resolve_ctx_requires_auth_header() -> CoreResult<()> {
+        // -- Setup
+        let svc = mock_ctx_service();
+        let headers = HeaderMap::new();
+
+        // -- Execute
+        let res = svc.resolve_ctx(&headers).await;
+
+        // -- Assert
+        assert!(
+            matches!(res, Err(CoreError::Auth(_))),
+            "resolve_ctx without a bearer token must fail with an Auth error"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_validate_and_scope_global_workspace() -> CoreResult<()> {
+        // -- Setup
+        let svc = mock_ctx_service();
+        let headers = HeaderMap::new();
+
+        // -- Execute: system context without an X-Workspace-Id header is rejected
+        let mut system_ctx = CoreCtx::bootstrap()?;
+        assert!(matches!(
+            svc.validate_and_scope_global_workspace(&headers, &mut system_ctx),
+            Err(CoreError::Auth(_))
+        ));
+
+        // -- Setup: workspace-scoped context (not system)
+        let ws_id = Uuid::new_v4();
+        let ws_cache = WorkspaceCache {
+            id: ws_id,
+            slug: "team-ws".to_string(),
+            ..WorkspaceCache::default()
+        };
+        let auth_cache = AuthCache::new_keyed(Uuid::new_v4(), Uuid::new_v4(), None);
+        let mut scoped_ctx = CoreCtx::new(auth_cache, ws_cache)?;
+
+        // -- Execute: scoped context resolves to its own workspace, no header needed
+        assert!(svc
+            .validate_and_scope_global_workspace(&headers, &mut scoped_ctx)
+            .is_ok());
+        assert_eq!(scoped_ctx.scoped_ws_id(), ws_id);
+
+        Ok(())
+    }
+}
