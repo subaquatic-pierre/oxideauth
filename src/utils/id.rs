@@ -17,12 +17,12 @@ pub fn map_optional_db_id(db_id: Option<DbId>) -> Option<Uuid> {
 
 pub fn id_or_string(
     id: Option<Uuid>,
-    email: Option<String>,
+    fallback: Option<String>,
     msg: Option<&str>,
 ) -> CoreResult<String> {
     let res = id
         .map(|id| id.to_string())
-        .or(email.clone())
+        .or(fallback.clone())
         .ok_or(CoreError::InvalidParams(
             msg.unwrap_or("ID or identifier required").to_string(),
         ));

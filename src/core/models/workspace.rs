@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     core::{
+        error::{CoreError, CoreResult},
         models::{
             audit::CoreAuditFields,
             list::{RequestFilterParams, RequestListOptions},
@@ -18,6 +19,7 @@ use crate::{
         WorkspaceConfig as StoreWorkspaceConfig, WorkspaceFilter as StoreWorkspaceFilter,
         WorkspaceForCreate, WorkspaceForUpdate, WorkspaceMeta as StoreWorkspaceMeta, WorkspaceRow,
     },
+    utils::id::id_or_string,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -106,12 +108,20 @@ impl RequestListParams<WorkspaceFilter> for WorkspaceListParams {
 
 #[derive(Default, Clone, Debug)]
 pub struct WorkspaceDeleteParams {
-    pub id: String,
+    pub id: Option<Uuid>,
+    pub slug: Option<String>,
+}
+
+impl WorkspaceDeleteParams {
+    pub fn id_or_slug(&self) -> CoreResult<String> {
+        id_or_string(self.id, self.slug.clone(), Some("ID or slug required"))
+    }
 }
 
 #[derive(Default, Clone, Debug)]
 pub struct WorkspaceUpdateParams {
-    pub id: String,
+    pub id: Option<Uuid>,
+    pub slug: Option<String>,
 
     // Fields to Update (mirroring WorkspaceForUpdate)
     pub name: Option<String>,
@@ -120,6 +130,12 @@ pub struct WorkspaceUpdateParams {
     pub config: Option<WorkspaceConfig>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<WorkspaceMeta>,
+}
+
+impl WorkspaceUpdateParams {
+    pub fn id_or_slug(&self) -> CoreResult<String> {
+        id_or_string(self.id, self.slug.clone(), Some("ID or slug required"))
+    }
 }
 
 impl From<WorkspaceUpdateParams> for WorkspaceForUpdate {
@@ -138,7 +154,14 @@ impl From<WorkspaceUpdateParams> for WorkspaceForUpdate {
 
 #[derive(Default, Clone, Debug)]
 pub struct WorkspaceDescribeParams {
-    pub id: String,
+    pub id: Option<Uuid>,
+    pub slug: Option<String>,
+}
+
+impl WorkspaceDescribeParams {
+    pub fn id_or_slug(&self) -> CoreResult<String> {
+        id_or_string(self.id, self.slug.clone(), Some("ID or slug required"))
+    }
 }
 
 pub type WorkspaceMeta = StoreWorkspaceMeta;

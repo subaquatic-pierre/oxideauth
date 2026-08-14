@@ -14,13 +14,17 @@ use crate::core::models::{
 // --- WorkspaceDescribeReq ---
 #[derive(Deserialize)]
 pub struct WorkspaceDescribeReq {
-    pub id: String,
+    pub id: Option<Uuid>,
+    pub slug: Option<String>,
 }
 
 // Implement From to convert Web Req to Core Param
 impl From<WorkspaceDescribeReq> for WorkspaceDescribeParams {
     fn from(value: WorkspaceDescribeReq) -> Self {
-        Self { id: value.id }
+        Self {
+            id: value.id,
+            slug: value.slug,
+        }
     }
 }
 
@@ -96,7 +100,8 @@ impl From<WorkspaceCreateReq> for WorkspaceCreateParams {
 #[derive(Deserialize)]
 pub struct WorkspaceUpdateReq {
     // Identifier (one or both must be provided)
-    pub id: String,
+    pub id: Option<Uuid>,
+    pub slug: Option<String>,
 
     // Fields to Update (all fields here are Option<T> to represent 'patch')
     pub owner: Option<Uuid>,
@@ -112,6 +117,7 @@ impl From<WorkspaceUpdateReq> for WorkspaceUpdateParams {
     fn from(value: WorkspaceUpdateReq) -> Self {
         Self {
             id: value.id,
+            slug: value.slug,
             name: value.name,
             description: value.description,
             owner: value.owner,
@@ -125,13 +131,17 @@ impl From<WorkspaceUpdateReq> for WorkspaceUpdateParams {
 // --- WorkspaceDeleteReq ---
 #[derive(Deserialize)]
 pub struct WorkspaceDeleteReq {
-    pub id: String,
+    pub id: Option<Uuid>,
+    pub slug: Option<String>,
 }
 
 // Implement From<WorkspaceDeleteReq> for WorkspaceDeleteParams
 impl From<WorkspaceDeleteReq> for WorkspaceDeleteParams {
     fn from(value: WorkspaceDeleteReq) -> Self {
-        Self { id: value.id }
+        Self {
+            id: value.id,
+            slug: value.slug,
+        }
     }
 }
 

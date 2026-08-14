@@ -103,7 +103,8 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
                         .describe(
                             ctx,
                             WorkspaceDescribeParams {
-                                id: workspace_id.to_string(),
+                                id: Some(workspace_id),
+                                ..Default::default()
                             },
                         )
                         .await?;
@@ -222,7 +223,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Credent
             .describe(
                 ctx,
                 WorkspaceDescribeParams {
-                    id: workspace.id.to_string(),
+                    id: Some(workspace.id),
+                    ..Default::default()
                 },
             )
             .await?;

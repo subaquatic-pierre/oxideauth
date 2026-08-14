@@ -8,7 +8,7 @@ use crate::{
         models::{
             list::ListResponse,
             permission::PermissionRule,
-            workspace::{Workspace, WorkspaceDescribeParams},
+            workspace::Workspace,
         },
         services::{
             auth::AuthValidator, permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService,
@@ -29,10 +29,6 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
         ctx: &mut CoreCtx,
         workspace_id: Uuid,
     ) -> CoreResult<WorkspaceCache> {
-        let params = WorkspaceDescribeParams {
-            id: workspace_id.to_string(),
-        };
-
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.workspace.describe])?;
 
         let ws = self

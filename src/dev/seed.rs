@@ -104,7 +104,8 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         .describe(
             ctx,
             WorkspaceDescribeParams {
-                id: SYSTEM_CONST.default_ws_slug.to_string(),
+                slug: Some(SYSTEM_CONST.system_ws_slug.to_string()),
+                ..Default::default()
             },
         )
         .await?;
@@ -169,7 +170,8 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         .update(
             ctx,
             WorkspaceUpdateParams {
-                id: system_ws.id.into(),
+                id: Some(system_ws.id),
+                slug: None,
                 name: None,
                 owner: Some(system_ws.id),
                 description: None,
@@ -185,7 +187,8 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         .describe(
             ctx,
             WorkspaceDescribeParams {
-                id: SYSTEM_CONST.default_ws_slug.to_string(),
+                slug: Some(SYSTEM_CONST.default_ws_slug.to_string()),
+                ..Default::default()
             },
         )
         .await?;
@@ -194,7 +197,7 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
         .update(
             ctx,
             WorkspaceUpdateParams {
-                id: default_ws.id.to_string(),
+                id: Some(default_ws.id),
                 owner: Some(owner_acc.id),
                 ..Default::default()
             },
@@ -215,7 +218,8 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
         .describe(
             ctx,
             WorkspaceDescribeParams {
-                id: SYSTEM_CONST.system_ws_slug.to_string(),
+                slug: Some(SYSTEM_CONST.system_ws_slug.to_string()),
+                ..Default::default()
             },
         )
         .await?;
@@ -224,7 +228,8 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
         .describe(
             ctx,
             WorkspaceDescribeParams {
-                id: SYSTEM_CONST.default_ws_slug.to_string(),
+                slug: Some(SYSTEM_CONST.default_ws_slug.to_string()),
+                ..Default::default()
             },
         )
         .await?;
@@ -384,7 +389,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         .update(
             ctx,
             WorkspaceUpdateParams {
-                id: test_ws.id.to_string(),
+                id: Some(test_ws.id),
                 owner: Some(test_account.id),
                 ..Default::default()
             },
@@ -457,7 +462,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         .update(
             ctx,
             WorkspaceUpdateParams {
-                id: public_ws.id.to_string(),
+                id: Some(public_ws.id),
                 owner: Some(public_admin.id),
                 ..Default::default()
             },
@@ -530,7 +535,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         .update(
             ctx,
             WorkspaceUpdateParams {
-                id: private_ws.id.to_string(),
+                id: Some(private_ws.id),
                 owner: Some(private_admin.id),
                 ..Default::default()
             },

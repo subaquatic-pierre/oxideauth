@@ -338,7 +338,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Workspa
     ) -> CoreResult<Workspace> {
         let store = self.store();
 
-        let workspace = self.get_workspace_by_slug_or_id(ctx, &params.id).await?;
+        let workspace = self.get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?).await?;
 
         let auth_validator = AuthValidator::new(ctx);
 
@@ -418,7 +418,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
         // scope store_ctx
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        let ws = self.get_workspace_by_slug_or_id(ctx, &params.id).await?;
+        let ws = self.get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?).await?;
 
         let update_data: WorkspaceForUpdate = params.into();
 
@@ -451,7 +451,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Workspace
         // scope store_ctx
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        let ws = self.get_workspace_by_slug_or_id(ctx, &params.id).await?;
+        let ws = self.get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?).await?;
 
         let deleted = store.delete(&store_ctx, &ws.id.into()).await?;
         self.cm.workspace.invalidate(deleted.id.into()).await?;
@@ -503,7 +503,7 @@ mod tests {
             .expect("system workspace not seeded");
 
         let mut params = WorkspaceDescribeParams::default();
-        params.id = system_ws.id.to_string();
+        params.id = Some(system_ws.id.into());
 
         let ok = svc.describe(&mut ctx, params).await;
 
@@ -599,7 +599,7 @@ mod tests {
 
         // Update name
         let update_params = WorkspaceUpdateParams {
-            id: created.id.to_string(),
+            id: Some(created.id),
             name: Some("Updated Name".to_string()),
             ..Default::default()
         };
@@ -635,14 +635,16 @@ mod tests {
 
         // Delete
         let delete_params = WorkspaceDeleteParams {
-            id: created.id.to_string(),
+            id: Some(created.id),
+            ..Default::default()
         };
         let deleted = svc.delete(&mut ctx, delete_params).await?;
         assert_eq!(deleted.id, created.id);
 
         // Verify it's gone
         let desc_params = WorkspaceDescribeParams {
-            id: created.id.to_string(),
+            id: Some(created.id),
+            ..Default::default()
         };
         let err = svc.describe(&mut ctx, desc_params).await;
         assert!(err.is_err());

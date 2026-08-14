@@ -109,9 +109,10 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
     }
 
     async fn invalidate_all_memberships(&self, ctx: &CoreCtx, acc_id: Uuid) -> CoreResult<()> {
-        let store_ctx: StoreCtx = ctx.into();
+        let mut store_ctx: StoreCtx = ctx.into();
+        store_ctx.set_workspace_scope(None);
         let filter = json!({"account_id":&acc_id.to_string()}).try_into()?;
-        // list all memberships with account
+        // list all memberships with account in workspace all workspaces
         let memberships = self
             .sm
             .membership
