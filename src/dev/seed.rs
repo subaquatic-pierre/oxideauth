@@ -117,7 +117,6 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
             ctx,
             AccountCreateParams {
                 email: SYSTEM_CONST.system_acc_email.to_string(),
-                password: String::new(),
                 name: SYSTEM_CONST.system_acc_name.to_string(),
                 description: Some("System account for internal operations".to_string()),
                 tags: Some(vec!["system".to_string()]),
@@ -133,7 +132,6 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
             ctx,
             AccountCreateParams {
                 email: config.owner_email.clone(),
-                password: config.owner_password.clone(),
                 name: config.owner_name.clone(),
                 description: Some("Workspace owner account".to_string()),
                 tags: Some(vec!["system".to_string()]),
@@ -351,7 +349,6 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             ctx,
             AccountCreateParams {
                 email: "test@example.com".to_string(),
-                password: "testpass".to_string(),
                 name: "Test Account".to_string(),
                 description: Some("General test account".to_string()),
                 ..Default::default()
@@ -425,7 +422,6 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             ctx,
             AccountCreateParams {
                 email: "public-admin@example.com".to_string(),
-                password: "adminpass".to_string(),
                 name: "Public Admin".to_string(),
                 description: Some("Admin of the public test workspace".to_string()),
                 ..Default::default()
@@ -498,7 +494,6 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             ctx,
             AccountCreateParams {
                 email: "private-admin@example.com".to_string(),
-                password: "adminpass".to_string(),
                 name: "Private Admin".to_string(),
                 description: Some("Admin of the private test workspace".to_string()),
                 ..Default::default()
@@ -551,7 +546,6 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             ctx,
             AccountCreateParams {
                 email: "member@example.com".to_string(),
-                password: "memberpass".to_string(),
                 name: "Workspace Member".to_string(),
                 description: Some("Cross-workspace member account".to_string()),
                 ..Default::default()

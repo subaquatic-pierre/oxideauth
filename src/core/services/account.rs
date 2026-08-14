@@ -231,7 +231,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
         auth_validator.validate_ctx_perms(&[Self::UPDATE_PERMISSION])?;
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        // TODO: updating email constraints need to be enforced
+        // NOTE: updating email constraints need to be enforced
         // currently cannot change account email
         let identifier = params.id_or_email()?;
 
@@ -292,10 +292,7 @@ mod tests {
         cache::{manager::CacheManager, mock::MockChx},
         config::Config,
         core::services::registry::ServiceRegistry,
-        store::{
-            dbx::MockDbx,
-            entities::account::AccountRow,
-        },
+        store::{dbx::MockDbx, entities::account::AccountRow},
     };
     use serial_test::serial;
 
@@ -311,7 +308,7 @@ mod tests {
                     email: "list@example.com".into(),
                     ..Default::default()
                 }])
-                .with_one::<(i64,)>( (1,) ),
+                .with_one::<(i64,)>((1,)),
         );
         let sm = Arc::new(StoreManager::new(dbx));
 
