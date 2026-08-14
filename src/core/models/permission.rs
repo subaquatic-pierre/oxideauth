@@ -17,9 +17,13 @@ use crate::{
         },
         traits::{filter::OpValWorkspaceId, list::RequestListParams, params::ValidateParams},
     },
-    store::entities::permission::{
-        PermissionFilter as StorePermissionFilter, PermissionForCreate, PermissionForUpdate,
-        PermissionMeta as StorePermissionMeta, PermissionRow,
+    store::entities::{
+        audit::AuditMeta,
+        permission::{
+            PermissionFilter as StorePermissionFilter, PermissionForCreate, PermissionForUpdate,
+            PermissionMeta as StorePermissionMeta, PermissionRow,
+        },
+        role::JoinedPermissionOnRole,
     },
 };
 
@@ -50,6 +54,28 @@ impl From<PermissionRow> for Permission {
             tags: row.tags,
             meta: row.meta,
             audit: row.audit.into(),
+        }
+    }
+}
+
+impl From<JoinedPermissionOnRole> for Permission {
+    fn from(row: JoinedPermissionOnRole) -> Self {
+        Self {
+            id: row.id.into(),
+            workspace_id: row.workspace_id,
+            name: row.name,
+            description: row.description,
+            tags: row.tags,
+            meta: row.meta,
+            audit: CoreAuditFields {
+                created_by: row.created_by.into(),
+                created_at: row.created_at,
+                updated_by: row.updated_by.map(|el| el.into()),
+                updated_at: row.updated_at,
+                meta: AuditMeta {
+                    schema_version: "DO_NOT_USE".into(),
+                },
+            },
         }
     }
 }

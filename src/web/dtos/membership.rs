@@ -53,7 +53,7 @@ impl From<Membership> for MembershipDescribeRes {
         Self {
             id: m.id,
             workspace_id: m.workspace_id,
-            account_id: m.account.id,
+            account_id: m.account_id,
             project_id: m.project_id,
             version: m.version,
             scope: m.scope,
@@ -207,7 +207,10 @@ mod tests {
         assert_eq!(params.project_id, Some(project_id));
         assert_eq!(params.role_ids, vec![role_id]);
         assert_eq!(params.tags, vec!["t".to_string()]);
-        assert_eq!(params.meta.schema_version, MembershipMeta::default().schema_version);
+        assert_eq!(
+            params.meta.schema_version,
+            MembershipMeta::default().schema_version
+        );
     }
 
     #[test]

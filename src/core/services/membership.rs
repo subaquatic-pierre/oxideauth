@@ -125,6 +125,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
 
         // TODO: optimize query, use dedicated role service method
         // to list roles from list of ids
+
         for role in roles {
             let role = self
                 .role_svc
@@ -158,32 +159,9 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
             // custom SQL
             let mut membership_roles: Vec<Role> = vec![];
 
-            for role in row.roles.iter() {
-                let role = match roles_map.get(&role.id) {
-                    Some(role) => role.clone(),
-                    None => {
-                        let role = self
-                            .role_svc
-                            .describe(
-                                ctx,
-                                RoleDescribeParams {
-                                    id: role.id.into(),
-                                    workspace_id: role.workspace_id.into(),
-                                },
-                            )
-                            .await?;
-                        roles_map.insert(role.id, role.clone());
-                        role
-                    }
-                };
-                membership_roles.push(role);
-            }
+            let roles = self.get_roles(ctx, row.roles).await?;
 
-            let account = self
-                .get_account(ctx, row.membership.account_id, row.membership.workspace_id)
-                .await?;
-
-            let membership = Membership::from((row.membership, membership_roles, account));
+            let membership = Membership::from_with_roles(row.membership, membership_roles);
 
             data.push(membership);
         }
@@ -273,6 +251,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Members
         let membership_with_roles: MembershipWithRoles =
             store.get_many_to_many(&store_ctx, &db_id).await?;
 
+        // TODO: implement membership -> role -> permission join query
         let roles = self.get_roles(ctx, membership_with_roles.roles).await?;
         let account = self
             .get_account(
@@ -282,7 +261,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Members
             )
             .await?;
 
-        let membership = Membership::from((membership_with_roles.membership, roles, account));
+        let membership = Membership::from_with_roles(membership_with_roles.membership, roles);
 
         Ok(membership)
     }
@@ -528,9 +507,11 @@ mod tests {
             // create -> describe -> scope_and_validate_ctx -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // create -> describe -> get_many_to_many (count)
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             // create -> describe -> get_many_to_many
-            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(mem_id, account_id, ws_id)))
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
             // create -> describe -> get_account
             .with_optional::<AccountRow>(Some(account_row(account_id)));
         let svc = mock_svc(dbx);
@@ -553,7 +534,7 @@ mod tests {
         // -- Assert
         assert_eq!(membership.id, mem_id);
         assert_eq!(membership.workspace_id, ws_id);
-        assert_eq!(membership.account.id, account_id);
+        assert_eq!(membership.account_id, account_id);
 
         Ok(())
     }
@@ -606,8 +587,10 @@ mod tests {
 
         let dbx = MockDbx::new()
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
-            .with_one::<(i64,)>( (0,) )
-            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(mem_id, account_id, ws_id)))
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
             .with_optional::<AccountRow>(Some(account_row(account_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
@@ -626,7 +609,7 @@ mod tests {
         // -- Assert
         assert_eq!(membership.id, mem_id);
         assert_eq!(membership.workspace_id, ws_id);
-        assert_eq!(membership.account.id, account_id);
+        assert_eq!(membership.account_id, account_id);
 
         Ok(())
     }
@@ -643,11 +626,11 @@ mod tests {
             // list -> scope_and_validate_ctx -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // list_many_to_many -> count
-            .with_one::<(i64,)>( (1,) )
+            .with_one::<(i64,)>((1,))
             // list_many_to_many -> data
             .with_all::<MembershipWithRoles>(vec![membership_with_roles(mem_id, account_id, ws_id)])
             // count_with_tags_and_filter -> count
-            .with_one::<(i64,)>( (1,) )
+            .with_one::<(i64,)>((1,))
             // hydrate -> get_account
             .with_optional::<AccountRow>(Some(account_row(account_id)));
         let svc = mock_svc(dbx);
@@ -685,9 +668,11 @@ mod tests {
             // update -> describe -> scope_and_validate_ctx -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // describe -> get_many_to_many (count)
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             // describe -> get_many_to_many
-            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(mem_id, account_id, ws_id)))
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
             // describe -> get_account
             .with_optional::<AccountRow>(Some(account_row(account_id)))
             // update -> scope_and_validate_ctx -> get_workspace
@@ -697,9 +682,11 @@ mod tests {
             // update -> describe -> scope_and_validate_ctx -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // describe -> get_many_to_many (count)
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             // describe -> get_many_to_many
-            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(mem_id, account_id, ws_id)))
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
             // describe -> get_account
             .with_optional::<AccountRow>(Some(account_row(account_id)));
         let svc = mock_svc(dbx);
@@ -739,9 +726,11 @@ mod tests {
             // delete -> describe -> scope_and_validate_ctx -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // describe -> get_many_to_many (count)
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             // describe -> get_many_to_many
-            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(mem_id, account_id, ws_id)))
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
             // describe -> get_account
             .with_optional::<AccountRow>(Some(account_row(account_id)))
             // delete -> store.delete

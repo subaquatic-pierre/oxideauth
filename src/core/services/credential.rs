@@ -81,56 +81,6 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
             .await?;
         Ok(account)
     }
-
-    async fn hydrate_credentials(
-        &self,
-        ctx: &mut CoreCtx,
-        rows: Vec<CredentialRow>,
-    ) -> CoreResult<Vec<Credential>> {
-        let mut workspaces: HashMap<Uuid, Workspace> = HashMap::new();
-        let mut accounts: HashMap<Uuid, Account> = HashMap::new();
-
-        let mut credentials: Vec<Credential> = Vec::with_capacity(rows.len());
-
-        // // Hydrate results
-        for row in rows.into_iter() {
-            let workspace_id: Uuid = row.workspace_id.into();
-            let workspace = match workspaces.get(&workspace_id) {
-                Some(ws) => ws,
-                None => {
-                    let ws = self
-                        .ws_svc
-                        .describe(
-                            ctx,
-                            WorkspaceDescribeParams {
-                                id: Some(workspace_id),
-                                ..Default::default()
-                            },
-                        )
-                        .await?;
-                    let ws_id = ws.id;
-                    workspaces.insert(ws_id, ws);
-                    // SAFETY: can unwrap as insert occurs directly above
-                    workspaces.get(&ws_id).unwrap()
-                }
-            };
-            let account_id: Uuid = row.account_id.into();
-            let account = match accounts.get(&account_id) {
-                Some(acc) => acc,
-                None => {
-                    let acc = self.get_account(ctx, account_id, workspace_id).await?;
-                    let acc_id = acc.id;
-                    accounts.insert(acc_id, acc);
-                    // SAFETY: can unwrap as insert occurs directly above
-                    accounts.get(&acc_id).unwrap()
-                }
-            };
-            let project = Credential::from_row_with_entities(row, account.id, workspace.id)?;
-            credentials.push(project);
-        }
-
-        Ok(credentials)
-    }
 }
 
 // --- Base Model Service ---
@@ -181,18 +131,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Credentia
             }
         };
 
-        // // Use describe to return fully hydrated model
-        self.describe(
-            ctx,
-            CredentialDescribeParams {
-                id: row.id.into(),
-                account_id: params.account_id,
-                workspace_id: params.workspace_id,
-                provider_id: None,
-                email: None,
-            },
-        )
-        .await
+        Ok(row.into())
     }
 }
 
@@ -214,23 +153,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Credent
 
         let row = store.get(&store_ctx, &params.id.into()).await?;
 
-        let acc = self
-            .get_account(ctx, params.account_id, params.workspace_id)
-            .await?;
-        let ws = self
-            .ws_svc
-            .describe(
-                ctx,
-                WorkspaceDescribeParams {
-                    id: Some(workspace.id),
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        let credential = Credential::from_row_with_entities(row, acc.id, ws.id)?;
-
-        Ok(credential)
+        Ok(row.into())
     }
 }
 
@@ -269,7 +192,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for CredentialS
             .count_with_tags_and_filter(&store_ctx, tags, filter)
             .await?;
 
-        let credentials = self.hydrate_credentials(ctx, data).await?;
+        let mut credentials: Vec<Credential> = data.into_iter().map(|v| v.into()).collect();
 
         Ok(ListResponse::new(credentials, total, list_options))
     }

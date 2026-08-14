@@ -8,7 +8,10 @@ use crate::{
         traits::params::ValidateParams,
     },
     store::entities::{
-        audit::AuditMeta, permission::PermissionMeta, role::RoleForCreate, role::RoleForUpdate,
+        audit::AuditMeta,
+        membership::JoinedRoleOnMembership,
+        permission::PermissionMeta,
+        role::{RoleForCreate, RoleForUpdate},
     },
 };
 
@@ -53,27 +56,7 @@ pub struct Role {
 impl From<RoleWithPermissions> for Role {
     fn from(rwp: RoleWithPermissions) -> Self {
         let row = rwp.role;
-        let permissions = rwp
-            .permissions
-            .into_iter()
-            .map(|el| Permission {
-                id: el.id.into(),
-                workspace_id: el.workspace_id,
-                name: el.name,
-                description: el.description,
-                tags: el.tags,
-                meta: PermissionMeta { ..el.meta },
-                audit: CoreAuditFields {
-                    created_by: el.created_by.into(),
-                    created_at: el.created_at,
-                    updated_by: el.updated_by.map(|el| el.into()),
-                    updated_at: el.updated_at,
-                    meta: AuditMeta {
-                        schema_version: "DO_NOT_USE".into(),
-                    },
-                },
-            })
-            .collect();
+        let permissions = rwp.permissions.into_iter().map(|el| el.into()).collect();
 
         Self {
             id: row.id.into(),
@@ -283,8 +266,8 @@ impl Iterator for RolePermissions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Result;
     use crate::store::entities::audit::{AuditFields, AuditMeta};
+    use anyhow::Result;
     use time::OffsetDateTime;
 
     fn make_role_with_permissions() -> RoleWithPermissions {

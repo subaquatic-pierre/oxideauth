@@ -15,9 +15,10 @@ use crate::store::{
         },
     },
     error::{StoreError, StoreResult},
+    meta::ManyToManyStore,
     queries::{
         batch::find_many_where_value_in_key,
-        meta::{ContainsFilterQueryMeta, MutateQueryMeta, ReadQueryMeta},
+        meta::{ContainsFilterQueryMeta, ManyToManyQueryMeta, MutateQueryMeta, ReadQueryMeta},
     },
     traits::{
         dbx::DbExecutor,
@@ -273,7 +274,10 @@ mod tests {
         store
             .create_many(
                 &ctx,
-                vec![PermissionForCreate::default(), PermissionForCreate::default()],
+                vec![
+                    PermissionForCreate::default(),
+                    PermissionForCreate::default(),
+                ],
             )
             .await?;
 

@@ -29,7 +29,7 @@ pub type MembershipFilter = StoreMembershipFilter;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Membership {
     pub id: Uuid,
-    pub account: Account,
+    pub account_id: Uuid,
     pub workspace_id: Uuid,
     pub project_id: Option<Uuid>,
 
@@ -44,20 +44,20 @@ pub struct Membership {
 }
 
 // TODO: change From<MembershipRow> for Membership
-impl From<(MembershipRow, Vec<Role>, Account)> for Membership {
-    fn from((row, roles, account): (MembershipRow, Vec<Role>, Account)) -> Self {
+impl Membership {
+    pub fn from_with_roles(membership: MembershipRow, roles: Vec<Role>) -> Self {
         Self {
-            id: row.id.into(),
-            account,
-            workspace_id: row.workspace_id,
-            project_id: row.project_id,
-            scope: row.scope,
-            version: row.version,
-            status: row.status,
-            roles,
-            tags: row.tags,
-            meta: row.meta,
-            audit: row.audit.into(),
+            id: membership.id.into(),
+            account_id: membership.account_id,
+            workspace_id: membership.workspace_id,
+            project_id: membership.project_id,
+            scope: membership.scope,
+            version: membership.version,
+            status: membership.status,
+            roles: roles,
+            tags: membership.tags,
+            meta: membership.meta,
+            audit: membership.audit.into(),
         }
     }
 }
@@ -161,7 +161,7 @@ impl Default for Membership {
     fn default() -> Self {
         Self {
             id: Uuid::new_v4(),
-            account: Account::default(),
+            account_id: Uuid::nil(),
             workspace_id: Uuid::nil(),
             project_id: None,
             scope: MembershipScope::Workspace,
@@ -203,34 +203,6 @@ mod tests {
                 meta: Default::default(),
             },
         }
-    }
-
-    #[test]
-    fn test_membership_from_row_roles_account() {
-        let row = make_row();
-        let row_id: Uuid = row.id.into();
-        let ws_id = row.workspace_id;
-        let project_id = row.project_id;
-        let scope = row.scope.clone();
-        let status = row.status.clone();
-        let version = row.version;
-        let tags = row.tags.clone();
-        let meta_schema = row.meta.schema_version.clone();
-
-        let role = Role::default();
-        let account = Account::default();
-        let membership: Membership = (row, vec![role], account).into();
-
-        assert_eq!(membership.id, row_id);
-        assert_eq!(membership.workspace_id, ws_id);
-        assert_eq!(membership.project_id, project_id);
-        assert_eq!(membership.scope, scope);
-        assert_eq!(membership.status, status);
-        assert_eq!(membership.version, version);
-        assert_eq!(membership.tags, tags);
-        assert_eq!(membership.meta.schema_version, meta_schema);
-        assert_eq!(membership.roles.len(), 1);
-        assert_eq!(membership.account.id, Uuid::nil());
     }
 
     #[test]

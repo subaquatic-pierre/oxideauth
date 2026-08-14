@@ -72,39 +72,24 @@ impl Default for Credential {
     }
 }
 
-impl Credential {
-    pub fn from_row_with_entities(
-        row: CredentialRow,
-        account_id: Uuid,
-        workspace_id: Uuid,
-    ) -> CoreResult<Self> {
-        if Uuid::from(row.account_id) != account_id {
-            return Err(CoreError::InvalidParams(
-                "row.account_id does not match account.id".to_string(),
-            ));
+impl From<CredentialRow> for Credential {
+    fn from(value: CredentialRow) -> Self {
+        Self {
+            id: value.id.into(),
+            account_id: value.account_id.into(),
+            workspace_id: value.workspace_id.into(),
+            kind: value.kind,
+            provider: value.provider,
+            status: value.status,
+            provider_id: value.provider_id,
+            email: value.email,
+            secret: value.secret,
+            last_used_at: value.last_used_at,
+            tags: value.tags,
+            meta: value.meta,
+            config: value.config,
+            audit: value.audit.into(),
         }
-        if Uuid::from(row.workspace_id) != workspace_id {
-            return Err(CoreError::InvalidParams(
-                "row.workspace_id does not match workspace.id".to_string(),
-            ));
-        }
-
-        Ok(Self {
-            id: row.id.into(),
-            account_id,
-            workspace_id,
-            kind: row.kind,
-            provider: row.provider,
-            status: row.status,
-            provider_id: row.provider_id,
-            email: row.email,
-            secret: row.secret,
-            config: row.config,
-            last_used_at: row.last_used_at,
-            tags: row.tags,
-            meta: row.meta,
-            audit: row.audit.into(),
-        })
     }
 }
 
@@ -294,8 +279,7 @@ mod tests {
         let workspace = Workspace::default(); // id = nil
         let row = make_row(Uuid::nil(), Uuid::nil());
 
-        let credential = Credential::from_row_with_entities(row, account.id, workspace.id)
-            .expect("matching ids should succeed");
+        let credential: Credential = row.into();
         assert_eq!(credential.account_id, Uuid::nil());
         assert_eq!(credential.workspace_id, Uuid::nil());
         assert_eq!(credential.kind.to_string(), "api_key");
@@ -308,30 +292,6 @@ mod tests {
         assert_eq!(credential.tags, vec!["t1".to_string()]);
         assert_eq!(credential.meta.schema_version, "1");
         assert_eq!(credential.audit.created_at, OffsetDateTime::UNIX_EPOCH);
-    }
-
-    #[test]
-    fn test_credential_from_row_with_entities_account_mismatch() {
-        let account = Account::default(); // id = nil
-        let workspace = Workspace::default();
-        let row = make_row(Uuid::new_v4(), Uuid::nil());
-
-        let err = Credential::from_row_with_entities(row, account.id, workspace.id)
-            .err()
-            .expect("account_id mismatch should fail");
-        assert!(matches!(err, CoreError::InvalidParams(_)));
-    }
-
-    #[test]
-    fn test_credential_from_row_with_entities_workspace_mismatch() {
-        let account = Account::default();
-        let workspace = Workspace::default(); // id = nil
-        let row = make_row(Uuid::nil(), Uuid::new_v4());
-
-        let err = Credential::from_row_with_entities(row, account.id, workspace.id)
-            .err()
-            .expect("workspace_id mismatch should fail");
-        assert!(matches!(err, CoreError::InvalidParams(_)));
     }
 
     #[test]
