@@ -101,6 +101,17 @@ impl CoreCtx {
     pub fn set_scoped_ws(&mut self, ws_cache: WorkspaceCache) {
         self.ws_cache = ws_cache;
     }
+
+    /// Builds an unscoped store context (no workspace row-level filtering).
+    ///
+    /// Used for operations on global tables (account, workspace) and
+    /// cross-workspace auth flows where the caller is not operating on a
+    /// single workspace.
+    pub fn unscoped_store_ctx(&self) -> StoreCtx {
+        let mut store_ctx: StoreCtx = self.into();
+        store_ctx.set_workspace_scope(None);
+        store_ctx
+    }
 }
 
 impl From<CoreCtx> for StoreCtx {

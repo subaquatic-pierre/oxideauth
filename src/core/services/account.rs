@@ -86,9 +86,11 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
         id_or_email: &str,
     ) -> CoreResult<Account> {
         let store = self.store();
+        let mut store_ctx: StoreCtx = ctx.into();
+        store_ctx.set_workspace_scope(None);
 
         let acc = match Uuid::parse_str(&id_or_email) {
-            Ok(id) => self.store().get(&ctx.into(), &id.into()).await?.into(),
+            Ok(id) => self.store().get(&store_ctx, &id.into()).await?.into(),
             Err(_) => self
                 .get_by_email(ctx, &id_or_email)
                 .await?
@@ -103,7 +105,9 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
     pub async fn get_by_email(&self, ctx: &CoreCtx, email: &str) -> CoreResult<Option<Account>> {
         let store = self.store();
 
-        let acc = store.get_by_email(&ctx.into(), &email).await?;
+        let mut store_ctx: StoreCtx = ctx.into();
+        store_ctx.set_workspace_scope(None);
+        let acc = store.get_by_email(&store_ctx, &email).await?;
 
         Ok(acc.map(|el| el.into()))
     }
@@ -136,7 +140,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for AccountSe
 
         let auth_validator = AuthValidator::new(ctx);
         auth_validator.validate_ctx_perms(&[Self::CREATE_PERMISSION])?;
-        let store_ctx = auth_validator.scope_store_workspace(None)?;
+        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
 
         if store
             .get_by_email(&store_ctx, &params.email)
@@ -167,7 +171,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Account
 
         let auth_validator = AuthValidator::new(ctx);
         auth_validator.validate_ctx_perms(&[Self::DESCRIBE_PERMISSION])?;
-        let store_ctx = auth_validator.scope_store_workspace(None)?;
+        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
 
         let identifier =
             params
@@ -195,6 +199,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for AccountServ
 
         let auth_validator = AuthValidator::new(ctx);
         auth_validator.validate_ctx_perms(&[Self::LIST_PERMISSION])?;
+        // Account listing is namespace-scoped (join on membership), so keep the
+        // derived workspace scope rather than removing it.
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
         let options = params.list_options();
@@ -229,7 +235,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
         let store = self.store();
         let auth_validator = AuthValidator::new(ctx);
         auth_validator.validate_ctx_perms(&[Self::UPDATE_PERMISSION])?;
-        let store_ctx = auth_validator.scope_store_workspace(None)?;
+        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
 
         // NOTE: updating email constraints need to be enforced
         // currently cannot change account email
@@ -269,7 +275,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
 
         let auth_validator = AuthValidator::new(ctx);
         auth_validator.validate_ctx_perms(&[Self::DELETE_PERMISSION])?;
-        let store_ctx = auth_validator.scope_store_workspace(None)?;
+        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
 
         let identifier = params.id_or_email()?;
         let acc = self.get_account_by_id_or_email(ctx, &identifier).await?;

@@ -39,6 +39,23 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
         false
     }
 
+    /// Builds a store context scoped to `requested_workspace_id`.
+    ///
+    /// Services whose underlying table has no `workspace_id` column (account,
+    /// workspace) override `should_remove_workspace_from_store_ctx` to `true`,
+    /// which clears the row-level scope so their global queries stay unscoped.
+    fn scope_store_ctx(
+        &self,
+        auth_validator: &AuthValidator<'_>,
+        requested_workspace_id: Option<Uuid>,
+    ) -> CoreResult<StoreCtx> {
+        let mut store_ctx = auth_validator.scope_store_workspace(requested_workspace_id)?;
+        if self.should_remove_workspace_from_store_ctx() {
+            store_ctx.set_workspace_scope(None);
+        }
+        Ok(store_ctx)
+    }
+
     async fn scope_and_validate_ctx(
         &self,
         ctx: &mut CoreCtx,
@@ -54,11 +71,7 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
         auth_validator.validate_ctx_perms(required_perms)?;
 
         // scope store_ctx
-        let mut store_ctx = auth_validator.scope_store_workspace(Some(workspace.id))?;
-
-        if (self.should_remove_workspace_from_store_ctx()) {
-            store_ctx.set_workspace_scope(None);
-        }
+        let store_ctx = self.scope_store_ctx(&auth_validator, Some(workspace.id))?;
 
         Ok((store_ctx, workspace.clone()))
     }

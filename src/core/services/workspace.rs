@@ -144,9 +144,14 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
     ) -> CoreResult<Workspace> {
         let store = self.store();
 
+        // The `workspace` table has no `workspace_id` column, so this lookup
+        // must run unscoped.
+        let mut store_ctx: StoreCtx = ctx.into();
+        store_ctx.set_workspace_scope(None);
+
         let ws = match Uuid::parse_str(&slug_or_id) {
-            Ok(id) => store.get_opt(&ctx.into(), &id.into()).await?,
-            Err(_) => store.get_by_slug_opt(&ctx.into(), &slug_or_id).await?,
+            Ok(id) => store.get_opt(&store_ctx, &id.into()).await?,
+            Err(_) => store.get_by_slug_opt(&store_ctx, &slug_or_id).await?,
         };
 
         let ws = ws.ok_or(CoreError::NotFound(format!(
@@ -227,12 +232,11 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
     async fn invalidate_all_ws_autch_cache(
         &self,
         ctx: &mut CoreCtx,
-        slug_or_id: &str,
+        ws: &Workspace,
     ) -> CoreResult<()> {
-        let ws = self.get_workspace_by_slug_or_id(&ctx, &slug_or_id).await?;
         let ws_id = ws.id;
-        ctx.set_scoped_ws(ws.into());
-        let store_ctx = ctx.into();
+        let mut store_ctx: StoreCtx = ctx.into();
+        store_ctx.set_workspace_scope(None);
 
         // TODO: there may be more that 500 memberships in the workspace
         // which means we need to coninue
@@ -342,7 +346,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Workspace
         auth_validator.validate_ctx_perms(&[Self::CREATE_PERMISSION])?;
 
         // scope store_ctx
-        let store_ctx = auth_validator.scope_store_workspace(None)?;
+        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
 
         // 1. Check if slug already exists
         if store
@@ -404,7 +408,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Workspa
         auth_validator.validate_ctx_perms(&[Self::DESCRIBE_PERMISSION])?;
 
         // scope store_ctx
-        let store_ctx = auth_validator.scope_store_workspace(None)?;
+        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
 
         let res = store.get(&store_ctx, &workspace.id.into()).await?;
 
@@ -429,7 +433,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for WorkspaceSe
         auth_validator.validate_ctx_perms(&[Self::LIST_PERMISSION])?;
 
         // scope store_ctx
-        let store_ctx = auth_validator.scope_store_workspace(None)?;
+        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
 
         let options = params.list_options();
 
@@ -474,7 +478,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
         auth_validator.validate_ctx_perms(&[Self::UPDATE_PERMISSION])?;
 
         // scope store_ctx
-        let store_ctx = auth_validator.scope_store_workspace(None)?;
+        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
 
         let ws = self
             .get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?)
@@ -484,11 +488,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
 
         let res = store.update(&store_ctx, &ws.id.into(), update_data).await?;
 
-        self.cm.workspace.invalidate(res.id.into()).await?;
-        self.invalidate_all_ws_autch_cache(ctx, &params.id_or_slug()?)
-            .await?;
+        let ws: Workspace = res.into();
 
-        Ok(res.into())
+        self.cm.workspace.invalidate(ws.id).await?;
+        // self.invalidate_all_ws_autch_cache(ctx, &ws).await?;
+
+        Ok(ws)
     }
 }
 
@@ -511,7 +516,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Workspace
         auth_validator.validate_ctx_perms(&[Self::DELETE_PERMISSION])?;
 
         // scope store_ctx
-        let store_ctx = auth_validator.scope_store_workspace(None)?;
+        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
 
         let ws = self
             .get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?)

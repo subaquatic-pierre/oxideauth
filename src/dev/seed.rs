@@ -233,9 +233,10 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
         )
         .await?;
 
-    let store_ctx: StoreCtx = (&*ctx).into();
+    let mut store_ctx: StoreCtx = (&*ctx).into();
 
-    // Look up admin role in each workspace
+    // Look up admin role in each workspace (scoped to the expected workspace)
+    store_ctx.set_workspace_scope(Some(system_ws.id));
     let system_admin = svc_reg
         .sm
         .role
@@ -246,6 +247,8 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
         )
         .await?
         .expect("Workspace Admin role not found in system workspace");
+
+    store_ctx.set_workspace_scope(Some(default_ws.id));
     let default_admin = svc_reg
         .sm
         .role
@@ -594,8 +597,9 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
     // =========================================================================
     // MEMBERSHIPS — owners as admins, member as viewer across workspaces
     // =========================================================================
-    let store_ctx: StoreCtx = (&*ctx).into();
+    let mut store_ctx: StoreCtx = (&*ctx).into();
 
+    store_ctx.set_workspace_scope(Some(test_ws.id));
     let test_admin_role = svc_reg
         .sm
         .role
@@ -606,6 +610,8 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         )
         .await?
         .expect("WorkspaceAdmin role not found in test workspace");
+
+    store_ctx.set_workspace_scope(Some(public_ws.id));
     let public_admin_role = svc_reg
         .sm
         .role
@@ -616,6 +622,8 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         )
         .await?
         .expect("WorkspaceAdmin role not found in public test workspace");
+
+    store_ctx.set_workspace_scope(Some(private_ws.id));
     let private_admin_role = svc_reg
         .sm
         .role
@@ -627,6 +635,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         .await?
         .expect("WorkspaceAdmin role not found in private test workspace");
 
+    store_ctx.set_workspace_scope(Some(test_ws.id));
     let test_viewer_role = svc_reg
         .sm
         .role
@@ -637,6 +646,8 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         )
         .await?
         .expect("WorkspaceViewer role not found in test workspace");
+
+    store_ctx.set_workspace_scope(Some(public_ws.id));
     let public_viewer_role = svc_reg
         .sm
         .role
@@ -647,6 +658,8 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         )
         .await?
         .expect("WorkspaceViewer role not found in public test workspace");
+
+    store_ctx.set_workspace_scope(Some(private_ws.id));
     let private_viewer_role = svc_reg
         .sm
         .role

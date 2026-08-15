@@ -385,7 +385,7 @@ where
         let credentials = self
             .credential_svc
             .store()
-            .list(&ctx.into(), Some(filter), None)
+            .list(&ctx.unscoped_store_ctx(), Some(filter), None)
             .await?;
         let credential = credentials
             .into_iter()
@@ -665,7 +665,7 @@ where
         let store = self.acc_svc.store();
 
         // Anti-enumeration: silently succeed if the account does not exist.
-        let Some(account_row) = store.get_by_email(&ctx.into(), &email).await? else {
+        let Some(account_row) = store.get_by_email(&ctx.unscoped_store_ctx(), &email).await? else {
             return Ok(());
         };
         let account: Account = account_row.into();
@@ -735,7 +735,7 @@ where
         let store = self.acc_svc.store();
 
         // Load the account and reject disabled accounts.
-        let account_row = store.get(&ctx.into(), &account_id.into()).await?;
+        let account_row = store.get(&ctx.unscoped_store_ctx(), &account_id.into()).await?;
         let account: Account = account_row.into();
         if !account.enabled {
             return Err(CoreError::Auth("account disabled".to_string()));
@@ -754,7 +754,7 @@ where
         let credentials = self
             .credential_svc
             .store()
-            .list(&ctx.into(), Some(filter), None)
+            .list(&ctx.unscoped_store_ctx(), Some(filter), None)
             .await?;
         let credential = credentials
             .into_iter()
@@ -805,7 +805,7 @@ where
         ])?;
         let store = self.acc_svc.store();
 
-        let account_row = store.get(&ctx.into(), &account_id.into()).await?;
+        let account_row = store.get(&ctx.unscoped_store_ctx(), &account_id.into()).await?;
         let account: Account = account_row.into();
 
         // Reject accounts that have already been verified.
@@ -830,7 +830,7 @@ where
         let update_data: AccountForUpdate =
             update_params.into_store_params(Some(account.version + 1));
         store
-            .update(&ctx.into(), &account_id.into(), update_data)
+            .update(&ctx.unscoped_store_ctx(), &account_id.into(), update_data)
             .await?;
 
         info!(account_id = %account.id, "AUTH_ACCOUNT_CONFIRMED");
@@ -853,7 +853,7 @@ where
         let store = self.acc_svc.store();
 
         // Anti-enumeration: silently succeed if the account does not exist.
-        let Some(account_row) = store.get_by_email(&ctx.into(), &email).await? else {
+        let Some(account_row) = store.get_by_email(&ctx.unscoped_store_ctx(), &email).await? else {
             return Ok(());
         };
         let account: Account = account_row.into();
@@ -982,8 +982,8 @@ where
         let store = self.acc_svc.store();
 
         // 4. Resolve an existing account by email, or create a new one.
-        // NOTE: no workspacee scope on ctx
-        let store_ctx = StoreCtx::from(&*ctx);
+        // NOTE: no workspace scope on ctx
+        let store_ctx = ctx.unscoped_store_ctx();
         let account =
             if let Some(existing) = store.get_by_email(&store_ctx, &google_user.email).await? {
                 let account: Account = existing.into();
@@ -1009,7 +1009,7 @@ where
                 let account: Account = self
                     .acc_svc
                     .store()
-                    .create(&ctx.into(), account_create_params.into())
+                    .create(&ctx.unscoped_store_ctx(), account_create_params.into())
                     .await?
                     .into();
 
@@ -1044,7 +1044,7 @@ where
         let account_row = self
             .acc_svc
             .store()
-            .get(&ctx.into(), &account.id.into())
+            .get(&ctx.unscoped_store_ctx(), &account.id.into())
             .await?;
         let acc_ver = account_row.version as u64;
 
@@ -1127,9 +1127,9 @@ impl<'a> AuthValidator<'a> {
     ) -> CoreResult<StoreCtx> {
         let ctx = self.ctx;
         let mut store_ctx: StoreCtx = ctx.into();
-        // set workspace context
+        // set workspace context to the validated/derived workspace
         if let Some(workspace_id) = self.validate_workspace(requested_workspace_id)? {
-            store_ctx.set_workspace_scope(requested_workspace_id);
+            store_ctx.set_workspace_scope(Some(workspace_id));
         }
         Ok(store_ctx)
     }
