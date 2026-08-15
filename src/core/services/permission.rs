@@ -221,11 +221,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Permissio
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
 
-        // The `permission_workspace_name_key` unique constraint on
-        // (workspace_id, name) rejects the rename (SQLSTATE 23505) when another
-        // permission in the same workspace already uses the target name. Match
-        // on the typed error and surface a friendly message instead of leaking
-        // the raw constraint error.
         let new_name = params.name.clone().unwrap_or_default();
 
         let updated = match store
@@ -290,11 +285,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Permissio
             )
             .await?;
 
-        // The `role_permission` join table references `permission` with
-        // `ON DELETE RESTRICT`, so Postgres rejects the delete (SQLSTATE 23503)
-        // when the permission is still attached to one or more roles. Match on
-        // the typed error and surface a friendly message instead of leaking the
-        // raw constraint error.
         let res = match store.delete(&store_ctx, &to_delete.id.into()).await {
             Ok(res) => res,
             Err(StoreError::ConstraintViolation) => {
