@@ -154,12 +154,16 @@ where
 
     // Deduplicate the requested IDs. The HAVING clause counts distinct join rows,
     // so duplicate input would otherwise skew the count comparison.
-    let mut unique: Vec<String> = Vec::with_capacity(ids.len());
+    // NOTE: the IDs are kept in their native type (e.g., `DbId` -> `uuid` column)
+    // so the generated `... IN (...)` predicate binds uuid values. Binding the
+    // IDs as `String` (text) would make PostgreSQL reject the query with
+    // "operator does not exist: uuid = text" on uuid-typed join columns.
+    let mut unique: Vec<_> = Vec::with_capacity(ids.len());
     {
         let mut seen = std::collections::HashSet::new();
         for id in ids {
             if seen.insert(id.to_string()) {
-                unique.push(id.to_string());
+                unique.push(id);
             }
         }
     }

@@ -21,8 +21,9 @@ use oxideauth::{
         queries::crud::create,
         stores::permission::PermissionStore,
         traits::{
+            contains::FilterByContains,
             crud::{Create, Get, List},
-            meta::ReadStore,
+            meta::{ContainsFilterStore, ReadStore},
         },
     },
 };
@@ -465,6 +466,218 @@ async fn test_filter_by_contains_with_list_options() -> StoreResult<()> {
         "P_003", results_limited[1].name,
         "Second result should be P_003"
     );
+
+    Ok(())
+}
+
+// -----------------------------------------------------------------------------
+// list_with_contains / count_with_contains (combined tags + field filter)
+// -----------------------------------------------------------------------------
+
+#[tokio::test]
+#[serial]
+async fn test_list_with_tags_and_filter_combined() -> StoreResult<()> {
+    // Arrange
+    let app = init_test().await;
+    let dbx = app.sm.dbx().clone();
+    let store = PermissionStore::new(dbx.clone());
+
+    let mut ctx = StoreCtx::bootstrap();
+    let ws = app
+        .sm
+        .workspace
+        .create(&ctx, WorkspaceForCreate::default())
+        .await?;
+    let ws_id: Uuid = ws.id.into();
+    ctx.set_workspace_scope(Some(ws_id));
+
+    let name_tag_a = "LIST_TAG_AND_FILTER_A";
+    let name_tag_b = "LIST_TAG_AND_FILTER_B";
+
+    // Group A: 3 permissions tagged ["team","critical"]
+    for i in 0..3 {
+        let mut p = PermissionForCreate::default();
+        p.workspace_id = ws_id;
+        p.name = format!("{name_tag_a}_{i}");
+        p.tags = vec!["team".to_string(), "critical".to_string()];
+        store.create(&ctx, p).await?;
+    }
+    // Group B: 2 permissions tagged ["team","general"]
+    for i in 0..2 {
+        let mut p = PermissionForCreate::default();
+        p.workspace_id = ws_id;
+        p.name = format!("{name_tag_b}_{i}");
+        p.tags = vec!["team".to_string(), "general".to_string()];
+        store.create(&ctx, p).await?;
+    }
+
+    // Act 1: tag "team" + name contains "A" -> only group A
+    let filter: PermissionFilter =
+        from_value(json!({"name": {"$contains": name_tag_a}})).unwrap();
+    let rows: Vec<PermissionRow> = store
+        .list_with_tags_and_filter(&ctx, Some(vec!["team".to_string()]), Some(filter), None)
+        .await?;
+    assert_eq!(rows.len(), 3, "tag+filter must narrow to group A");
+
+    // Act 2: tag "general" (only group B) -> group B only
+    let rows: Vec<PermissionRow> = store
+        .list_with_tags_and_filter(&ctx, Some(vec!["general".to_string()]), None::<PermissionFilter>, None)
+        .await?;
+    assert_eq!(rows.len(), 2, "only group B has the 'general' tag");
+
+    // Act 3: no tags, no filter -> all 5 in the workspace
+    let rows: Vec<PermissionRow> = store
+        .list_with_tags_and_filter(&ctx, None, None::<PermissionFilter>, None)
+        .await?;
+    assert_eq!(rows.len(), 5, "no tags/filter must list the whole workspace");
+
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_count_with_tags_and_filter_combined() -> StoreResult<()> {
+    // Arrange
+    let app = init_test().await;
+    let dbx = app.sm.dbx().clone();
+    let store = PermissionStore::new(dbx.clone());
+
+    let mut ctx = StoreCtx::bootstrap();
+    let ws = app
+        .sm
+        .workspace
+        .create(&ctx, WorkspaceForCreate::default())
+        .await?;
+    let ws_id: Uuid = ws.id.into();
+    ctx.set_workspace_scope(Some(ws_id));
+
+    let name_tag_a = "COUNT_TAG_AND_FILTER_A";
+    let name_tag_b = "COUNT_TAG_AND_FILTER_B";
+
+    for i in 0..3 {
+        let mut p = PermissionForCreate::default();
+        p.workspace_id = ws_id;
+        p.name = format!("{name_tag_a}_{i}");
+        p.tags = vec!["team".to_string(), "critical".to_string()];
+        store.create(&ctx, p).await?;
+    }
+    for i in 0..2 {
+        let mut p = PermissionForCreate::default();
+        p.workspace_id = ws_id;
+        p.name = format!("{name_tag_b}_{i}");
+        p.tags = vec!["team".to_string(), "general".to_string()];
+        store.create(&ctx, p).await?;
+    }
+
+    // Act & Assert
+    let filter: PermissionFilter =
+        from_value(json!({"name": {"$contains": name_tag_a}})).unwrap();
+    let count = store
+        .count_with_tags_and_filter(&ctx, Some(vec!["team".to_string()]), Some(filter))
+        .await?;
+    assert_eq!(count, 3, "count must match group A");
+
+    let count = store
+        .count_with_tags_and_filter(&ctx, Some(vec!["general".to_string()]), None::<PermissionFilter>)
+        .await?;
+    assert_eq!(count, 2, "count must match group B");
+
+    let count = store
+        .count_with_tags_and_filter(&ctx, None, None::<PermissionFilter>)
+        .await?;
+    assert_eq!(count, 5, "count must match the whole workspace");
+
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_list_with_contains_query_fn_direct() -> StoreResult<()> {
+    // Arrange
+    let app = init_test().await;
+    let dbx = app.sm.dbx().clone();
+    let store = PermissionStore::new(dbx.clone());
+
+    let mut ctx = StoreCtx::bootstrap();
+    let ws = app
+        .sm
+        .workspace
+        .create(&ctx, WorkspaceForCreate::default())
+        .await?;
+    let ws_id: Uuid = ws.id.into();
+    ctx.set_workspace_scope(Some(ws_id));
+
+    for i in 0..4 {
+        let mut p = PermissionForCreate::default();
+        p.workspace_id = ws_id;
+        p.name = format!("LIST_WITH_CONTAINS_DIRECT_{i}");
+        p.tags = if i < 2 {
+            vec!["direct-tag".to_string()]
+        } else {
+            vec!["other".to_string()]
+        };
+        store.create(&ctx, p).await?;
+    }
+
+    let meta = store.contains_tags_meta();
+
+    // Act 1: no tags, no filter -> all rows in scope
+    let rows: Vec<PermissionRow> = list_with_contains(&ctx, &dbx, None, None, None, &meta).await?;
+    assert_eq!(rows.len(), 4);
+
+    // Act 2: tag containment only
+    let rows: Vec<PermissionRow> =
+        list_with_contains(&ctx, &dbx, Some(vec!["direct-tag".to_string()]), None, None, &meta).await?;
+    assert_eq!(rows.len(), 2, "only the two 'direct-tag' rows must match");
+
+    // Act 3: field-based filter only (FilterGroups)
+    let filter: PermissionFilter =
+        from_value(json!({"name": {"$contains": "DIRECT"}})).unwrap();
+    let rows: Vec<PermissionRow> = list_with_contains(&ctx, &dbx, None, Some(filter.into()), None, &meta).await?;
+    assert_eq!(rows.len(), 4, "all names contain 'DIRECT'");
+
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_count_with_contains_query_fn_direct() -> StoreResult<()> {
+    // Arrange
+    let app = init_test().await;
+    let dbx = app.sm.dbx().clone();
+    let store = PermissionStore::new(dbx.clone());
+
+    let mut ctx = StoreCtx::bootstrap();
+    let ws = app
+        .sm
+        .workspace
+        .create(&ctx, WorkspaceForCreate::default())
+        .await?;
+    let ws_id: Uuid = ws.id.into();
+    ctx.set_workspace_scope(Some(ws_id));
+
+    for i in 0..4 {
+        let mut p = PermissionForCreate::default();
+        p.workspace_id = ws_id;
+        p.name = format!("COUNT_WITH_CONTAINS_DIRECT_{i}");
+        p.tags = if i < 2 {
+            vec!["direct-tag".to_string()]
+        } else {
+            vec!["other".to_string()]
+        };
+        store.create(&ctx, p).await?;
+    }
+
+    let meta = store.contains_tags_meta();
+
+    // Act & Assert
+    let count = count_with_contains(&ctx, &dbx, Some(vec!["direct-tag".to_string()]), None, &meta).await?;
+    assert_eq!(count, 2);
+
+    let filter: PermissionFilter =
+        from_value(json!({"name": {"$contains": "DIRECT"}})).unwrap();
+    let count = count_with_contains(&ctx, &dbx, None, Some(filter.into()), &meta).await?;
+    assert_eq!(count, 4);
 
     Ok(())
 }

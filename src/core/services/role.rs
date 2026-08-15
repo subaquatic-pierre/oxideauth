@@ -37,6 +37,7 @@ use crate::{
             id::DbId,
             role::{RoleForCreate, RoleRow, RoleWithPermissions},
         },
+        error::StoreError,
         join::{GetManyToMany, LinkManyToMany, ListManyToMany},
         manager::StoreManager,
         stores::{role::RoleStore, workspace::SYSTEM_CONST},
@@ -336,7 +337,23 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for RoleServi
             )
             .await?;
 
-        let _ = store.delete(&store_ctx, &to_delete.id.into()).await?;
+        // The `membership_role` join table references `role` with
+        // `ON DELETE RESTRICT`, so Postgres rejects the delete with a foreign
+        // key violation (SQLSTATE 23503) when the role is still assigned to
+        // one or more memberships. Match on the error code and surface a
+        // friendly message instead of leaking the raw constraint error.
+        match store.delete(&store_ctx, &to_delete.id.into()).await {
+            Ok(_) => {}
+            Err(StoreError::SqlxError(sqlx::Error::Database(db_err)))
+                if db_err.code().as_deref() == Some("23503") =>
+            {
+                return Err(CoreError::InvalidParams(format!(
+                    "role '{}' is still assigned to one or more memberships and cannot be deleted",
+                    to_delete.name
+                )));
+            }
+            Err(err) => return Err(err.into()),
+        }
 
         // Invalidate the auth cache for all memberships that carried the
         // deleted role, since their cached auth scope is now stale.

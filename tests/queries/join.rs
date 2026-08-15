@@ -20,6 +20,7 @@ use oxideauth::{
             role::{RoleFilter, RoleForCreate, RoleIden, RoleWithPermissions},
             workspace::WorkspaceForCreate,
         },
+        error::StoreError,
         queries::crud::create,
         stores::{
             account::AccountStore, credential::CredentialStore, permission::PermissionStore,
@@ -27,6 +28,7 @@ use oxideauth::{
         },
         traits::{
             crud::{Create, Get, List},
+            join::{GetManyToMany, GetOneToMany},
             meta::ReadStore,
         },
     },
@@ -524,6 +526,50 @@ async fn test_attach_detach_many_to_many() -> StoreResult<()> {
         role_with_perms.permissions.is_empty(),
         "Should have no permissions after detaching the last one."
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_get_one_to_many_opt_not_found() -> StoreResult<()> {
+    // Arrange
+    let app = init_test().await;
+    let dbx = app.sm.dbx().clone();
+    let store = AccountStore::new(dbx.clone());
+    let ctx = StoreCtx::bootstrap();
+
+    let missing_id = Uuid::new_v4().into();
+
+    // Act & Assert: the _opt variant returns Ok(None) without an error
+    let res = store.get_one_to_many_opt(&ctx, &missing_id).await?;
+    assert!(res.is_none(), "expected Ok(None) for a missing parent");
+
+    // The non-opt variant maps the miss to EntityNotFound
+    let err = store.get_one_to_many(&ctx, &missing_id).await;
+    assert!(matches!(err, Err(StoreError::EntityNotFound { .. })));
+
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_get_many_to_many_opt_not_found() -> StoreResult<()> {
+    // Arrange
+    let app = init_test().await;
+    let dbx = app.sm.dbx().clone();
+    let store = RoleStore::new(dbx.clone());
+    let ctx = StoreCtx::bootstrap();
+
+    let missing_id = Uuid::new_v4().into();
+
+    // Act & Assert: the _opt variant returns Ok(None) without an error
+    let res = store.get_many_to_many_opt(&ctx, &missing_id).await?;
+    assert!(res.is_none(), "expected Ok(None) for a missing parent");
+
+    // The non-opt variant maps the miss to EntityNotFound
+    let err = store.get_many_to_many(&ctx, &missing_id).await;
+    assert!(matches!(err, Err(StoreError::EntityNotFound { .. })));
 
     Ok(())
 }

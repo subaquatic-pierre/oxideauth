@@ -1,5 +1,5 @@
-use oxideauth_macros::HasId;
 use modql::filter::{IntoFilterNodes, ListOptions, OpValString, OrderBys};
+use oxideauth_macros::HasId;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -49,19 +49,6 @@ where
 
     pub fn filter(&self) -> Option<F> {
         self.fields.clone()
-    }
-}
-
-impl<F> ValidateParams for RequestFilterParams<F>
-where
-    F: Clone,
-{
-    /// Validates the request parameters.
-    ///
-    /// Previously enforced mutual exclusion between `tags` and `fields`.
-    /// Now allows both to coexist — the store layer combines them into a single query.
-    fn validate(self) -> CoreResult<Self> {
-        Ok(self)
     }
 }
 

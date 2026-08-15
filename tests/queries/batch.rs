@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde_json::json;
 use serial_test::serial;
 use sqlx::{Postgres, query_as};
@@ -7,19 +9,20 @@ use oxideauth::{
     dev::init::init_test,
     store::{
         entities::{
-            account::{
-                AccountFilter, AccountForCreate, AccountForUpdate, AccountMeta, AccountRow,
-            },
+            account::{AccountFilter, AccountForCreate, AccountForUpdate, AccountIden, AccountMeta, AccountRow},
             id::DbId,
+            permission::{PermissionForCreate, PermissionIden, PermissionRow},
+            workspace::WorkspaceForCreate,
         },
         error::StoreResult,
         queries::{
+            batch::find_many_where_value_in_key,
             crud::{create, list},
             meta::{MutateQueryMeta, ReadQueryMeta},
         },
-        stores::account::AccountStore,
+        stores::{account::AccountStore, permission::PermissionStore},
         traits::{
-            crud::Get,
+            crud::{Create, Get},
             meta::{MutateStore, ReadStore, TableIden},
         },
     },
@@ -362,6 +365,123 @@ async fn test_delete_many_fail() -> StoreResult<()> {
         res.is_err(),
         "expected delete_many to fail when exceeding the max batch size"
     );
+
+    Ok(())
+}
+
+// -----------------------------------------------------------------------------
+// find_many_where_value_in_key
+// -----------------------------------------------------------------------------
+
+#[tokio::test]
+#[serial]
+async fn test_find_many_where_value_in_key_by_names() -> StoreResult<()> {
+    // Arrange
+    let app = init_test().await;
+    let dbx = app.sm.dbx().clone();
+    let store = PermissionStore::new(dbx.clone());
+    let ctx = StoreCtx::bootstrap();
+
+    let ws = app
+        .sm
+        .workspace
+        .create(&ctx, WorkspaceForCreate::default())
+        .await?;
+    let ws_id: Uuid = ws.id.into();
+
+    let mut names = vec![];
+    for i in 0..3 {
+        let name = format!("FIND_MANY_BY_NAME_{i}");
+        let mut p = PermissionForCreate::default();
+        p.workspace_id = ws_id;
+        p.name = name.clone();
+        store.create(&ctx, p).await?;
+        names.push(name);
+    }
+
+    // Act
+    let found: Vec<PermissionRow> = store.find_all_many_by_names(&ctx, names.clone()).await?;
+
+    // Assert
+    assert_eq!(found.len(), 3, "all permissions with matching names must be returned");
+    let found_names: HashSet<&str> = found.iter().map(|r| r.name.as_str()).collect();
+    for name in &names {
+        assert!(found_names.contains(name.as_str()), "missing permission: {name}");
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_find_many_where_value_in_key_empty() -> StoreResult<()> {
+    // Arrange
+    let app = init_test().await;
+    let dbx = app.sm.dbx().clone();
+    let store = PermissionStore::new(dbx.clone());
+    let ctx = StoreCtx::bootstrap();
+
+    // Act: empty input must short-circuit to an empty result (no DB hit)
+    let found: Vec<PermissionRow> = store.find_all_many_by_names(&ctx, vec![]).await?;
+
+    // Assert
+    assert!(found.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_find_many_where_value_in_key_direct_scoped() -> StoreResult<()> {
+    // Arrange
+    let app = init_test().await;
+    let dbx = app.sm.dbx().clone();
+    let store = PermissionStore::new(dbx.clone());
+    let ctx = StoreCtx::bootstrap();
+
+    let ws_a = app
+        .sm
+        .workspace
+        .create(&ctx, WorkspaceForCreate::default())
+        .await?;
+    let ws_b = app
+        .sm
+        .workspace
+        .create(&ctx, WorkspaceForCreate::default())
+        .await?;
+    let ws_a_id: Uuid = ws_a.id.into();
+    let ws_b_id: Uuid = ws_b.id.into();
+    assert_ne!(ws_a_id, ws_b_id);
+
+    // Same name in both workspaces (permission names are unique per workspace)
+    let name = "FIND_MANY_DIRECT_SCOPED";
+    let mut p_a = PermissionForCreate::default();
+    p_a.workspace_id = ws_a_id;
+    p_a.name = name.to_string();
+    store.create(&ctx, p_a).await?;
+
+    let mut p_b = PermissionForCreate::default();
+    p_b.workspace_id = ws_b_id;
+    p_b.name = name.to_string();
+    store.create(&ctx, p_b).await?;
+
+    // Unscoped lookup by name -> both rows
+    let meta = ReadQueryMeta {
+        table: PermissionIden::Table,
+        pk: PermissionIden::Name,
+        has_audit: true,
+    };
+    let found: Vec<PermissionRow> =
+        find_many_where_value_in_key(&ctx, &dbx, vec![name.to_string()], &meta).await?;
+    assert_eq!(found.len(), 2, "unscoped lookup must match both workspaces");
+
+    // Scoped lookup by name -> only the row in the scoped workspace
+    let mut scoped_ctx = StoreCtx::new(Uuid::new_v4(), ws_a_id);
+    scoped_ctx.set_workspace_scope(Some(ws_a_id));
+    let found: Vec<PermissionRow> =
+        find_many_where_value_in_key(&scoped_ctx, &dbx, vec![name.to_string()], &meta).await?;
+    assert_eq!(found.len(), 1, "workspace scope must be enforced");
+    assert_eq!(found[0].workspace_id, ws_a_id);
 
     Ok(())
 }

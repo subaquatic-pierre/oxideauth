@@ -89,11 +89,6 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
 
     /// Invalidates the account-level auth cache for every membership whose roles
     /// include the given permission.
-    ///
-    /// Changing a permission (its name or its deletion) affects the cached
-    /// auth scope of every membership holding a role that grants it. Collecting
-    /// distinct account IDs and invalidating per-account avoids redundant
-    /// per-membership cache purge calls.
     async fn invalidate_memberships_for_permission(
         &self,
         store_ctx: &StoreCtx,
@@ -114,19 +109,12 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
             .membership
             .list_containing_roles(store_ctx, role_ids, None, None, None)
             .await?;
+
         // TODO: implement bulk invalidate method
         for membership in memberships {
             self.cm.auth.invalidate(membership.id.into()).await?;
         }
         Ok(())
-    }
-
-    async fn hydrate_permissions(
-        &self,
-        _ctx: &mut CoreCtx,
-        rows: Vec<PermissionRow>,
-    ) -> CoreResult<Vec<Permission>> {
-        Ok(rows.into_iter().map(Permission::from).collect())
     }
 }
 
@@ -144,19 +132,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Permissio
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
             .await?;
 
-        // TODO: ensure cannot create same permission in same workspace
-        // check database constraints
-
         let n_perm = store.create(&store_ctx, params.into()).await?;
 
-        self.describe(
-            ctx,
-            PermissionDescribeParams {
-                id: Some(n_perm.id.into()),
-                workspace_id: n_perm.workspace_id.into(),
-            },
-        )
-        .await
+        Ok(n_perm.into())
     }
 }
 impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for PermissionService<D, C> {
@@ -222,7 +200,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for PermissionS
             .count_with_tags_and_filter(&store_ctx, tags, filter)
             .await?;
 
-        let perms = self.hydrate_permissions(ctx, data).await?;
+        let perms = data.into_iter().map(Permission::from).collect();
 
         Ok(ListResponse::new(perms, total, options))
     }
@@ -331,10 +309,7 @@ mod tests {
         store::{
             dbx::MockDbx,
             entities::{
-                audit::AuditFields,
-                id::DbId,
-                permission::PermissionMeta,
-                role::RoleRow,
+                audit::AuditFields, id::DbId, permission::PermissionMeta, role::RoleRow,
                 workspace::WorkspaceRow,
             },
         },
@@ -523,7 +498,7 @@ mod tests {
             // list_with_tags_and_filter
             .with_all::<PermissionRow>(vec![perm_row(perm_id, ws_id, "project:read")])
             // count_with_tags_and_filter
-            .with_one::<(i64,)>( (1,) );
+            .with_one::<(i64,)>((1,));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["permission:list"])?;

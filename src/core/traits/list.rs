@@ -23,13 +23,11 @@ pub trait RequestListParams<F: IntoFilterNodes + Clone + OpValWorkspaceId> {
     }
 
     fn validate_filter_tags(&self) -> CoreResult<RequestFilterParams<F>> {
-        let filter = self.filter();
-        let params = match filter {
-            Some(filter) => filter.validate()?,
-            None => RequestFilterParams::new(None, None),
-        };
+        let filter = self
+            .filter()
+            .unwrap_or(RequestFilterParams::new(None, None));
 
-        Ok(params)
+        Ok(filter)
     }
 
     fn workspace_id(&self) -> Option<Uuid> {
@@ -81,7 +79,9 @@ mod tests {
     fn test_workspace_id_parses_eq_uuid() {
         let ws_uuid = Uuid::new_v4();
         let params = TestListParams {
-            filter: Some(filter_with_workspace_id(OpValString::Eq(ws_uuid.to_string()))),
+            filter: Some(filter_with_workspace_id(OpValString::Eq(
+                ws_uuid.to_string(),
+            ))),
             options: None,
         };
         assert_eq!(params.workspace_id(), Some(ws_uuid));
@@ -99,7 +99,10 @@ mod tests {
     #[test]
     fn test_workspace_id_none_when_no_workspace_field() {
         let params = TestListParams {
-            filter: Some(RequestFilterParams::new(None, Some(ProjectFilter::default()))),
+            filter: Some(RequestFilterParams::new(
+                None,
+                Some(ProjectFilter::default()),
+            )),
             options: None,
         };
         assert_eq!(params.workspace_id(), None);
@@ -108,7 +111,9 @@ mod tests {
     #[test]
     fn test_workspace_id_none_for_non_eq_opval() {
         let params = TestListParams {
-            filter: Some(filter_with_workspace_id(OpValString::Contains("abc".to_string()))),
+            filter: Some(filter_with_workspace_id(OpValString::Contains(
+                "abc".to_string(),
+            ))),
             options: None,
         };
         assert_eq!(params.workspace_id(), None);
@@ -117,7 +122,9 @@ mod tests {
     #[test]
     fn test_workspace_id_none_for_invalid_uuid_string() {
         let params = TestListParams {
-            filter: Some(filter_with_workspace_id(OpValString::Eq("not-a-uuid".to_string()))),
+            filter: Some(filter_with_workspace_id(OpValString::Eq(
+                "not-a-uuid".to_string(),
+            ))),
             options: None,
         };
         assert_eq!(params.workspace_id(), None);

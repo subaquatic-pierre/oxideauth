@@ -253,14 +253,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Members
 
         // TODO: implement membership -> role -> permission join query
         let roles = self.get_roles(ctx, membership_with_roles.roles).await?;
-        let account = self
-            .get_account(
-                ctx,
-                membership_with_roles.membership.account_id,
-                membership_with_roles.membership.workspace_id,
-            )
-            .await?;
-
         let membership = Membership::from_with_roles(membership_with_roles.membership, roles);
 
         Ok(membership)
@@ -276,9 +268,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for MembershipS
         ctx: &mut CoreCtx,
         params: Self::ListParams,
     ) -> CoreResult<ListResponse<Self::CoreModel>> {
-        // TODO: this is the most naive way to listing membership,
-        // it urgently needs dedicated store query
-
         let store = self.store();
         let (store_ctx, workspace) = self
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
@@ -336,6 +325,13 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Membershi
 
         let new_version = cur.version + 1;
 
+        if let Some(role_ids) = &params.role_ids {
+            let role_ids = role_ids.iter().map(|e| e.into()).collect();
+            store
+                .set_many_to_many_links(&store_ctx, &cur.id.into(), role_ids)
+                .await?;
+        }
+
         let res = store
             .update(
                 &store_ctx,
@@ -344,11 +340,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Membershi
             )
             .await?;
 
-        // TODO: bump version
-
-        // TODO: link / unlink roles
-
-        // TODO: invalidate auth cache
+        self.cm.auth.invalidate(res.id.into()).await?;
 
         // TODO(T032): Push notification trigger — notify all workspace clients
         // that a membership changed. Requires wiring a `ClientService`
@@ -396,11 +388,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Membershi
             )
             .await?;
 
-        let res = store.delete(&store_ctx, &params.id.into()).await?;
+        // NOTE: all permission linked to this role are unlinked ON DELETE CASCADE on the membership_role table
 
-        // Invalidate the auth cache for the deleted membership so no stale
-        // cached auth data survives the deletion.
-        // TODO: invalidate auth cache
+        let res = store.delete(&store_ctx, &params.id.into()).await?;
+        self.cm.auth.invalidate(res.id.into()).await?;
 
         // TODO(T032): Push notification trigger — notify all workspace clients
         // that a membership was deleted. Requires wiring a `ClientService`
