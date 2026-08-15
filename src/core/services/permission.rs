@@ -35,6 +35,7 @@ use crate::{
         crud::{Create, CreateMany, Delete, Get, GetCount, List, Update},
         ctx::StoreCtx,
         entities::{permission::PermissionRow, role::RoleFilter},
+        error::StoreError,
         join::ListManyToMany,
         manager::StoreManager,
         stores::{permission::PermissionStore, role::RoleStore},
@@ -220,11 +221,25 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Permissio
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
 
-        // TODO: ensure cannot update permission to an existing permission in same workspace
-        // check database constraints
-        let updated = store
+        // The `permission_workspace_name_key` unique constraint on
+        // (workspace_id, name) rejects the rename (SQLSTATE 23505) when another
+        // permission in the same workspace already uses the target name. Match
+        // on the typed error and surface a friendly message instead of leaking
+        // the raw constraint error.
+        let new_name = params.name.clone().unwrap_or_default();
+
+        let updated = match store
             .update(&store_ctx, &params.id.into(), params.into())
-            .await?;
+            .await
+        {
+            Ok(updated) => updated,
+            Err(StoreError::ConstraintViolation) => {
+                return Err(CoreError::AlreadyExists(format!(
+                    "a permission named '{new_name}' already exists in this workspace"
+                )));
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // Invalidate the auth cache for all memberships whose roles grant the
         // updated permission — its name may have changed.
@@ -265,8 +280,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Permissio
             .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
             .await?;
 
-        // TODO: ensure cannot delete attached permission
-        // check database constraints
         let to_delete = self
             .describe(
                 ctx,
@@ -277,7 +290,21 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Permissio
             )
             .await?;
 
-        let res = store.delete(&store_ctx, &to_delete.id.into()).await?;
+        // The `role_permission` join table references `permission` with
+        // `ON DELETE RESTRICT`, so Postgres rejects the delete (SQLSTATE 23503)
+        // when the permission is still attached to one or more roles. Match on
+        // the typed error and surface a friendly message instead of leaking the
+        // raw constraint error.
+        let res = match store.delete(&store_ctx, &to_delete.id.into()).await {
+            Ok(res) => res,
+            Err(StoreError::ConstraintViolation) => {
+                return Err(CoreError::InvalidParams(format!(
+                    "permission '{}' is still attached to one or more roles and cannot be deleted",
+                    to_delete.name
+                )));
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // Invalidate the auth cache for all memberships whose roles granted the
         // deleted permission — their cached auth scopes are now stale.

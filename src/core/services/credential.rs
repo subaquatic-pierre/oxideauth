@@ -117,18 +117,13 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Credentia
 
         let row = match store.create(&store_ctx, for_create).await {
             Ok(row) => row,
-            Err(e) => {
-                if let StoreError::SqlxError(ref sqlx_err) = e {
-                    if let Some(db_err) = sqlx_err.as_database_error() {
-                        if db_err.code().as_deref() == Some("23505") {
-                            return Err(CoreError::AlreadyExists(
-                                "a credential of this kind already exists for this account in this workspace".to_string(),
-                            ));
-                        }
-                    }
-                }
-                return Err(e.into());
+            Err(StoreError::ConstraintViolation) => {
+                return Err(CoreError::AlreadyExists(
+                    "a credential of this kind already exists for this account in this workspace"
+                        .to_string(),
+                ));
             }
+            Err(e) => return Err(e.into()),
         };
 
         Ok(row.into())

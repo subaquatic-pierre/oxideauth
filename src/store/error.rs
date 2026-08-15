@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use derive_more::From;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 
 pub type StoreResult<T> = core::result::Result<T, StoreError>;
 
@@ -39,13 +39,35 @@ pub enum StoreError {
     #[from]
     IntoSeaError(#[serde_as(as = "DisplayFromStr")] modql::filter::IntoSeaError),
     #[from]
-    SqlxError(#[serde_as(as = "DisplayFromStr")] sqlx::Error),
-    #[from]
     SeaQueryError(#[serde_as(as = "DisplayFromStr")] sea_query::error::Error),
     #[from]
     TimeParseError(#[serde_as(as = "DisplayFromStr")] time::error::Parse),
     #[from]
     TimeFormatError(#[serde_as(as = "DisplayFromStr")] time::error::Format),
+    SqlxError(#[serde_as(as = "DisplayFromStr")] sqlx::Error),
+    ConstraintViolation,
+}
+
+impl From<sqlx::Error> for StoreError {
+    fn from(value: sqlx::Error) -> Self {
+        match value {
+            sqlx::Error::Database(ref database_error) => {
+                // Constraint violations that services handle uniformly by
+                // matching on `StoreError::ConstraintViolation`:
+                //   - 23503 foreign_key_violation: the row is still referenced
+                //     by a foreign key (e.g. deleting a permission still
+                //     attached to a role).
+                //   - 23505 unique_violation: a value duplicates one already
+                //     present under a unique constraint (e.g. renaming a
+                //     permission to a name already used in the same workspace).
+                match database_error.code().as_deref() {
+                    Some("23503" | "23505") => Self::ConstraintViolation,
+                    _ => Self::SqlxError(value),
+                }
+            }
+            _ => Self::SqlxError(value),
+        }
+    }
 }
 
 impl Display for StoreError {
@@ -68,11 +90,15 @@ mod tests {
                 entity: "account".to_string(),
                 id: "abc".to_string(),
             },
-            StoreError::ListLimitExceeded { max: 500, actual: 501 },
+            StoreError::ListLimitExceeded {
+                max: 500,
+                actual: 501,
+            },
             StoreError::DataError("boom".to_string()),
             StoreError::MockReturn,
             StoreError::WithTxnFalse,
             StoreError::NoTxn,
+            StoreError::ConstraintViolation,
         ];
 
         // -- Execute & Assert
@@ -85,8 +111,9 @@ mod tests {
     #[test]
     fn test_from_external_errors() {
         // -- Execute
-        let serde_err: StoreError =
-            serde_json::from_str::<serde_json::Value>("{invalid json}").unwrap_err().into();
+        let serde_err: StoreError = serde_json::from_str::<serde_json::Value>("{invalid json}")
+            .unwrap_err()
+            .into();
         let parse_res = time::OffsetDateTime::parse(
             "not-a-time",
             &time::format_description::well_known::Rfc3339,

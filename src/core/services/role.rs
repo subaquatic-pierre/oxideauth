@@ -344,9 +344,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for RoleServi
         // friendly message instead of leaking the raw constraint error.
         match store.delete(&store_ctx, &to_delete.id.into()).await {
             Ok(_) => {}
-            Err(StoreError::SqlxError(sqlx::Error::Database(db_err)))
-                if db_err.code().as_deref() == Some("23503") =>
-            {
+            Err(StoreError::ConstraintViolation) => {
                 return Err(CoreError::InvalidParams(format!(
                     "role '{}' is still assigned to one or more memberships and cannot be deleted",
                     to_delete.name
@@ -440,11 +438,9 @@ mod tests {
                 ..Default::default()
             }))
             // get_many_to_many -> count_many guard
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             // get_many_to_many -> fetch_optional joined row
-            .with_optional::<RoleWithPermissions>(Some(role_with_perms(
-                role_id, ws_id, "admin",
-            )));
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "admin")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["role:describe"])?;
@@ -488,11 +484,9 @@ mod tests {
                 ..Default::default()
             }))
             // describe -> get_many_to_many -> count_many guard
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             // describe -> get_many_to_many -> joined row
-            .with_optional::<RoleWithPermissions>(Some(role_with_perms(
-                role_id, ws_id, "dev",
-            )));
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["role:create", "role:describe"])?;
@@ -531,7 +525,7 @@ mod tests {
                 id: ws_id.into(),
                 ..Default::default()
             }))
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             .with_optional::<RoleWithPermissions>(Some(role_with_perms(
                 role_id,
                 ws_id,
@@ -564,11 +558,11 @@ mod tests {
                 ..Default::default()
             }))
             // list_many_to_many -> count guard
-            .with_one::<(i64,)>( (1,) )
+            .with_one::<(i64,)>((1,))
             // list_many_to_many -> joined rows
             .with_all::<RoleWithPermissions>(vec![role_with_perms(role_id, ws_id, "dev")])
             // count_with_tags_and_filter
-            .with_one::<(i64,)>( (1,) );
+            .with_one::<(i64,)>((1,));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["role:list"])?;
@@ -606,7 +600,7 @@ mod tests {
             // update -> store.update
             .with_optional::<RoleRow>(Some(role_row(role_id, ws_id, "renamed")))
             // invalidate_memberships_for_role -> list_many_to_many count guard
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             // invalidate_memberships_for_role -> list_many_to_many rows (none)
             .with_all::<MembershipWithRoles>(vec![])
             // describe -> scope_and_validate_ctx -> get_workspace
@@ -615,11 +609,9 @@ mod tests {
                 ..Default::default()
             }))
             // describe -> get_many_to_many count_many guard
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             // describe -> get_many_to_many joined row
-            .with_optional::<RoleWithPermissions>(Some(role_with_perms(
-                role_id, ws_id, "renamed",
-            )));
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "renamed")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["role:update", "role:describe"])?;
@@ -660,13 +652,13 @@ mod tests {
                 ..Default::default()
             }))
             // delete -> describe -> get_many_to_many count_many guard
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             // delete -> describe -> get_many_to_many joined row
             .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")))
             // delete -> store.delete
             .with_optional::<RoleRow>(Some(role_row(role_id, ws_id, "dev")))
             // invalidate_memberships_for_role -> list_many_to_many count guard
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             // invalidate_memberships_for_role -> list_many_to_many rows (none)
             .with_all::<MembershipWithRoles>(vec![]);
         let svc = mock_svc(dbx);
@@ -704,7 +696,7 @@ mod tests {
             // get_by_name -> list
             .with_all::<RoleRow>(vec![role_row(role_id, ws_id, "dev")])
             // get_many_to_many count_many guard
-            .with_one::<(i64,)>( (0,) )
+            .with_one::<(i64,)>((0,))
             // get_many_to_many joined row
             .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")));
         let svc = mock_svc(dbx);
