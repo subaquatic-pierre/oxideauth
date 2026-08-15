@@ -3,16 +3,14 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct StoreCtx {
     pub user_id: Uuid,
-    pub ws_id: Uuid,
-    pub workspace_scope: Option<Uuid>,
+    pub ws_id: Option<Uuid>,
 }
 
 impl StoreCtx {
     pub fn new(user_id: Uuid, ws_id: Uuid) -> Self {
         Self {
             user_id,
-            ws_id,
-            workspace_scope: None,
+            ws_id: Some(ws_id),
         }
     }
 
@@ -23,8 +21,7 @@ impl StoreCtx {
     pub fn system(user_id: Uuid, ws_id: Uuid) -> Self {
         Self {
             user_id,
-            ws_id,
-            workspace_scope: None,
+            ws_id: Some(ws_id),
         }
     }
 
@@ -35,17 +32,16 @@ impl StoreCtx {
     pub fn bootstrap() -> Self {
         Self {
             user_id: Uuid::nil(),
-            ws_id: Uuid::nil(),
-            workspace_scope: None,
+            ws_id: None,
         }
     }
 
     pub fn workspace_scope(&self) -> Option<Uuid> {
-        self.workspace_scope
+        self.ws_id
     }
 
     pub fn set_workspace_scope(&mut self, ws: Option<Uuid>) {
-        self.workspace_scope = ws
+        self.ws_id = ws
     }
 }
 
@@ -64,8 +60,7 @@ mod tests {
 
         // -- Assert
         assert_eq!(ctx.user_id, user_id);
-        assert_eq!(ctx.ws_id, ws_id);
-        assert_eq!(ctx.workspace_scope(), None);
+        assert_eq!(ctx.workspace_scope(), Some(ws_id));
     }
 
     #[test]
@@ -79,8 +74,7 @@ mod tests {
 
         // -- Assert
         assert_eq!(ctx.user_id, user_id);
-        assert_eq!(ctx.ws_id, ws_id);
-        assert_eq!(ctx.workspace_scope(), None);
+        assert_eq!(ctx.workspace_scope(), Some(ws_id));
     }
 
     #[test]
@@ -90,8 +84,7 @@ mod tests {
 
         // -- Assert
         assert_eq!(ctx.user_id, Uuid::nil());
-        assert_eq!(ctx.ws_id, Uuid::nil());
-        assert_eq!(ctx.workspace_scope(), None);
+        assert_eq!(ctx.ws_id, None);
     }
 
     #[test]

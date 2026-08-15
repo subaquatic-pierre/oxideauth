@@ -1020,7 +1020,7 @@ where
                         CredentialCreateParams {
                             account_id: account.id,
                             // TODO: workspace is not on ctx, not auth scoped endpoint
-                            workspace_id: store_ctx.ws_id,
+                            workspace_id: ctx.ws_cache.id,
                             kind: CredentialKind::OAuth,
                             provider: CredentialProvider::Google,
                             status: CredentialStatus::Active,

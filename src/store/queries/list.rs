@@ -1,4 +1,3 @@
-use crate::store::utils::pg_binder::PgBinder;
 use modql::filter::{FilterGroups, ListOptions};
 use sea_query::{
     Asterisk, Condition, Expr, ExprTrait, Func, JoinType, PostgresQueryBuilder, Query,
@@ -7,13 +6,13 @@ use sea_query::{
 use crate::store::{
     ctx::StoreCtx,
     entities::workspace::WorkspaceIden,
-    error::StoreResult,
+    error::{StoreError, StoreResult},
     queries::meta::{ListContainingManyQueryMeta, ListInNamespaceQueryMeta},
     traits::{
         dbx::DbExecutor,
         meta::{StoreId, StoreRow, TableIden},
     },
-    utils::{ListOptionsValidator, apply_tags_to_query},
+    utils::{ListOptionsValidator, PgBinder, apply_tags_to_query},
 };
 
 /// Lists entities (e.g., accounts) that belong to the current namespace by
@@ -61,7 +60,9 @@ where
     F: Into<FilterGroups>,
     I: TableIden,
 {
-    let namespace = ctx.workspace_scope().unwrap_or(ctx.ws_id);
+    let namespace = ctx.workspace_scope().ok_or(StoreError::InvalidContext(
+        "workspace needs to be defined in `list_in_namespace_by_join_table` query".to_string(),
+    ))?;
 
     let mut query = Query::select();
     query

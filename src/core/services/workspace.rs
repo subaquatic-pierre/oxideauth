@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, OnceLock, Weak},
 };
 
+use modql::filter::ListOptions;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -14,6 +15,7 @@ use crate::{
         models::{
             account::Account,
             list::ListResponse,
+            membership::MembershipFilter,
             permission::PermissionCreateParams,
             workspace::{
                 Workspace, WorkspaceCreateParams, WorkspaceDeleteParams, WorkspaceDescribeParams,
@@ -51,7 +53,7 @@ use crate::{
         manager::StoreManager,
         stores::workspace::WorkspaceStore,
         traits::{contains::FilterByContains, crud::*, dbx::DbExecutor},
-        utils::ListOptionsValidator,
+        utils::{LIST_LIMIT_DEFAULT, ListOptionsValidator},
     },
 };
 
@@ -219,6 +221,58 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             .await?;
 
         tracing::info!(workspace_id = %workspace_id, "Default workspace roles seeded");
+        Ok(())
+    }
+
+    async fn invalidate_all_ws_autch_cache(
+        &self,
+        ctx: &mut CoreCtx,
+        slug_or_id: &str,
+    ) -> CoreResult<()> {
+        let ws = self.get_workspace_by_slug_or_id(&ctx, &slug_or_id).await?;
+        let ws_id = ws.id;
+        ctx.set_scoped_ws(ws.into());
+        let store_ctx = ctx.into();
+
+        // TODO: there may be more that 500 memberships in the workspace
+        // which means we need to coninue
+
+        let mem_filter: MembershipFilter = json!({"workspace_id":&ws_id}).try_into()?;
+
+        let total = self
+            .sm
+            .membership
+            .count(&store_ctx, Some(mem_filter.clone()))
+            .await?;
+
+        let mut cur_offset = 0;
+        let mut mem_ids: Vec<Uuid> = vec![];
+
+        while (cur_offset < total) {
+            let opts = ListOptions {
+                limit: Some(LIST_LIMIT_DEFAULT),
+                offset: Some(cur_offset),
+                order_bys: Some("id".into()),
+            };
+
+            let mems = self
+                .sm
+                .membership
+                .list(&store_ctx, Some(mem_filter.clone()), Some(opts.clone()))
+                .await?;
+
+            let ids: Vec<Uuid> = mems.into_iter().map(|el| el.id.into()).collect();
+
+            mem_ids.extend_from_slice(&ids);
+
+            // increment offset
+            cur_offset += LIST_LIMIT_DEFAULT;
+        }
+
+        for id in mem_ids {
+            self.cm.auth.invalidate(id).await?;
+        }
+
         Ok(())
     }
 
@@ -426,11 +480,13 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
             .get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?)
             .await?;
 
-        let update_data: WorkspaceForUpdate = params.into();
+        let update_data: WorkspaceForUpdate = params.clone().into();
 
         let res = store.update(&store_ctx, &ws.id.into(), update_data).await?;
 
         self.cm.workspace.invalidate(res.id.into()).await?;
+        // self.invalidate_all_ws_autch_cache(ctx, &params.id_or_slug()?)
+        //     .await?;
 
         Ok(res.into())
     }
@@ -566,19 +622,24 @@ mod tests {
     #[serial]
     async fn test_workspace_update() -> CoreResult<()> {
         let ws_id = Uuid::new_v4();
+        let ws = WorkspaceRow {
+            id: ws_id.into(),
+            name: "Original Name".to_string(),
+            ..Default::default()
+        };
+        let ws_updated = WorkspaceRow {
+            id: ws_id.into(),
+            name: "Updated Name".to_string(),
+            ..Default::default()
+        };
+
         let dbx = MockDbx::new()
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                name: "Original Name".to_string(),
-                ..Default::default()
-            })) // get_workspace_by_slug_or_id
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                name: "Updated Name".to_string(),
-                ..Default::default()
-            })); // store.update
+            .with_optional::<WorkspaceRow>(Some(ws.clone())) // get_workspace_by_slug_or_id
+            .with_optional::<WorkspaceRow>(Some(ws_updated.clone())) // store.update
+            .with_all::<WorkspaceRow>(vec![ws.clone()]); // store.update
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
+        ctx.set_scoped_ws(ws.into());
         ctx.extend_perms(&["workspace:update"])?;
 
         let update_params = WorkspaceUpdateParams {

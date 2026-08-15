@@ -14,6 +14,7 @@ pub enum StoreError {
         entity: String,
         id: String,
     },
+    InvalidContext(String),
     ListLimitExceeded {
         max: i64,
         actual: i64,
