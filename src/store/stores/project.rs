@@ -31,15 +31,9 @@ impl<D: DbExecutor> ProjectStore<D> {
         Self { dbx }
     }
 
-    pub async fn get_by_code(
-        &self,
-        ctx: &StoreCtx,
-        code: &str,
-        workspace_id: &DbId,
-    ) -> StoreResult<Option<ProjectRow>> {
+    pub async fn get_by_code(&self, ctx: &StoreCtx, code: &str) -> StoreResult<Option<ProjectRow>> {
         let filter: ProjectFilter = json!({
             "code": code.to_string(),
-            "workspace_id": workspace_id.to_string()
         })
         .try_into()?;
 
@@ -115,7 +109,10 @@ mod tests {
     use crate::store::{
         ctx::StoreCtx,
         dbx::MockDbx,
-        entities::{audit::AuditFields, project::{ProjectConfig, ProjectMeta}},
+        entities::{
+            audit::AuditFields,
+            project::{ProjectConfig, ProjectMeta},
+        },
         error::StoreError,
         traits::{contains::FilterByContains, crud::*},
     };
@@ -352,25 +349,61 @@ mod tests {
 
         // -- Execute: create 3 projects using Default::default() with same workspace
         let proj1 = store
-            .create(&ctx, ProjectForCreate { workspace_id, ..Default::default() })
+            .create(
+                &ctx,
+                ProjectForCreate {
+                    workspace_id,
+                    ..Default::default()
+                },
+            )
             .await?;
         let proj2 = store
-            .create(&ctx, ProjectForCreate { workspace_id, ..Default::default() })
+            .create(
+                &ctx,
+                ProjectForCreate {
+                    workspace_id,
+                    ..Default::default()
+                },
+            )
             .await?;
         let proj3 = store
-            .create(&ctx, ProjectForCreate { workspace_id, ..Default::default() })
+            .create(
+                &ctx,
+                ProjectForCreate {
+                    workspace_id,
+                    ..Default::default()
+                },
+            )
             .await?;
 
         // -- Assert: all 3 projects persisted with unique names/codes and valid IDs
         assert_ne!(proj1.id, proj2.id);
         assert_ne!(proj2.id, proj3.id);
         assert_ne!(proj1.id, proj3.id);
-        assert_ne!(proj1.name, proj2.name, "Default project names should be unique");
-        assert_ne!(proj2.name, proj3.name, "Default project names should be unique");
-        assert_ne!(proj1.name, proj3.name, "Default project names should be unique");
-        assert_ne!(proj1.code, proj2.code, "Default project codes should be unique");
-        assert_ne!(proj2.code, proj3.code, "Default project codes should be unique");
-        assert_ne!(proj1.code, proj3.code, "Default project codes should be unique");
+        assert_ne!(
+            proj1.name, proj2.name,
+            "Default project names should be unique"
+        );
+        assert_ne!(
+            proj2.name, proj3.name,
+            "Default project names should be unique"
+        );
+        assert_ne!(
+            proj1.name, proj3.name,
+            "Default project names should be unique"
+        );
+        assert_ne!(
+            proj1.code, proj2.code,
+            "Default project codes should be unique"
+        );
+        assert_ne!(
+            proj2.code, proj3.code,
+            "Default project codes should be unique"
+        );
+        assert_ne!(
+            proj1.code, proj3.code,
+            "Default project codes should be unique"
+        );
         assert_eq!(proj1.workspace_id, workspace_id);
         assert_eq!(proj2.workspace_id, workspace_id);
         assert_eq!(proj3.workspace_id, workspace_id);

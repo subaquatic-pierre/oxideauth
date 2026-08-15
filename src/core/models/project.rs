@@ -24,6 +24,7 @@ use crate::{
         },
         utils::ListOptionsValidator,
     },
+    utils::id::id_or_string,
 };
 
 impl From<ProjectCreateParams> for ProjectForCreate {
@@ -75,30 +76,19 @@ pub struct Project {
     pub audit: CoreAuditFields,
 }
 
-impl Project {
-    /// Constructs a Project model by hydrating it with the full Workspace entity.
-    /// This is used by the service layer after fetching both the row and the related entity.
-    pub fn from_row_with_workspace(row: ProjectRow, workspace: WorkspaceCache) -> CoreResult<Self> {
-        // Ensure the ID matches (useful for validation, though generally guaranteed by join/lookup)
-        if row.workspace_id != workspace.id {
-            return Err(CoreError::InvalidParams(
-                "row.workspace_id does not match workspace.id".to_string(),
-            ));
+impl From<ProjectRow> for Project {
+    fn from(value: ProjectRow) -> Self {
+        Self {
+            id: value.id.into(),
+            workspace_id: value.workspace_id,
+            name: value.name,
+            code: value.code,
+            description: value.description,
+            config: value.config,
+            tags: value.tags,
+            meta: value.meta,
+            audit: value.audit.into(),
         }
-
-        let new_project = Self {
-            id: row.id.into(),
-            workspace_id: workspace.id,
-            name: row.name,
-            code: row.code,
-            description: row.description,
-            config: row.config,
-            tags: row.tags,
-            meta: row.meta,
-            audit: row.audit.into(),
-        };
-
-        Ok(new_project)
     }
 }
 
@@ -126,6 +116,24 @@ impl ValidateParams for ProjectDescribeParams {
     fn validate(self) -> CoreResult<Self> {
         // TODO: ensure params are correct
         Ok(self)
+    }
+}
+
+impl ProjectDescribeParams {
+    pub fn id_or_code(&self) -> CoreResult<String> {
+        id_or_string(self.id, self.code.clone(), Some("ID or code required"))
+    }
+}
+
+impl ProjectDeleteParams {
+    pub fn id_or_code(&self) -> CoreResult<String> {
+        id_or_string(self.id, self.code.clone(), Some("ID or code required"))
+    }
+}
+
+impl ProjectUpdateParams {
+    pub fn id_or_code(&self) -> CoreResult<String> {
+        id_or_string(self.id, self.code.clone(), Some("ID or code required"))
     }
 }
 
@@ -213,36 +221,6 @@ mod tests {
                 meta: AuditMeta::default(),
             },
         }
-    }
-
-    #[test]
-    fn test_project_from_row_with_workspace() {
-        let ws_id = Uuid::new_v4();
-        let row = make_row(ws_id);
-
-        let mut workspace = WorkspaceCache::default();
-        workspace.id = ws_id;
-
-        let project = Project::from_row_with_workspace(row, workspace).expect("ids match");
-        assert_eq!(project.workspace_id, ws_id);
-        assert_eq!(project.name, "Project Alpha");
-        assert_eq!(project.code.as_deref(), Some("alpha"));
-        assert_eq!(project.description.as_deref(), Some("desc"));
-        assert_eq!(project.tags, vec!["t1".to_string()]);
-        assert_eq!(project.meta.schema_version, "2");
-        assert_eq!(project.config.schema_version, "1");
-        assert_eq!(project.audit.created_at, OffsetDateTime::UNIX_EPOCH);
-    }
-
-    #[test]
-    fn test_project_from_row_with_workspace_mismatch() {
-        let row = make_row(Uuid::new_v4());
-        let workspace = WorkspaceCache::default(); // id = nil
-
-        let err = Project::from_row_with_workspace(row, workspace)
-            .err()
-            .expect("workspace_id mismatch should fail");
-        assert!(matches!(err, CoreError::InvalidParams(_)));
     }
 
     #[test]
