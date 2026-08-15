@@ -16,7 +16,7 @@ pub enum AuditIden {
     UpdatedAt,
 }
 
-#[derive(Debug, FromRow, Deserialize)]
+#[derive(Debug, Clone, FromRow, Deserialize)]
 pub struct AuditFields {
     pub created_by: DbId,
     #[serde(with = "time::serde::rfc3339")]
@@ -67,7 +67,10 @@ mod tests {
         assert_eq!(audit.created_by.0, Uuid::nil());
         assert!(audit.updated_by.is_none());
         assert!(audit.updated_at.is_none());
-        assert_eq!(audit.meta.schema_version, AuditMeta::default().schema_version);
+        assert_eq!(
+            audit.meta.schema_version,
+            AuditMeta::default().schema_version
+        );
     }
 
     #[test]

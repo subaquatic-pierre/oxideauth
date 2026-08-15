@@ -306,8 +306,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Workspace
             .create(&store_ctx, params.into_store_params(ctx.account_id()))
             .await?;
 
+        ctx.set_scoped_ws(new_workspace.clone().into());
+
         // 4. Seed canonical permissions into the new workspace
-        let workspace_id: Uuid = new_workspace.id.into();
+        let workspace_id: Uuid = new_workspace.id.clone().into();
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.permission.create]);
         self.populate_ws_perms(ctx, workspace_id).await?;
 
@@ -338,7 +340,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Workspa
     ) -> CoreResult<Workspace> {
         let store = self.store();
 
-        let workspace = self.get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?).await?;
+        let workspace = self
+            .get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?)
+            .await?;
 
         let auth_validator = AuthValidator::new(ctx);
 
@@ -418,7 +422,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
         // scope store_ctx
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        let ws = self.get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?).await?;
+        let ws = self
+            .get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?)
+            .await?;
 
         let update_data: WorkspaceForUpdate = params.into();
 
@@ -451,7 +457,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Workspace
         // scope store_ctx
         let store_ctx = auth_validator.scope_store_workspace(None)?;
 
-        let ws = self.get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?).await?;
+        let ws = self
+            .get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?)
+            .await?;
 
         let deleted = store.delete(&store_ctx, &ws.id.into()).await?;
         self.cm.workspace.invalidate(deleted.id.into()).await?;
@@ -541,7 +549,7 @@ mod tests {
                 name: "list-ns-a".to_string(),
                 ..Default::default()
             }])
-            .with_one::<(i64,)>( (1,) );
+            .with_one::<(i64,)>((1,));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["workspace:list"])?;

@@ -5,11 +5,7 @@ use crate::{
     core::{
         ctx::CoreCtx,
         error::CoreResult,
-        models::{
-            list::ListResponse,
-            permission::PermissionRule,
-            workspace::Workspace,
-        },
+        models::{list::ListResponse, permission::PermissionRule, workspace::Workspace},
         services::{
             auth::AuthValidator, permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService,
         },
@@ -49,7 +45,8 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
         workspace_id: Uuid,
         required_perms: &[&str],
     ) -> CoreResult<(StoreCtx, WorkspaceCache)> {
-        let workspace = self.get_workspace(ctx, workspace_id).await?;
+        let workspace = &ctx.ws_cache;
+        // let workspace = self.get_workspace(ctx, workspace_id).await?;
 
         let auth_validator = AuthValidator::new(ctx);
 
@@ -63,7 +60,7 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
             store_ctx.set_workspace_scope(None);
         }
 
-        Ok((store_ctx, workspace))
+        Ok((store_ctx, workspace.clone()))
     }
 }
 

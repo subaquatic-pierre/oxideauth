@@ -43,18 +43,18 @@ src/
 
 All 50 endpoints use JSON POST with a standard `{ success, status, data }` response envelope (except 2 GET health endpoints and 1 GET OAuth callback).
 
-| Resource | Endpoints | Description |
-|----------|-----------|-------------|
-| Health | 2 | `GET /`, `GET /health-check` |
-| Auth | 11 | Register, Login, Refresh, OAuth2, password & token management |
-| Workspaces | 5 | CRUD + List — multi-tenant containers |
-| Accounts | 5 | CRUD + List — user identity management |
-| Projects | 5 | CRUD + List — scoped work areas |
-| Roles | 5 | CRUD + List — permission bundles |
-| Permissions | 5 | CRUD + List — fine-grained access control |
-| Memberships | 5 | CRUD + List — account-to-workspace links |
-| Credentials | 4 | Describe, List, Update, Delete |
-| Tokens | 3 | Describe, List, Delete — token blacklist |
+| Resource    | Endpoints | Description                                                   |
+| ----------- | --------- | ------------------------------------------------------------- |
+| Health      | 2         | `GET /`, `GET /health-check`                                  |
+| Auth        | 11        | Register, Login, Refresh, OAuth2, password & token management |
+| Workspaces  | 5         | CRUD + List — multi-tenant containers                         |
+| Accounts    | 5         | CRUD + List — user identity management                        |
+| Projects    | 5         | CRUD + List — scoped work areas                               |
+| Roles       | 5         | CRUD + List — permission bundles                              |
+| Permissions | 5         | CRUD + List — fine-grained access control                     |
+| Memberships | 5         | CRUD + List — account-to-workspace links                      |
+| Credentials | 4         | Describe, List, Update, Delete                                |
+| Tokens      | 3         | Describe, List, Delete — token blacklist                      |
 
 ## Documentation
 
@@ -95,6 +95,7 @@ make deploy 1.2.3    # use explicit version
 ```
 
 The `make deploy` command runs `scripts/deploy.sh`, which:
+
 1. Bumps the version in `Cargo.toml`
 2. Runs `cargo build --release`
 3. Creates and pushes an `X.Y.Z` tag
@@ -157,8 +158,8 @@ api/
 
 ```sh
 # A single unit test (mocked, no DB):
-cargo test -p oxideauth --lib store::stores::account::tests::test_create_get_ok
+cargo test -p oxideauth --lib
 
 # A single query integration test (requires Postgres + Redis):
-cargo test -p oxideauth --features integration --test main queries::crud::test_create_and_get_pass
+cargo test -p oxideauth --features integration --test main
 ```

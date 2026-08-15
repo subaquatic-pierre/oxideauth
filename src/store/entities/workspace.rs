@@ -30,7 +30,7 @@ pub enum WorkspaceIden {
 
 // --- Row (DB-facing) ---
 /// Maps to the `workspace` SQL table.
-#[derive(Debug, FromRow, Deserialize, HasId, Default)]
+#[derive(Debug, Clone, FromRow, Deserialize, HasId, Default)]
 pub struct WorkspaceRow {
     pub id: DbId,
 

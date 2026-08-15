@@ -499,10 +499,10 @@ mod tests {
 
         let dbx = MockDbx::new()
             // scope_and_validate_ctx -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
+            // .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+            //     id: ws_id.into(),
+            //     ..Default::default()
+            // }))
             // list_with_tags_and_filter
             .with_all::<ProjectRow>(vec![project_row(project_id, ws_id)])
             // count_with_tags_and_filter
@@ -542,11 +542,12 @@ mod tests {
 
         let dbx = MockDbx::new()
             // scope_and_validate_ctx -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
+            // .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+            //     id: ws_id.into(),
+            //     ..Default::default()
+            // }))
             // store.update
+            .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)))
             .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
@@ -577,18 +578,18 @@ mod tests {
     async fn test_project_delete() -> CoreResult<()> {
         let ws_id = Uuid::new_v4();
         let project_id = Uuid::new_v4();
+        let ws = WorkspaceRow {
+            id: ws_id.into(),
+            ..Default::default()
+        };
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // store.delete
+            .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)))
             .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["project:delete"])?;
+        ctx.set_scoped_ws(ws.into());
 
         let deleted = svc
             .delete(

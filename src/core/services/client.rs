@@ -548,18 +548,19 @@ mod tests {
     #[serial]
     async fn test_client_create() -> CoreResult<()> {
         let ws_id = Uuid::new_v4();
+        let ws: WorkspaceRow = WorkspaceRow {
+            id: ws_id.into(),
+            ..Default::default()
+        };
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
             // scope_and_validate_ctx -> get_workspace -> get by id
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
             // store.create
             .with_one::<ClientRow>(client_row(client_id, ws_id));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
+        ctx.set_scoped_ws(ws.into());
         ctx.extend_perms(&["client:create"])?;
 
         let params = ClientCreateParams {
@@ -586,19 +587,24 @@ mod tests {
     #[serial]
     async fn test_client_describe() -> CoreResult<()> {
         let ws_id = Uuid::new_v4();
+        let ws: WorkspaceRow = WorkspaceRow {
+            id: ws_id.into(),
+            ..Default::default()
+        };
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
             // scope_and_validate_ctx -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
+            // .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+            //     id: ws_id.into(),
+            //     ..Default::default()
+            // }))
             // store.get
             .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["client:describe"])?;
+        ctx.set_scoped_ws(ws.into());
 
         let client = svc
             .describe(
@@ -620,6 +626,10 @@ mod tests {
     #[serial]
     async fn test_client_list() -> CoreResult<()> {
         let ws_id = Uuid::new_v4();
+        let ws: WorkspaceRow = WorkspaceRow {
+            id: ws_id.into(),
+            ..Default::default()
+        };
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
@@ -631,10 +641,11 @@ mod tests {
             // list_with_tags_and_filter
             .with_all::<ClientRow>(vec![client_row(client_id, ws_id)])
             // count_with_tags_and_filter
-            .with_one::<(i64,)>( (1,) );
+            .with_one::<(i64,)>((1,));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["client:list"])?;
+        ctx.set_scoped_ws(ws.into());
 
         let res = svc
             .list(
@@ -658,6 +669,10 @@ mod tests {
     #[serial]
     async fn test_client_update() -> CoreResult<()> {
         let ws_id = Uuid::new_v4();
+        let ws: WorkspaceRow = WorkspaceRow {
+            id: ws_id.into(),
+            ..Default::default()
+        };
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
@@ -671,6 +686,7 @@ mod tests {
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["client:update"])?;
+        ctx.set_scoped_ws(ws.into());
 
         let params = ClientUpdateParams {
             id: client_id,
@@ -694,6 +710,10 @@ mod tests {
     #[serial]
     async fn test_client_delete() -> CoreResult<()> {
         let ws_id = Uuid::new_v4();
+        let ws: WorkspaceRow = WorkspaceRow {
+            id: ws_id.into(),
+            ..Default::default()
+        };
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
@@ -714,6 +734,7 @@ mod tests {
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["client:delete", "client:describe"])?;
+        ctx.set_scoped_ws(ws.into());
 
         let deleted = svc
             .delete(
@@ -734,6 +755,10 @@ mod tests {
     #[serial]
     async fn test_client_regenerate_secret() -> CoreResult<()> {
         let ws_id = Uuid::new_v4();
+        let ws: WorkspaceRow = WorkspaceRow {
+            id: ws_id.into(),
+            ..Default::default()
+        };
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
@@ -747,13 +772,18 @@ mod tests {
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["client:regenerateSecret"])?;
+        ctx.set_scoped_ws(ws.into());
 
         let res = svc.regenerate_secret(&mut ctx, client_id, ws_id).await?;
 
         assert_eq!(res.client.id, client_id);
         // Plaintext secret must be a 48-char alphanumeric string, shown once.
         assert_eq!(res.plaintext_secret.len(), 48);
-        assert!(res.plaintext_secret.chars().all(|c| c.is_ascii_alphanumeric()));
+        assert!(
+            res.plaintext_secret
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric())
+        );
 
         Ok(())
     }

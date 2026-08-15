@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
+use crate::cache::entities::workspace::WorkspaceCache;
 use crate::core::traits::service::CoreModelUpdateService;
 use crate::{
     app::AppState,
@@ -268,47 +269,60 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
         .await?
         .expect("Owner account not found");
 
+    let system_ws_id = system_ws.id.clone();
+    let default_ws_id = default_ws.id.clone();
+
     // Build memberships: system → system workspace admin, owner → system + default admin
-    let memberships: Vec<MembershipCreateParams> = vec![
-        MembershipCreateParams {
-            account_id: system.id.into(),
-            workspace_id: system_ws.id,
-            scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
-            project_id: None,
-            role_ids: vec![system_admin.id.into()],
-            tags: vec!["system".to_string()],
-            meta: MembershipMeta {
-                schema_version: "1".to_string(),
+    let memberships: Vec<(WorkspaceCache, MembershipCreateParams)> = vec![
+        (
+            system_ws.clone().into(),
+            MembershipCreateParams {
+                account_id: system.id.into(),
+                workspace_id: system_ws_id,
+                scope: MembershipScope::Workspace,
+                status: MembershipStatus::Active,
+                project_id: None,
+                role_ids: vec![system_admin.id.into()],
+                tags: vec!["system".to_string()],
+                meta: MembershipMeta {
+                    schema_version: "1".to_string(),
+                },
             },
-        },
-        MembershipCreateParams {
-            account_id: owner.id.into(),
-            workspace_id: system_ws.id,
-            scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
-            project_id: None,
-            role_ids: vec![system_admin.id.into()],
-            tags: vec!["system".to_string()],
-            meta: MembershipMeta {
-                schema_version: "1".to_string(),
+        ),
+        (
+            system_ws.into(),
+            MembershipCreateParams {
+                account_id: owner.id.into(),
+                workspace_id: system_ws_id,
+                scope: MembershipScope::Workspace,
+                status: MembershipStatus::Active,
+                project_id: None,
+                role_ids: vec![system_admin.id.into()],
+                tags: vec!["system".to_string()],
+                meta: MembershipMeta {
+                    schema_version: "1".to_string(),
+                },
             },
-        },
-        MembershipCreateParams {
-            account_id: owner.id.into(),
-            workspace_id: default_ws.id,
-            scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
-            project_id: None,
-            role_ids: vec![default_admin.id.into()],
-            tags: vec!["system".to_string()],
-            meta: MembershipMeta {
-                schema_version: "1".to_string(),
+        ),
+        (
+            default_ws.into(),
+            MembershipCreateParams {
+                account_id: owner.id.into(),
+                workspace_id: default_ws_id,
+                scope: MembershipScope::Workspace,
+                status: MembershipStatus::Active,
+                project_id: None,
+                role_ids: vec![default_admin.id.into()],
+                tags: vec!["system".to_string()],
+                meta: MembershipMeta {
+                    schema_version: "1".to_string(),
+                },
             },
-        },
+        ),
     ];
 
-    for params in memberships {
+    for (ws, params) in memberships {
+        ctx.set_scoped_ws(ws);
         ctx.extend_perms(&["membership:create"])?;
         svc_reg.membership.create(ctx, params).await?;
     }
