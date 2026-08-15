@@ -485,8 +485,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
         let res = store.update(&store_ctx, &ws.id.into(), update_data).await?;
 
         self.cm.workspace.invalidate(res.id.into()).await?;
-        // self.invalidate_all_ws_autch_cache(ctx, &params.id_or_slug()?)
-        //     .await?;
+        self.invalidate_all_ws_autch_cache(ctx, &params.id_or_slug()?)
+            .await?;
 
         Ok(res.into())
     }
