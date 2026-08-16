@@ -32,6 +32,7 @@ pub struct Config {
     pub owner_email: String,
     pub owner_password: String,
     pub owner_name: String,
+    pub reset_db: bool,
 }
 
 impl Config {
@@ -79,10 +80,14 @@ impl Config {
 
         let app_env = var("APP_ENV").expect("APP_ENV must be set in .env");
 
-        let owner_email =
-            var("OWNER_EMAIL").unwrap_or_else(|_| "owner@system.local".to_string());
+        let owner_email = var("OWNER_EMAIL").unwrap_or_else(|_| "owner@system.local".to_string());
         let owner_password = var("OWNER_PASSWORD").unwrap_or_else(|_| "ownerpass".to_string());
         let owner_name = var("OWNER_NAME").unwrap_or_else(|_| "Owner Account".to_string());
+
+        let reset_db = var("DROP_SCHEMA")
+            .unwrap_or("false".to_string()) // 7 days default
+            .parse::<bool>()
+            .unwrap();
 
         Config {
             database_url,
@@ -108,6 +113,7 @@ impl Config {
             owner_email,
             owner_password,
             owner_name,
+            reset_db,
         }
     }
 
@@ -136,6 +142,7 @@ impl Config {
             owner_email: "owner@system.local".to_string(),
             owner_password: "ownerpass".to_string(),
             owner_name: "Owner Account".to_string(),
+            reset_db,
         }
     }
 
@@ -165,6 +172,7 @@ impl Config {
             owner_email: "owner@system.local".to_string(),
             owner_password: "ownerpass".to_string(),
             owner_name: "Owner Account".to_string(),
+            reset_db,
         }
     }
 
@@ -204,7 +212,10 @@ mod tests {
 
         assert_eq!(config.access_token_max_age, 900, "15 minute access token");
         assert_eq!(config.refresh_token_max_age, 604800, "7 day refresh token");
-        assert!(config.email_dry_mode, "email dry mode should be enabled in mock");
+        assert!(
+            config.email_dry_mode,
+            "email dry mode should be enabled in mock"
+        );
         assert_eq!(config.app_env, "mock");
         assert_eq!(config.host, "127.0.0.1");
         assert_eq!(config.port, 8000);
@@ -221,7 +232,10 @@ mod tests {
 
         assert_eq!(config.access_token_max_age, 900, "15 minute access token");
         assert_eq!(config.refresh_token_max_age, 604800, "7 day refresh token");
-        assert!(config.email_dry_mode, "email dry mode should be enabled in test");
+        assert!(
+            config.email_dry_mode,
+            "email dry mode should be enabled in test"
+        );
         assert_eq!(config.app_env, "test");
         assert_eq!(config.host, "127.0.0.1");
         assert_eq!(config.port, 8000);
