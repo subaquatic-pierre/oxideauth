@@ -132,6 +132,7 @@ mod tests {
             id: DbId::from(Uuid::new_v4()),
             account_id: Uuid::new_v4(),
             workspace_id: Uuid::new_v4(),
+            email: "alice@example.com".to_string(),
             name: String::new(),
             description: None,
             display_name: None,
@@ -172,6 +173,7 @@ mod tests {
         let data = ProfileForCreate {
             account_id,
             workspace_id,
+            email: "alice@example.com".to_string(),
             name: "test-profile-create".to_string(),
             ..Default::default()
         };

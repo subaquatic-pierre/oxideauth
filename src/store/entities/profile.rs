@@ -21,6 +21,8 @@ pub enum ProfileIden {
     Id, // TABLE_PK
     AccountId,
     WorkspaceId,
+    #[iden = "email"]
+    Email,
     Tags,
     Meta,
 }
@@ -33,6 +35,9 @@ pub struct ProfileRow {
 
     pub account_id: Uuid,
     pub workspace_id: Uuid,
+
+    // Workspace-facing contact email (decoupled from the account email)
+    pub email: String,
 
     // Workspace-facing identity / presentation
     pub name: String,
@@ -56,6 +61,7 @@ pub struct ProfileRow {
 pub struct ProfileForCreate {
     pub account_id: Uuid,
     pub workspace_id: Uuid,
+    pub email: String,
     pub name: String,
     pub description: Option<String>,
     pub display_name: Option<String>,
@@ -70,6 +76,7 @@ pub struct ProfileForCreate {
 #[derive(Debug, Fields, Clone)]
 pub struct ProfileForUpdate {
     pub name: Option<String>,
+    pub email: Option<String>,
     pub description: Option<String>,
     pub display_name: Option<String>,
     pub job_title: Option<String>,
@@ -108,6 +115,7 @@ pub struct ProfileFilter {
     #[modql(cast_as = "uuid")]
     pub workspace_id: Option<OpValsString>,
     pub name: Option<OpValsString>,
+    pub email: Option<OpValsString>,
     pub description: Option<OpValsString>,
     pub display_name: Option<OpValsString>,
     pub job_title: Option<OpValsString>,
@@ -143,6 +151,7 @@ impl Default for ProfileForCreate {
         Self {
             account_id: Uuid::new_v4(),
             workspace_id: Uuid::new_v4(),
+            email: format!("profile-{}@example.com", gen_rand_str(8)),
             name: format!("profile-{}", gen_rand_str(8)),
             description: Some("A default profile for testing.".into()),
             display_name: None,
@@ -160,6 +169,7 @@ impl Default for ProfileForUpdate {
     fn default() -> Self {
         Self {
             name: None,
+            email: None,
             description: None,
             display_name: None,
             job_title: None,
@@ -195,6 +205,7 @@ mod tests {
         assert_eq!(row.id.0, Uuid::nil());
         assert_eq!(row.account_id, Uuid::nil());
         assert_eq!(row.workspace_id, Uuid::nil());
+        assert_eq!(row.email, "");
         assert_eq!(row.name, "");
         assert!(row.description.is_none());
         assert!(row.display_name.is_none());

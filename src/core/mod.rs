@@ -1,4 +1,5 @@
 pub mod ctx;
+pub mod email;
 pub mod error;
 pub mod models;
 pub mod services;

@@ -9,6 +9,7 @@ use crate::{
             audit::CoreAuditFields,
             list::{RequestFilterParams, RequestListOptions},
             policy::Policy,
+            profile::ProfileMeta,
             role::Role,
             workspace::Workspace,
         },
@@ -122,9 +123,9 @@ impl From<JoinedPolicyOnMembership> for Policy {
 #[derive(Debug, Deserialize)]
 pub struct MembershipCreateParams {
     pub account_id: Option<Uuid>,
-    pub email: Option<String>,
+    pub email: String,
     pub workspace_id: Uuid,
-    pub profile_id: Option<Uuid>,
+    pub profile: Option<MembershipProfileDetails>,
     pub scope: MembershipScope,
     pub status: Option<MembershipStatus>,
     pub project_id: Option<Uuid>,
@@ -132,6 +133,21 @@ pub struct MembershipCreateParams {
     pub policy_ids: Vec<Uuid>,
     pub tags: Vec<String>,
     pub meta: MembershipMeta,
+}
+
+/// Optional persona details applied when a NEW profile is created for the
+/// membership (the resolved account may already exist; the profile is the
+/// workspace-local identity).
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct MembershipProfileDetails {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub display_name: Option<String>,
+    pub job_title: Option<String>,
+    pub timezone: Option<String>,
+    pub avatar_url: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub meta: Option<ProfileMeta>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -280,12 +296,11 @@ mod tests {
         let account_id = Uuid::new_v4();
         let workspace_id = Uuid::new_v4();
         let project_id = Uuid::new_v4();
-        let profile_id = Uuid::new_v4();
         let params = MembershipCreateParams {
             account_id: Some(account_id),
-            email: None,
+            email: "member@example.com".to_string(),
             workspace_id,
-            profile_id: Some(profile_id),
+            profile: None,
             scope: MembershipScope::Project,
             status: Some(MembershipStatus::Invited),
             project_id: Some(project_id),
@@ -297,11 +312,11 @@ mod tests {
             },
         };
 
-        // account_id / email are resolved by the service; params must carry them as Option
+        // account_id is resolved by the service; email is the required identity.
         assert_eq!(params.account_id, Some(account_id));
-        assert!(params.email.is_none());
+        assert_eq!(params.email, "member@example.com");
         assert_eq!(params.workspace_id, workspace_id);
-        assert_eq!(params.profile_id, Some(profile_id));
+        assert!(params.profile.is_none());
         assert_eq!(params.scope, MembershipScope::Project);
         assert_eq!(params.status, Some(MembershipStatus::Invited));
         assert_eq!(params.project_id, Some(project_id));

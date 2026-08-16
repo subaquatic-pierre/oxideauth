@@ -13,8 +13,8 @@ use crate::{
             list::{ListResponse, RequestFilterParams},
             membership::{
                 Membership, MembershipCreateParams, MembershipDeleteParams,
-                MembershipDescribeParams, MembershipListParams, MembershipUpdateParams,
-                MembershipWithPolicies,
+                MembershipDescribeParams, MembershipListParams, MembershipProfileDetails,
+                MembershipUpdateParams, MembershipWithPolicies,
             },
             permission::PermissionRule,
             profile::{ProfileCreateParams, ProfileDeleteParams, ProfileMeta},
@@ -128,9 +128,16 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         Ok(row.config.default_membership_status)
     }
 
-    /// Resolves the account for `email` (creating it if needed) and ensures a
-    /// profile exists for `(account_id, workspace_id)`, returning the resolved
-    /// `account_id` and linked `profile_id`.
+    /// Resolves the account for the membership and ensures a profile exists for
+    /// `(account_id, workspace_id)`, returning the resolved `account_id` and
+    /// linked `profile_id`.
+    ///
+    /// The account is resolved by `account_id` when provided (returning
+    /// `NotFound` if it does not exist), otherwise by `email` — creating a fresh
+    /// account when none matches. When a NEW profile is created, the optional
+    /// `profile` persona details are applied (the name falls back to the email)
+    /// and the profile's email is always the supplied `email`, which may differ
+    /// from the account's email.
     ///
     /// All account/profile access goes through the public `AccountService` and
     /// `ProfileService` APIs (no direct store access for those tables).
@@ -138,41 +145,68 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         &self,
         ctx: &mut CoreCtx,
         email: &str,
+        account_id: Option<Uuid>,
+        profile: Option<&MembershipProfileDetails>,
         workspace_id: Uuid,
     ) -> CoreResult<(Uuid, Option<Uuid>)> {
         // 1. Resolve or create the account.
-        let account_id = match self
-            .acc_svc
-            .get_by_email(
-                ctx,
-                &AccountDescribeParams {
-                    id: None,
-                    email: Some(email.to_string()),
-                },
-            )
-            .await?
-        {
-            Some(account) => account.id,
-            None => {
-                let account = self
+        let account_id = match account_id {
+            Some(id) => {
+                // Resolve an existing account by id; the supplied `email` (not
+                // the account email) becomes the profile email below.
+                match self
                     .acc_svc
-                    .create(
+                    .get_by_email(
                         ctx,
-                        AccountCreateParams {
-                            email: email.to_string(),
-                            name: email.to_string(),
-                            kind: AccountKind::User,
-                            enabled: true,
-                            verified: false,
-                            description: None,
-                            avatar_url: None,
-                            tags: None,
-                            meta: None,
+                        &AccountDescribeParams {
+                            id: Some(id),
+                            email: None,
                         },
                     )
-                    .await?;
-                account.id
+                    .await?
+                {
+                    Some(account) => account.id,
+                    None => {
+                        return Err(CoreError::NotFound(format!(
+                            "account '{}' not found",
+                            id
+                        )));
+                    }
+                }
             }
+            None => match self
+                .acc_svc
+                .get_by_email(
+                    ctx,
+                    &AccountDescribeParams {
+                        id: None,
+                        email: Some(email.to_string()),
+                    },
+                )
+                .await?
+            {
+                Some(account) => account.id,
+                None => {
+                    let account = self
+                        .acc_svc
+                        .create(
+                            ctx,
+                            AccountCreateParams {
+                                email: email.to_string(),
+                                name: email.to_string(),
+                                kind: AccountKind::User,
+                                enabled: true,
+                                verified: false,
+                                description: None,
+                                avatar_url: None,
+                                tags: None,
+                                meta: None,
+                            },
+                        )
+                        .await?;
+                    account.id
+                }
+            },
         };
 
         // 2. Ensure a profile exists for (account_id, workspace_id).
@@ -196,14 +230,17 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
                         ProfileCreateParams {
                             account_id,
                             workspace_id,
-                            name: email.to_string(),
-                            description: None,
-                            display_name: None,
-                            job_title: None,
-                            timezone: None,
-                            avatar_url: None,
-                            tags: vec![],
-                            meta: ProfileMeta::default(),
+                            email: email.to_string(),
+                            name: profile
+                                .and_then(|p| p.name.clone())
+                                .unwrap_or_else(|| email.to_string()),
+                            description: profile.and_then(|p| p.description.clone()),
+                            display_name: profile.and_then(|p| p.display_name.clone()),
+                            job_title: profile.and_then(|p| p.job_title.clone()),
+                            timezone: profile.and_then(|p| p.timezone.clone()),
+                            avatar_url: profile.and_then(|p| p.avatar_url.clone()),
+                            tags: profile.and_then(|p| p.tags.clone()).unwrap_or_default(),
+                            meta: profile.and_then(|p| p.meta.clone()).unwrap_or_default(),
                         },
                     )
                     .await;
@@ -299,11 +336,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
 
     /// Creates a membership and optionally associates it with roles.
     ///
-    /// Two resolution paths are supported:
-    /// - `params.email` — resolves (or creates) the account, ensures a profile
-    ///   exists in the workspace, then links the membership to that profile.
-    /// - `params.account_id` — legacy direct link (profile resolved elsewhere;
-    ///   `profile_id` may be supplied explicitly).
+    /// The membership always resolves a concrete account and workspace profile:
+    /// - `email` is required and (at the web layer) validated/normalized. It is
+    ///   used as the profile's email, which may differ from the account email.
+    /// - `account_id`, when provided, resolves an existing account by id
+    ///   (returning `NotFound` if absent); otherwise the account is resolved by
+    ///   `email`, creating a fresh account if needed.
+    /// - `profile`, when provided, supplies persona details applied only when a
+    ///   NEW profile is created for `(account_id, workspace_id)`.
     ///
     /// When the caller does not specify a `status`, the workspace config's
     /// `default_membership_status` is applied.
@@ -321,6 +361,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
 
         // Extract fields needed after params is consumed by resolution.
         let workspace_id = params.workspace_id;
+        let email = params.email.clone();
         let role_ids = params.role_ids.clone();
         let policy_ids = params.policy_ids.clone();
         let scope = params.scope;
@@ -329,17 +370,15 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
         let meta = params.meta;
 
         // --- Resolve (account_id, profile_id) ---
-        let (account_id, profile_id) = if let Some(email) = &params.email {
-            self.resolve_account_and_profile(ctx, email, workspace_id)
-                .await?
-        } else {
-            let account_id = params.account_id.ok_or_else(|| {
-                CoreError::InvalidParams(
-                    "exactly one of 'email' or 'account_id' must be provided".to_string(),
-                )
-            })?;
-            (account_id, params.profile_id)
-        };
+        let (account_id, profile_id) = self
+            .resolve_account_and_profile(
+                ctx,
+                &email,
+                params.account_id,
+                params.profile.as_ref(),
+                workspace_id,
+            )
+            .await?;
 
         // --- Resolve effective status: explicit param wins, else workspace config default ---
         let effective_status = match params.status {
@@ -771,11 +810,15 @@ mod tests {
         // -- Setup
         let ws_id = Uuid::new_v4();
         let account_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
         let mem_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
             // create -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // resolve -> account by id (the tail `get_account` registration is
+            // consumed here) + profile.create -> INSERT ... RETURNING
+            .with_one::<ProfileRow>(profile_row(profile_id, account_id, ws_id))
             // create -> duplicate guard -> list (no existing membership)
             .with_all::<MembershipRow>(vec![])
             // create -> store.create
@@ -794,20 +837,20 @@ mod tests {
             .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
                 mem_id, account_id, ws_id,
             )))
-            // create -> describe -> get_account
+            // resolve -> get_by_email by id (existing account) + describe -> get_account
             .with_optional::<AccountRow>(Some(account_row(account_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
 
         let params = MembershipCreateParams {
             account_id: Some(account_id),
-            email: None,
+            email: "member@example.com".to_string(),
             workspace_id: ws_id,
             role_ids: vec![],
             policy_ids: vec![],
             scope: MembershipScope::Workspace,
             status: Some(MembershipStatus::Active),
-            profile_id: None,
+            profile: None,
             project_id: None,
             tags: vec!["pioneer".to_string()],
             meta: MembershipMeta::default(),
@@ -868,19 +911,27 @@ mod tests {
                     ..membership_row(mem_id, account_id, ws_id)
                 },
                 roles: vec![],
-            }));
+            }))
+            // create -> describe -> get_many_to_many_policies (count)
+            .with_one::<(i64,)>((0,))
+            // create -> describe -> get_many_to_many_policies
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
+            // create -> describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
 
         let params = MembershipCreateParams {
             account_id: None,
-            email: Some(email),
+            email: email.clone(),
             workspace_id: ws_id,
             role_ids: vec![],
             policy_ids: vec![],
             scope: MembershipScope::Workspace,
             status: None,
-            profile_id: None,
+            profile: None,
             project_id: None,
             tags: vec![],
             meta: MembershipMeta::default(),
@@ -902,14 +953,233 @@ mod tests {
 
     #[tokio::test]
     #[serial]
+    async fn test_membership_create_by_email_with_profile_details() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+        let email = "jane.doe@example.com".to_string();
+
+        let dbx = MockDbx::new()
+            // account.create -> INSERT ... RETURNING (get_by_email guard is a
+            // fetch_all which returns empty when unregistered)
+            .with_one::<AccountRow>(account_row(account_id))
+            // profile.create -> INSERT ... RETURNING — the canned row mirrors the
+            // persona details the service should have built (email + name)
+            .with_one::<ProfileRow>(ProfileRow {
+                id: profile_id.into(),
+                account_id,
+                workspace_id: ws_id,
+                email: email.clone(),
+                name: "Jane Doe".to_string(),
+                ..Default::default()
+            })
+            // default status -> workspace.get (config default -> Invited)
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // membership store.create
+            .with_one::<MembershipRow>(MembershipRow {
+                profile_id: Some(profile_id),
+                status: MembershipStatus::Invited,
+                ..membership_row(mem_id, account_id, ws_id)
+            })
+            // create -> describe -> get_many_to_many (count)
+            .with_one::<(i64,)>((0,))
+            // create -> describe -> get_many_to_many
+            .with_optional::<MembershipWithRoles>(Some(MembershipWithRoles {
+                id: mem_id.into(),
+                membership: MembershipRow {
+                    profile_id: Some(profile_id),
+                    status: MembershipStatus::Invited,
+                    ..membership_row(mem_id, account_id, ws_id)
+                },
+                roles: vec![],
+            }))
+            // create -> describe -> get_many_to_many_policies (count)
+            .with_one::<(i64,)>((0,))
+            // create -> describe -> get_many_to_many_policies
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
+            // create -> describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        let params = MembershipCreateParams {
+            account_id: None,
+            email: email.clone(),
+            workspace_id: ws_id,
+            role_ids: vec![],
+            policy_ids: vec![],
+            scope: MembershipScope::Workspace,
+            status: None,
+            profile: Some(MembershipProfileDetails {
+                name: Some("Jane Doe".to_string()),
+                description: None,
+                display_name: Some("jane".to_string()),
+                job_title: Some("Engineer".to_string()),
+                timezone: None,
+                avatar_url: None,
+                tags: Some(vec!["dev".to_string()]),
+                meta: Some(ProfileMeta::default()),
+            }),
+            project_id: None,
+            tags: vec![],
+            meta: MembershipMeta::default(),
+        };
+
+        // -- Execute
+        let membership = svc.create(&mut ctx, params).await?;
+
+        // -- Assert
+        assert_eq!(membership.id, mem_id);
+        assert_eq!(membership.workspace_id, ws_id);
+        assert_eq!(membership.account_id, account_id);
+        // the email-resolve flow created + linked a workspace profile
+        assert_eq!(membership.profile_id, Some(profile_id));
+        // status falls back to the workspace config default when not specified
+        assert_eq!(membership.status, MembershipStatus::Invited);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_create_by_account_id_with_different_email() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let existing_account_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+        // The supplied email may differ from the account's email; it becomes
+        // the profile's email (the account itself is resolved by id).
+        let supplied_email = "different@example.com".to_string();
+
+        let dbx = MockDbx::new()
+            // resolve -> get_by_email by id (existing account found)
+            .with_optional::<AccountRow>(Some(account_row(existing_account_id)))
+            // profile.create -> INSERT ... RETURNING — the canned row mirrors the
+            // profile email the service should have built (the SUPPLIED email)
+            .with_one::<ProfileRow>(ProfileRow {
+                id: profile_id.into(),
+                account_id: existing_account_id,
+                workspace_id: ws_id,
+                email: supplied_email.clone(),
+                name: "email-resolved-profile".to_string(),
+                ..Default::default()
+            })
+            // membership store.create
+            .with_one::<MembershipRow>(MembershipRow {
+                profile_id: Some(profile_id),
+                ..membership_row(mem_id, existing_account_id, ws_id)
+            })
+            // create -> describe -> get_many_to_many (count)
+            .with_one::<(i64,)>((0,))
+            // create -> describe -> get_many_to_many
+            .with_optional::<MembershipWithRoles>(Some(MembershipWithRoles {
+                id: mem_id.into(),
+                membership: MembershipRow {
+                    profile_id: Some(profile_id),
+                    ..membership_row(mem_id, existing_account_id, ws_id)
+                },
+                roles: vec![],
+            }))
+            // create -> describe -> get_many_to_many_policies (count)
+            .with_one::<(i64,)>((0,))
+            // create -> describe -> get_many_to_many_policies
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, existing_account_id, ws_id,
+            )))
+            // create -> describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(existing_account_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        let params = MembershipCreateParams {
+            account_id: Some(existing_account_id),
+            email: supplied_email,
+            workspace_id: ws_id,
+            role_ids: vec![],
+            policy_ids: vec![],
+            scope: MembershipScope::Workspace,
+            status: Some(MembershipStatus::Active),
+            profile: None,
+            project_id: None,
+            tags: vec![],
+            meta: MembershipMeta::default(),
+        };
+
+        // -- Execute
+        let membership = svc.create(&mut ctx, params).await?;
+
+        // -- Assert
+        // The membership links to the account resolved by id ...
+        assert_eq!(membership.id, mem_id);
+        assert_eq!(membership.account_id, existing_account_id);
+        assert_eq!(membership.workspace_id, ws_id);
+        // ... and a profile was created for it in the workspace.
+        assert_eq!(membership.profile_id, Some(profile_id));
+        // explicit status wins (no workspace config lookup)
+        assert_eq!(membership.status, MembershipStatus::Active);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_create_by_account_id_not_found() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let missing_account_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // resolve -> get_by_email by id (no such account)
+            .with_optional::<AccountRow>(None);
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        let params = MembershipCreateParams {
+            account_id: Some(missing_account_id),
+            email: "member@example.com".to_string(),
+            workspace_id: ws_id,
+            role_ids: vec![],
+            policy_ids: vec![],
+            scope: MembershipScope::Workspace,
+            status: Some(MembershipStatus::Active),
+            profile: None,
+            project_id: None,
+            tags: vec![],
+            meta: MembershipMeta::default(),
+        };
+
+        // -- Execute
+        let err = svc.create(&mut ctx, params).await;
+
+        // -- Assert
+        assert!(
+            matches!(err, Err(CoreError::NotFound(_))),
+            "creating a membership for a missing account must fail with NotFound"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn test_membership_create_duplicate() -> CoreResult<()> {
         // -- Setup
         let ws_id = Uuid::new_v4();
         let account_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
             // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // resolve -> account by id (existing account)
+            .with_optional::<AccountRow>(Some(account_row(account_id)))
+            // resolve -> profile.create -> INSERT ... RETURNING
+            .with_one::<ProfileRow>(profile_row(profile_id, account_id, ws_id))
             // duplicate guard -> list finds an existing membership
             .with_all::<MembershipRow>(vec![membership_row(Uuid::new_v4(), account_id, ws_id)]);
         let svc = mock_svc(dbx);
@@ -917,13 +1187,13 @@ mod tests {
 
         let params = MembershipCreateParams {
             account_id: Some(account_id),
-            email: None,
+            email: "member@example.com".to_string(),
             workspace_id: ws_id,
             role_ids: vec![],
             policy_ids: vec![],
             scope: MembershipScope::Workspace,
             status: Some(MembershipStatus::Active),
-            profile_id: None,
+            profile: None,
             project_id: None,
             tags: vec![],
             meta: MembershipMeta::default(),

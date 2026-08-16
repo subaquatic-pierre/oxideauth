@@ -33,6 +33,7 @@ impl IntoParams<ProfileDescribeParams> for ProfileDescribeReq {
 pub struct ProfileDescribeRes {
     pub id: Uuid,
     pub workspace_id: Uuid,
+    pub email: String,
     // NOTE(email-privacy): account_id intentionally omitted from the response —
     // the workspace only ever sees the profile surface, never the account identity.
 
@@ -62,6 +63,7 @@ impl From<Profile> for ProfileDescribeRes {
         Self {
             id: profile.id,
             workspace_id: profile.workspace_id,
+            email: profile.email,
             name: profile.name,
             description: profile.description,
             display_name: profile.display_name,
@@ -84,6 +86,7 @@ pub struct ProfileUpdateReq {
 
     // Fields to Update (all fields here are Option<T> to represent 'patch')
     pub name: Option<String>,
+    pub email: Option<String>,
     pub description: Option<String>,
     pub display_name: Option<String>,
     pub job_title: Option<String>,
@@ -100,6 +103,7 @@ impl IntoParams<ProfileUpdateParams> for ProfileUpdateReq {
             id: self.id,
             workspace_id,
             name: self.name,
+            email: self.email,
             description: self.description,
             display_name: self.display_name,
             job_title: self.job_title,
@@ -177,6 +181,7 @@ mod tests {
         let params = ProfileUpdateReq {
             id,
             name: Some("renamed".to_string()),
+            email: Some("alice@example.com".to_string()),
             description: None,
             display_name: Some("display".to_string()),
             job_title: None,
@@ -191,6 +196,7 @@ mod tests {
         assert_eq!(params.id, id);
         assert_eq!(params.workspace_id, ws_id);
         assert_eq!(params.name.as_deref(), Some("renamed"));
+        assert_eq!(params.email.as_deref(), Some("alice@example.com"));
         assert_eq!(params.display_name.as_deref(), Some("display"));
         assert_eq!(params.timezone.as_deref(), Some("UTC"));
         assert!(params.meta.is_some());
@@ -217,19 +223,21 @@ mod tests {
         assert_eq!(res.id, Uuid::default());
         assert_eq!(res.workspace_id, Uuid::default());
         assert_eq!(res.name, String::default());
+        assert_eq!(res.email, String::default());
         assert_eq!(res.meta.schema_version, ProfileMeta::default().schema_version);
     }
 
     #[test]
-    fn test_profile_describe_res_omits_email_and_account_id() {
-        // T018: the profile surface must never leak account identity — no
-        // `email`, `account_id`, or `accountId` keys may appear in the JSON.
+    fn test_profile_describe_res_exposes_email_and_omits_account_id() {
+        // T010: the profile surface exposes the workspace-facing `email` but
+        // must never leak account identity — no `account_id` or `accountId`
+        // keys may appear in the JSON.
         let res = ProfileDescribeRes::from(Profile::default());
         let json = serde_json::to_string(&res).expect("ProfileDescribeRes must serialize");
 
         assert!(
-            !json.contains("\"email\""),
-            "ProfileDescribeRes must not contain an email field: {json}"
+            json.contains("\"email\""),
+            "ProfileDescribeRes must contain an email field: {json}"
         );
         assert!(
             !json.contains("\"account_id\"") && !json.contains("\"accountId\""),

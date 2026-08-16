@@ -116,7 +116,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ProfileSe
     const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.profile.create;
 
     /// Creates a new Profile, scoped to the provided workspace ID.
-    async fn create(&self, ctx: &mut CoreCtx, params: ProfileCreateParams) -> CoreResult<Profile> {
+    async fn create(
+        &self,
+        ctx: &mut CoreCtx,
+        mut params: ProfileCreateParams,
+    ) -> CoreResult<Profile> {
+        // Validate & normalize the workspace-facing contact email
+        params.email = crate::core::email::validate_email(&params.email)?;
+
         let store = self.store();
 
         let store_ctx = self
@@ -212,7 +219,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for ProfileSe
     type UpdateParams = ProfileUpdateParams;
     const UPDATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.profile.update;
 
-    async fn update(&self, ctx: &mut CoreCtx, params: ProfileUpdateParams) -> CoreResult<Profile> {
+    async fn update(&self, ctx: &mut CoreCtx, mut params: ProfileUpdateParams) -> CoreResult<Profile> {
+        // Validate & normalize the contact email when present
+        if let Some(email) = &params.email {
+            params.email = Some(crate::core::email::validate_email(email)?);
+        }
+
         let store = self.store();
 
         let store_ctx = self
@@ -300,6 +312,7 @@ mod tests {
             id: id.into(),
             account_id,
             workspace_id: ws_id,
+            email: "alice@example.com".to_string(),
             name: "test-profile".to_string(),
             description: None,
             display_name: None,
@@ -368,6 +381,7 @@ mod tests {
         let params = ProfileCreateParams {
             account_id,
             workspace_id: ws_id,
+            email: "alice@example.com".to_string(),
             name: "test-profile".to_string(),
             description: None,
             display_name: None,
@@ -383,6 +397,7 @@ mod tests {
         assert_eq!(profile.id, profile_id);
         assert_eq!(profile.workspace_id, ws_id);
         assert_eq!(profile.account_id, account_id);
+        assert_eq!(profile.email, "alice@example.com");
         assert_eq!(profile.name, "test-profile");
 
         Ok(())
@@ -408,6 +423,7 @@ mod tests {
         let params = ProfileCreateParams {
             account_id,
             workspace_id: ws_id,
+            email: "alice@example.com".to_string(),
             name: "dup".to_string(),
             description: None,
             display_name: None,
@@ -517,6 +533,7 @@ mod tests {
             id: profile_id,
             workspace_id: ws_id,
             name: Some("renamed".to_string()),
+            email: Some("alice@example.com".to_string()),
             description: None,
             display_name: None,
             job_title: None,
@@ -530,6 +547,9 @@ mod tests {
 
         assert_eq!(updated.id, profile_id);
         assert_eq!(updated.workspace_id, ws_id);
+        // US4: updating the profile email never alters the account linkage/identity
+        assert_eq!(updated.account_id, account_id);
+        assert_eq!(updated.email, "alice@example.com");
         assert_eq!(updated.name, "renamed");
 
         Ok(())

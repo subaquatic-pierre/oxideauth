@@ -330,9 +330,9 @@ where
                 ctx,
                 MembershipCreateParams {
                     account_id: Some(account.id),
-                    email: None,
+                    email: account.email.clone(),
                     workspace_id: ws_id,
-                    profile_id: None,
+                    profile: None,
                     scope: MembershipScope::Workspace,
                     status: Some(MembershipStatus::Active),
                     project_id: None,

@@ -29,6 +29,7 @@ impl From<ProfileCreateParams> for ProfileForCreate {
         Self {
             account_id: params.account_id,
             workspace_id: params.workspace_id,
+            email: params.email,
             name: params.name,
             description: params.description,
             display_name: params.display_name,
@@ -46,6 +47,9 @@ pub struct Profile {
     pub id: Uuid,
     pub account_id: Uuid,
     pub workspace_id: Uuid,
+
+    // Workspace-facing contact email (decoupled from the account email)
+    pub email: String,
 
     // Workspace-facing identity / presentation
     pub name: String,
@@ -69,6 +73,7 @@ impl From<ProfileRow> for Profile {
             id: value.id.into(),
             account_id: value.account_id,
             workspace_id: value.workspace_id,
+            email: value.email,
             name: value.name,
             description: value.description,
             display_name: value.display_name,
@@ -87,6 +92,7 @@ impl From<ProfileRow> for Profile {
 pub struct ProfileCreateParams {
     pub account_id: Uuid,
     pub workspace_id: Uuid,
+    pub email: String,
     pub name: String,
     pub description: Option<String>,
     pub display_name: Option<String>,
@@ -120,6 +126,7 @@ pub struct ProfileUpdateParams {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub name: Option<String>,
+    pub email: Option<String>,
     pub description: Option<String>,
     pub display_name: Option<String>,
     pub job_title: Option<String>,
@@ -133,6 +140,7 @@ impl ProfileUpdateParams {
     pub fn into_store_params(self, version: i64) -> ProfileForUpdate {
         ProfileForUpdate {
             name: self.name,
+            email: self.email,
             description: self.description,
             display_name: self.display_name,
             job_title: self.job_title,
@@ -184,6 +192,7 @@ mod tests {
             id: id.into(),
             account_id,
             workspace_id,
+            email: "alice@example.com".to_string(),
             name: "Profile Alpha".to_string(),
             description: Some("desc".to_string()),
             display_name: Some("Alpha".to_string()),
@@ -211,6 +220,7 @@ mod tests {
         assert_eq!(profile.id, Uuid::nil());
         assert_eq!(profile.account_id, Uuid::nil());
         assert_eq!(profile.workspace_id, Uuid::nil());
+        assert_eq!(profile.email, "");
         assert_eq!(profile.name, "");
         assert!(profile.description.is_none());
         assert!(profile.display_name.is_none());
@@ -230,6 +240,7 @@ mod tests {
 
         assert_eq!(profile.account_id, account_id);
         assert_eq!(profile.workspace_id, workspace_id);
+        assert_eq!(profile.email, "alice@example.com");
         assert_eq!(profile.name, "Profile Alpha");
         assert_eq!(profile.display_name.as_deref(), Some("Alpha"));
         assert_eq!(profile.job_title.as_deref(), Some("Engineer"));
@@ -246,6 +257,7 @@ mod tests {
         let params = ProfileCreateParams {
             account_id,
             workspace_id,
+            email: "alice@example.com".to_string(),
             name: "P".to_string(),
             description: Some("d".to_string()),
             display_name: Some("pn".to_string()),
@@ -261,6 +273,7 @@ mod tests {
         let store: ProfileForCreate = params.into();
         assert_eq!(store.account_id, account_id);
         assert_eq!(store.workspace_id, workspace_id);
+        assert_eq!(store.email, "alice@example.com");
         assert_eq!(store.name, "P");
         assert_eq!(store.description.as_deref(), Some("d"));
         assert_eq!(store.display_name.as_deref(), Some("pn"));
@@ -277,6 +290,7 @@ mod tests {
             id: Uuid::new_v4(),
             workspace_id: Uuid::new_v4(),
             name: Some("New".to_string()),
+            email: Some("alice@example.com".to_string()),
             description: Some("d".to_string()),
             display_name: Some("pn".to_string()),
             job_title: Some("jt".to_string()),
@@ -288,6 +302,7 @@ mod tests {
 
         let store = params.into_store_params(9);
         assert_eq!(store.name.as_deref(), Some("New"));
+        assert_eq!(store.email.as_deref(), Some("alice@example.com"));
         assert_eq!(store.description.as_deref(), Some("d"));
         assert_eq!(store.display_name.as_deref(), Some("pn"));
         assert_eq!(store.job_title.as_deref(), Some("jt"));
