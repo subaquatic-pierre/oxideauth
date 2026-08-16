@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::cache::{
     stores::{
-        auth::AuthCacheStore, oauth_state::OAuthStateCacheStore,
+        auth::AuthCacheStore, oauth_state::OAuthStateCacheStore, policy::PolicyCacheStore,
         replay::RefreshTokenReplayCacheStore, workspace::WorkspaceCacheStore,
     },
     traits::CacheExecutor,
@@ -14,6 +14,7 @@ pub struct CacheManager<C: CacheExecutor> {
     pub replay: RefreshTokenReplayCacheStore<C>,
     pub oauth_state: OAuthStateCacheStore<C>,
     pub workspace: WorkspaceCacheStore<C>,
+    pub policy: PolicyCacheStore<C>,
 }
 
 impl<C: CacheExecutor> CacheManager<C> {
@@ -22,6 +23,7 @@ impl<C: CacheExecutor> CacheManager<C> {
         let replay = RefreshTokenReplayCacheStore::new(chx.clone());
         let oauth_state = OAuthStateCacheStore::new(chx.clone());
         let workspace = WorkspaceCacheStore::new(chx.clone());
+        let policy = PolicyCacheStore::new(chx.clone());
 
         Self {
             chx,
@@ -29,6 +31,7 @@ impl<C: CacheExecutor> CacheManager<C> {
             replay,
             oauth_state,
             workspace,
+            policy,
         }
     }
 
@@ -64,6 +67,7 @@ mod tests {
         let _ = &mgr.replay;
         let _ = &mgr.oauth_state;
         let _ = &mgr.workspace;
+        let _ = &mgr.policy;
     }
 
     #[tokio::test]

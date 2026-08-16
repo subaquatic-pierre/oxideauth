@@ -7,6 +7,7 @@ pub mod list;
 pub mod membership;
 pub mod oath;
 pub mod permission;
+pub mod policy;
 pub mod project;
 pub mod role;
 pub mod token;

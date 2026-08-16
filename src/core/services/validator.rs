@@ -4,7 +4,10 @@ use crate::{
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
-        models::permission::{PermissionEngine, PermissionRule, PermissionSet},
+        models::{
+            permission::{PermissionEngine, PermissionRule, PermissionSet},
+            policy::PolicySet,
+        },
         services::policy::PolicyEngine,
     },
     store::{ctx::StoreCtx, stores::workspace::SYSTEM_CONST},
@@ -39,6 +42,32 @@ impl AuthValidator {
             Ok(())
         } else {
             Err(CoreError::Auth("invalid permissions".to_string()))
+        }
+    }
+
+    /// Validates a policy action against a pre-resolved [`PolicySet`].
+    ///
+    /// Delegates to the [`PolicyEngine`] (default-deny) and returns
+    /// `Err(CoreError::Auth)` when the resolved effect is missing or `Deny`.
+    ///
+    /// `constraint` is forwarded to the engine; `None` matches policies
+    /// compiled without a constraint (exact-key lookup).
+    pub fn validate_policy(
+        &self,
+        policy_set: &PolicySet,
+        action: &str,
+        resource: &str,
+        constraint: Option<&str>,
+    ) -> CoreResult<()> {
+        if self
+            .policy_engine
+            .evaluate(policy_set, action, resource, constraint)
+        {
+            Ok(())
+        } else {
+            Err(CoreError::Auth(format!(
+                "policy denied: action '{action}' on resource '{resource}'"
+            )))
         }
     }
 
@@ -171,6 +200,69 @@ mod tests {
             validator.validate_workspace(&acme, Some(acme.ws_cache.id))?,
             Some(acme.ws_cache.id)
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_validate_policy_allow_deny_and_default_deny() -> CoreResult<()> {
+        use crate::core::models::policy::{Policy, PolicyEffect};
+
+        let validator = AuthValidator::new();
+
+        let allow = Policy {
+            id: Uuid::new_v4(),
+            effect: PolicyEffect::Allow,
+            actions: vec!["membership:update".to_string()],
+            resource: "self".to_string(),
+            ..Policy::default()
+        };
+        let constrained_allow = Policy {
+            id: Uuid::new_v4(),
+            effect: PolicyEffect::Allow,
+            actions: vec!["membership:update".to_string()],
+            resource: "self".to_string(),
+            constraint: Some("membership.account.id === user.id".to_string()),
+            ..Policy::default()
+        };
+        let deny = Policy {
+            id: Uuid::new_v4(),
+            effect: PolicyEffect::Deny,
+            actions: vec!["membership:delete".to_string()],
+            resource: "self".to_string(),
+            ..Policy::default()
+        };
+
+        let set = PolicySet::from_policies(vec![allow, constrained_allow, deny]);
+
+        // Explicit allow (no constraint) -> Ok.
+        assert!(validator
+            .validate_policy(&set, "membership:update", "self", None)
+            .is_ok());
+        // Explicit allow under the constraint -> Ok (constraint is part of the key).
+        assert!(validator
+            .validate_policy(
+                &set,
+                "membership:update",
+                "self",
+                Some("membership.account.id === user.id")
+            )
+            .is_ok());
+        // Constraint mismatch (default-deny) -> Auth error.
+        assert!(matches!(
+            validator.validate_policy(&set, "membership:update", "self", Some("a !== b")),
+            Err(CoreError::Auth(_))
+        ));
+        // Explicit deny -> Auth error.
+        assert!(matches!(
+            validator.validate_policy(&set, "membership:delete", "self", None),
+            Err(CoreError::Auth(_))
+        ));
+        // Missing lookup (default-deny) -> Auth error.
+        assert!(matches!(
+            validator.validate_policy(&set, "unknown:action", "self", None),
+            Err(CoreError::Auth(_))
+        ));
 
         Ok(())
     }

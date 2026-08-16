@@ -6,7 +6,12 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    cache::{CacheEntity, entities::auth::AuthCache, manager::CacheManager, traits::CacheExecutor},
+    cache::{
+        CacheEntity,
+        entities::{auth::AuthCache, policy::PolicyCache},
+        manager::CacheManager,
+        traits::CacheExecutor,
+    },
     config::Config,
     core::{
         ctx::CoreCtx,
@@ -235,6 +240,9 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     /// 4. The user's permissions (from the auth scope cache) satisfy every
     ///    permission in `required_permissions`.
     ///
+    /// This is a thin wrapper over [`validate_with_constraint`] with no policy
+    /// constraint requirement.
+    ///
     /// # Simplifications
     ///
     /// - Client lookup filters by `workspace_id` and matches the secret hash in
@@ -246,6 +254,28 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         &self,
         ctx: &mut CoreCtx,
         params: ClientValidateParams,
+    ) -> CoreResult<bool> {
+        self.validate_with_constraint(ctx, params, None).await
+    }
+
+    /// Like [`validate`], with an additional policy-constraint requirement.
+    ///
+    /// When `required_constraint` is `Some(expr)`, the user's resolved
+    /// [`crate::core::models::policy::PolicySet`] (fetched from the
+    /// `oxauth:policy:{mem_id}` cache) must grant that constraint — i.e.
+    /// [`PolicySet::allows_constraint`] must return `true` (allow, deny
+    /// overrides). A cache miss or a non-granted constraint fails the
+    /// validation (`Ok(false)`).
+    ///
+    /// NOTE(perf): unlike [`crate::core::models::policy::PolicySet::get`], the
+    /// constraint check scans the compiled set. This client-validation path is
+    /// lower-frequency than the 1,000 req/s service hot path, which stays O(1)
+    /// via exact-key lookup.
+    pub async fn validate_with_constraint(
+        &self,
+        ctx: &mut CoreCtx,
+        params: ClientValidateParams,
+        required_constraint: Option<&str>,
     ) -> CoreResult<bool> {
         let ClientValidateParams {
             workspace_id,
@@ -317,6 +347,28 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
                 Err(_) => return Ok(false),
             };
             if !checker.has_subset(&required) {
+                return Ok(false);
+            }
+        }
+
+        // --- 8. Optional policy-constraint check against the user's PolicySet ---
+        //
+        // Resolves the user's compiled policy set from the
+        // `oxauth:policy:{mem_id}` cache (the same wiring used by context
+        // resolution) and requires the constraint to be granted. A cache miss
+        // is treated as not-granted (default-deny); the caller is responsible
+        // for hydrating the policy cache before the request if a cache-miss
+        // fallback to the DB is desired.
+        if let Some(constraint) = required_constraint {
+            let Some(policy_cache) = self
+                .cm
+                .policy
+                .fetch(&PolicyCache::new_key(mem_id))
+                .await?
+            else {
+                return Ok(false);
+            };
+            if !policy_cache.policies.allows_constraint(constraint) {
                 return Ok(false);
             }
         }

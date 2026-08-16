@@ -41,7 +41,7 @@ src/
 
 ## API Endpoints
 
-All 50 endpoints use JSON POST with a standard `{ success, status, data }` response envelope (except 2 GET health endpoints and 1 GET OAuth callback).
+All 55 endpoints use JSON POST with a standard `{ success, status, data }` response envelope (except 2 GET health endpoints and 1 GET OAuth callback).
 
 | Resource    | Endpoints | Description                                                   |
 | ----------- | --------- | ------------------------------------------------------------- |
@@ -52,6 +52,7 @@ All 50 endpoints use JSON POST with a standard `{ success, status, data }` respo
 | Projects    | 5         | CRUD + List — scoped work areas                               |
 | Roles       | 5         | CRUD + List — permission bundles                              |
 | Permissions | 5         | CRUD + List — fine-grained access control                     |
+| Policies    | 5         | CRUD + List — AWS-like authorization policies (JSON/YAML)     |
 | Memberships | 5         | CRUD + List — account-to-workspace links                      |
 | Credentials | 4         | Describe, List, Update, Delete                                |
 | Tokens      | 3         | Describe, List, Delete — token blacklist                      |

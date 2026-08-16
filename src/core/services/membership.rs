@@ -14,6 +14,7 @@ use crate::{
             membership::{
                 Membership, MembershipCreateParams, MembershipDeleteParams,
                 MembershipDescribeParams, MembershipListParams, MembershipUpdateParams,
+                MembershipWithPolicies,
             },
             permission::PermissionRule,
             role::{Role, RoleDescribeParams, RoleFilter, RoleListParams},
@@ -172,7 +173,8 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
 
             let roles = self.get_roles(ctx, row.roles).await?;
 
-            let membership = Membership::from_with_roles(row.membership, membership_roles);
+            let membership =
+                Membership::from_with_roles_and_policies(row.membership, membership_roles, vec![]);
 
             data.push(membership);
         }
@@ -202,6 +204,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
         let account_id = params.account_id;
         let workspace_id = params.workspace_id;
         let role_ids = params.role_ids.clone();
+        let policy_ids = params.policy_ids.clone();
 
         let m_create: MembershipForCreate = params.into();
 
@@ -230,6 +233,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
         self.sm
             .membership
             .set_many_to_many_links(&store_ctx, &membership_row.id, role_db_ids)
+            .await?;
+
+        // Assign policies to the new membership
+        let policy_db_ids: Vec<DbId> = policy_ids.iter().map(|id| DbId::from(*id)).collect();
+        store
+            .set_many_to_many_policies(&store_ctx, &membership_row.id, policy_db_ids)
             .await?;
 
         self.describe(
@@ -266,7 +275,22 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Members
 
         // TODO: implement membership -> role -> permission join query
         let roles = self.get_roles(ctx, membership_with_roles.roles).await?;
-        let membership = Membership::from_with_roles(membership_with_roles.membership, roles);
+
+        // Get Membership with Policies (Join query)
+        let membership_with_policies = store
+            .get_many_to_many_policies(&store_ctx, &db_id)
+            .await?;
+        let policies = membership_with_policies
+            .policies
+            .into_iter()
+            .map(|el| el.into())
+            .collect();
+
+        let membership = Membership::from_with_roles_and_policies(
+            membership_with_roles.membership,
+            roles,
+            policies,
+        );
 
         Ok(membership)
     }
@@ -338,12 +362,35 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Membershi
             .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
             .await?;
 
+        // SELF-policy gate (US5/T037): a member mutating their OWN membership
+        // (e.g. leaving the workspace) must hold the seeded self policy —
+        // `membership:update` on `self` with the membership-account identity
+        // constraint. Mutating another member's membership stays on the
+        // permission-gated admin path and is NOT subject to this gate.
+        if cur.account_id == ctx.account_id() {
+            self.validator().validate_policy(
+                ctx.policy_set(),
+                "membership:update",
+                "self",
+                Some("membership.account.id === user.id"),
+            )?;
+        }
+
         let new_version = cur.version + 1;
 
         if let Some(role_ids) = &params.role_ids {
             let role_ids = role_ids.iter().map(|e| e.into()).collect();
             store
                 .set_many_to_many_links(&store_ctx, &cur.id.into(), role_ids)
+                .await?;
+        }
+
+        // `policy_ids`, when present, replaces the membership's policy links
+        // (set semantics).
+        if let Some(policy_ids) = &params.policy_ids {
+            let policy_ids = policy_ids.iter().map(|e| e.into()).collect();
+            store
+                .set_many_to_many_policies(&store_ctx, &cur.id.into(), policy_ids)
                 .await?;
         }
 
@@ -356,6 +403,11 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Membershi
             .await?;
 
         self.cm.auth.invalidate(res.id.into()).await?;
+
+        // Role/policy link changes (and the version bump) alter the
+        // membership's resolved PolicySet, so the policy cache entry is stale
+        // after any membership update.
+        self.cm.policy.invalidate(res.id.into()).await?;
 
         // TODO(T032): Push notification trigger — notify all workspace clients
         // that a membership changed. Requires wiring a `ClientService`
@@ -409,6 +461,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Membershi
         let res = store.delete(&store_ctx, &params.id.into()).await?;
         self.cm.auth.invalidate(res.id.into()).await?;
 
+        // The membership no longer exists — drop its policy cache entry too.
+        self.cm.policy.invalidate(res.id.into()).await?;
+
         // TODO(T032): Push notification trigger — notify all workspace clients
         // that a membership was deleted. Requires wiring a `ClientService`
         // dependency into `MembershipService`. Then call:
@@ -428,18 +483,25 @@ mod tests {
 
     use super::*;
     use crate::{
-        cache::{manager::CacheManager, mock::MockChx},
+        cache::{
+            entities::policy::PolicyCache, manager::CacheManager, mock::MockChx, traits::CacheEntity,
+        },
         config::Config,
-        core::services::registry::ServiceRegistry,
+        core::{
+            models::policy::{Policy, PolicySet},
+            services::registry::ServiceRegistry,
+        },
         store::{
             dbx::MockDbx,
             entities::{
                 account::AccountRow,
                 audit::AuditFields,
+                id::DbId,
                 membership::{
-                    MembershipMeta, MembershipRow, MembershipScope, MembershipStatus,
-                    MembershipWithRoles,
+                    JoinedPolicyOnMembership, MembershipMeta, MembershipRow, MembershipScope,
+                    MembershipStatus, MembershipWithPolicies, MembershipWithRoles,
                 },
+                policy::{PolicyEffect as StorePolicyEffect, PolicyMeta},
                 workspace::WorkspaceRow,
             },
         },
@@ -496,6 +558,19 @@ mod tests {
         }
     }
 
+    fn membership_with_policies(
+        mem_id: Uuid,
+        account_id: Uuid,
+        ws_id: Uuid,
+    ) -> MembershipWithPolicies {
+        let row = membership_row(mem_id, account_id, ws_id);
+        MembershipWithPolicies {
+            id: row.id,
+            membership: row,
+            policies: vec![],
+        }
+    }
+
     #[tokio::test]
     #[serial]
     async fn test_membership_create() -> CoreResult<()> {
@@ -519,6 +594,12 @@ mod tests {
             .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
                 mem_id, account_id, ws_id,
             )))
+            // create -> describe -> get_many_to_many_policies (count)
+            .with_one::<(i64,)>((0,))
+            // create -> describe -> get_many_to_many_policies
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
             // create -> describe -> get_account
             .with_optional::<AccountRow>(Some(account_row(account_id)));
         let svc = mock_svc(dbx);
@@ -528,6 +609,7 @@ mod tests {
             account_id,
             workspace_id: ws_id,
             role_ids: vec![],
+            policy_ids: vec![],
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
@@ -565,6 +647,7 @@ mod tests {
             account_id,
             workspace_id: ws_id,
             role_ids: vec![],
+            policy_ids: vec![],
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
@@ -598,6 +681,10 @@ mod tests {
             .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
                 mem_id, account_id, ws_id,
             )))
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
             .with_optional::<AccountRow>(Some(account_row(account_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
@@ -617,6 +704,75 @@ mod tests {
         assert_eq!(membership.id, mem_id);
         assert_eq!(membership.workspace_id, ws_id);
         assert_eq!(membership.account_id, account_id);
+        assert!(membership.policies.is_empty());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_describe_with_policies() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+
+        let joined_policy = |name: &str| JoinedPolicyOnMembership {
+            id: DbId::from(Uuid::new_v4()),
+            workspace_id: ws_id,
+            name: Some(name.to_string()),
+            effect: StorePolicyEffect::Allow,
+            principal_id: None,
+            actions: vec!["membership:update".to_string()],
+            resource: "self".to_string(),
+            constraint_expr: None,
+            description: None,
+            tags: vec![],
+            meta: PolicyMeta::default(),
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
+            updated_at: None,
+        };
+
+        let dbx = MockDbx::new()
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
+            .with_one::<(i64,)>((2,))
+            .with_optional::<MembershipWithPolicies>(Some(MembershipWithPolicies {
+                id: mem_id.into(),
+                membership: membership_row(mem_id, account_id, ws_id),
+                policies: vec![joined_policy("self-update"), joined_policy("deny-delete")],
+            }))
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let membership = svc
+            .describe(
+                &mut ctx,
+                MembershipDescribeParams {
+                    id: mem_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        // -- Assert
+        assert_eq!(membership.id, mem_id);
+        assert_eq!(
+            membership.policies.len(),
+            2,
+            "describe should resolve membership policies"
+        );
+        assert!(
+            membership
+                .policies
+                .iter()
+                .any(|p| p.name.as_deref() == Some("self-update"))
+        );
 
         Ok(())
     }
@@ -680,6 +836,12 @@ mod tests {
             .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
                 mem_id, account_id, ws_id,
             )))
+            // describe -> get_many_to_many_policies (count)
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many_policies
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
             // describe -> get_account
             .with_optional::<AccountRow>(Some(account_row(account_id)))
             // update -> scope_and_validate -> get_workspace
@@ -692,6 +854,12 @@ mod tests {
             .with_one::<(i64,)>((0,))
             // describe -> get_many_to_many
             .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
+            // describe -> get_many_to_many_policies (count)
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many_policies
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
                 mem_id, account_id, ws_id,
             )))
             // describe -> get_account
@@ -721,6 +889,270 @@ mod tests {
 
     #[tokio::test]
     #[serial]
+    async fn test_membership_update_invalidates_policy_cache() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // update -> describe -> scope_and_validate -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // describe -> get_many_to_many (count)
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
+            // describe -> get_many_to_many_policies (count)
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many_policies
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
+            // describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)))
+            // update -> scope_and_validate -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // update -> store.update
+            .with_optional::<MembershipRow>(Some(membership_row(mem_id, account_id, ws_id)))
+            // update -> describe -> scope_and_validate -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // describe -> get_many_to_many (count)
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
+            // describe -> get_many_to_many_policies (count)
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many_policies
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
+            // describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = ServiceRegistry::new(&config, sm, cm.clone());
+
+        // Seed the policy cache entry for the membership.
+        let mut p = Policy::default();
+        p.actions = vec!["membership:update".to_string()];
+        p.resource = "self".to_string();
+        let set = PolicySet::from_policies(vec![p]);
+        cm.policy
+            .write(&PolicyCache::new(mem_id, set), None)
+            .await
+            .unwrap();
+
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let updated = svc_reg
+            .membership
+            .update(
+                &mut ctx,
+                MembershipUpdateParams {
+                    id: mem_id,
+                    workspace_id: ws_id,
+                    tags: Some(vec!["veteran".to_string()]),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        // -- Assert
+        assert_eq!(updated.id, mem_id);
+        assert_eq!(updated.workspace_id, ws_id);
+
+        // The membership's policy cache entry must be gone.
+        let fetched = cm.policy.fetch(&PolicyCache::new_key(mem_id)).await?;
+        assert!(fetched.is_none(), "policy cache entry must be invalidated");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_update_self_gated_by_self_policy() -> CoreResult<()> {
+        // (a) A member updating their OWN membership succeeds when the caller's
+        // PolicySet grants the seeded self policy.
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // update -> describe -> get_many_to_many (count) + row
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
+            // update -> describe -> get_many_to_many_policies (count) + row
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
+            // update -> describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)))
+            // update -> store.update
+            .with_optional::<MembershipRow>(Some(membership_row(mem_id, account_id, ws_id)))
+            // update -> describe (final) -> get_many_to_many (count) + row
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
+            // update -> describe (final) -> get_many_to_many_policies (count) + row
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
+            // update -> describe (final) -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
+        let svc = mock_svc(dbx);
+
+        // Caller IS the target member, and holds the seeded self policy.
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.auth_cache.acc_id = account_id;
+        let mut p = Policy::default();
+        p.actions = vec!["membership:update".to_string()];
+        p.resource = "self".to_string();
+        p.constraint = Some("membership.account.id === user.id".to_string());
+        ctx.set_policy_set(PolicySet::from_policies(vec![p]));
+
+        let updated = svc
+            .update(
+                &mut ctx,
+                MembershipUpdateParams {
+                    id: mem_id,
+                    workspace_id: ws_id,
+                    tags: Some(vec!["veteran".to_string()]),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        assert_eq!(updated.id, mem_id);
+        assert_eq!(updated.account_id, account_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_update_self_denied_without_self_policy() -> CoreResult<()> {
+        // (b) A member updating their OWN membership is DENIED when the caller's
+        // PolicySet lacks the seeded self policy.
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // update -> describe -> get_many_to_many (count) + row
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
+            // update -> describe -> get_many_to_many_policies (count) + row
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
+            // update -> describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
+        // NOTE: no store.update / final describe mocks — the policy gate must
+        // reject the mutation before any write happens.
+        let svc = mock_svc(dbx);
+
+        // Caller IS the target member, but holds no self policy (default-deny).
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.auth_cache.acc_id = account_id;
+        ctx.set_policy_set(PolicySet::default());
+
+        let err = svc
+            .update(
+                &mut ctx,
+                MembershipUpdateParams {
+                    id: mem_id,
+                    workspace_id: ws_id,
+                    tags: Some(vec!["veteran".to_string()]),
+                    ..Default::default()
+                },
+            )
+            .await;
+
+        assert!(
+            matches!(err, Err(CoreError::Auth(_))),
+            "a self update without the self policy must be rejected with an auth error"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_update_non_self_not_gated_by_self_policy() -> CoreResult<()> {
+        // (c) A non-self update (admin path) is NOT gated by the self policy:
+        // it succeeds even when the caller's PolicySet is empty.
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // update -> describe -> get_many_to_many (count) + row
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
+            // update -> describe -> get_many_to_many_policies (count) + row
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
+            // update -> describe -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)))
+            // update -> store.update
+            .with_optional::<MembershipRow>(Some(membership_row(mem_id, account_id, ws_id)))
+            // update -> describe (final) -> get_many_to_many (count) + row
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
+            // update -> describe (final) -> get_many_to_many_policies (count) + row
+            .with_one::<(i64,)>((0,))
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
+            // update -> describe (final) -> get_account
+            .with_optional::<AccountRow>(Some(account_row(account_id)));
+        let svc = mock_svc(dbx);
+
+        // Caller is a DIFFERENT account with an empty (default-deny) policy set.
+        let mut ctx = CoreCtx::bootstrap()?;
+        assert_ne!(ctx.auth_cache.acc_id, account_id);
+        ctx.set_policy_set(PolicySet::default());
+
+        let updated = svc
+            .update(
+                &mut ctx,
+                MembershipUpdateParams {
+                    id: mem_id,
+                    workspace_id: ws_id,
+                    tags: Some(vec!["veteran".to_string()]),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        assert_eq!(updated.id, mem_id);
+        assert_eq!(updated.workspace_id, ws_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn test_membership_delete() -> CoreResult<()> {
         // -- Setup
         let ws_id = Uuid::new_v4();
@@ -736,6 +1168,12 @@ mod tests {
             .with_one::<(i64,)>((0,))
             // describe -> get_many_to_many
             .with_optional::<MembershipWithRoles>(Some(membership_with_roles(
+                mem_id, account_id, ws_id,
+            )))
+            // describe -> get_many_to_many_policies (count)
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many_policies
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
                 mem_id, account_id, ws_id,
             )))
             // describe -> get_account

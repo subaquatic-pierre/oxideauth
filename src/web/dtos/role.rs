@@ -6,6 +6,7 @@ use crate::core::error::CoreResult;
 use crate::core::models::{
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
     permission::Permission,
+    policy::Policy,
     role::{
         Role, RoleCreateParams, RoleDeleteParams, RoleDescribeParams, RoleFilter, RoleListParams,
         RoleMeta, RoleUpdateParams,
@@ -36,6 +37,7 @@ pub struct RoleDescribeRes {
     pub name: String,
     pub description: Option<String>,
     pub permissions: Vec<Permission>,
+    pub policies: Vec<Policy>,
     pub tags: Vec<String>,
     pub meta: RoleMeta,
     #[serde(with = "time::serde::rfc3339")]
@@ -52,6 +54,7 @@ impl From<Role> for RoleDescribeRes {
             name: role.name,
             description: role.description,
             permissions: role.permissions,
+            policies: role.policies,
             tags: role.tags,
             meta: role.meta,
             created_at: role.audit.created_at,
@@ -66,6 +69,7 @@ pub struct RoleCreateReq {
     pub name: String,
     pub description: Option<String>,
     pub permission_ids: Vec<Uuid>,
+    pub policy_ids: Vec<Uuid>,
     pub tags: Vec<String>,
     pub meta: RoleMeta,
 }
@@ -77,6 +81,7 @@ impl IntoParams<RoleCreateParams> for RoleCreateReq {
             name: self.name,
             description: self.description,
             permission_ids: self.permission_ids,
+            policy_ids: self.policy_ids,
             tags: self.tags,
             meta: self.meta,
         })
@@ -90,6 +95,7 @@ pub struct RoleUpdateReq {
     pub name: Option<String>,
     pub description: Option<String>,
     pub permission_ids: Option<Vec<Uuid>>,
+    pub policy_ids: Option<Vec<Uuid>>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<RoleMeta>,
 }
@@ -102,6 +108,7 @@ impl IntoParams<RoleUpdateParams> for RoleUpdateReq {
             name: self.name,
             description: self.description,
             permission_ids: self.permission_ids,
+            policy_ids: self.policy_ids,
             tags: self.tags,
             meta: self.meta,
         })
@@ -170,10 +177,12 @@ mod tests {
     fn test_role_create_req_into_params() {
         let ws_id = Uuid::new_v4();
         let perm_id = Uuid::new_v4();
+        let policy_id = Uuid::new_v4();
         let params = RoleCreateReq {
             name: "admin".to_string(),
             description: Some("Full access".to_string()),
             permission_ids: vec![perm_id],
+            policy_ids: vec![policy_id],
             tags: vec!["system".to_string()],
             meta: RoleMeta::default(),
         }
@@ -184,6 +193,7 @@ mod tests {
         assert_eq!(params.name, "admin");
         assert_eq!(params.description.as_deref(), Some("Full access"));
         assert_eq!(params.permission_ids, vec![perm_id]);
+        assert_eq!(params.policy_ids, vec![policy_id]);
         assert_eq!(params.tags, vec!["system".to_string()]);
         assert_eq!(params.meta.schema_version, RoleMeta::default().schema_version);
     }
@@ -197,6 +207,7 @@ mod tests {
             name: Some("editor".to_string()),
             description: None,
             permission_ids: None,
+            policy_ids: Some(vec![Uuid::new_v4()]),
             tags: Some(vec![]),
             meta: None,
         }
@@ -208,6 +219,7 @@ mod tests {
         assert_eq!(params.name.as_deref(), Some("editor"));
         assert!(params.description.is_none());
         assert!(params.permission_ids.is_none());
+        assert!(params.policy_ids.is_some());
         assert_eq!(params.tags, Some(vec![]));
     }
 
@@ -242,6 +254,7 @@ mod tests {
         assert_eq!(res.name, "New Role");
         assert_eq!(res.workspace_id, Uuid::nil());
         assert!(res.permissions.is_empty());
+        assert!(res.policies.is_empty());
         assert_eq!(res.meta.schema_version, "1");
     }
 }

@@ -9,11 +9,12 @@ use crate::store::{
         id::DbId,
         membership::{
             MembershipFilter, MembershipForCreate, MembershipForUpdate, MembershipIden,
-            MembershipRow, MembershipWithRoles,
+            MembershipRow, MembershipWithPolicies, MembershipWithRoles,
         },
     },
     error::StoreResult,
     queries::{
+        join::{attach_link, detach_link, get_many_to_many, set_many_to_many_links},
         list::list_containing_many,
         meta::{
             ContainsFilterQueryMeta, ListContainingManyQueryMeta, ManyToManyQueryMeta,
@@ -57,6 +58,89 @@ impl<D: DbExecutor> MembershipStore<D> {
         };
 
         list_containing_many(ctx, &self.dbx, role_ids, tags, filter, opts, &meta).await
+    }
+
+    /// Lists memberships whose set of linked policies **contains all** of the given
+    /// policy IDs (via the `membership_policy` join table).
+    pub async fn list_containing_policies(
+        &self,
+        ctx: &StoreCtx,
+        policy_ids: Vec<DbId>,
+        tags: Option<Vec<String>>,
+        filter: Option<MembershipFilter>,
+        opts: Option<ListOptions>,
+    ) -> StoreResult<Vec<MembershipRow>> {
+        let meta = ListContainingManyQueryMeta {
+            table: MembershipIden::Table,
+            pk: MembershipIden::Id,
+            join_table: MembershipIden::MembershipPolicy,
+            join_fk: MembershipIden::MembershipId,
+            join_many_fk: MembershipIden::PolicyId,
+            has_audit: true,
+        };
+
+        list_containing_many(ctx, &self.dbx, policy_ids, tags, filter, opts, &meta).await
+    }
+
+    /// Fetches a single membership with its linked policies aggregated (via the
+    /// `membership_policy` join table). Mirrors `get_many_to_many` for roles.
+    pub async fn get_many_to_many_policies(
+        &self,
+        ctx: &StoreCtx,
+        membership_id: &DbId,
+    ) -> StoreResult<MembershipWithPolicies> {
+        let meta = self.policy_many_to_many_meta();
+        get_many_to_many(ctx, &self.dbx, membership_id, &meta).await
+    }
+
+    /// Replaces the membership's policy links (set semantics) in the
+    /// `membership_policy` join table. Mirrors `set_many_to_many_links` for roles.
+    pub async fn set_many_to_many_policies(
+        &self,
+        ctx: &StoreCtx,
+        membership_id: &DbId,
+        policy_ids: Vec<DbId>,
+    ) -> StoreResult<()> {
+        let meta = self.policy_many_to_many_meta();
+        set_many_to_many_links(ctx, &self.dbx, membership_id, policy_ids, &meta).await
+    }
+
+    /// Attaches a single policy to the membership (idempotent).
+    pub async fn attach_policy(
+        &self,
+        ctx: &StoreCtx,
+        membership_id: &DbId,
+        policy_id: &DbId,
+    ) -> StoreResult<()> {
+        let meta = self.policy_many_to_many_meta();
+        attach_link(ctx, &self.dbx, membership_id, policy_id, &meta).await
+    }
+
+    /// Detaches a single policy from the membership (idempotent).
+    pub async fn detach_policy(
+        &self,
+        ctx: &StoreCtx,
+        membership_id: &DbId,
+        policy_id: &DbId,
+    ) -> StoreResult<()> {
+        let meta = self.policy_many_to_many_meta();
+        detach_link(ctx, &self.dbx, membership_id, policy_id, &meta).await
+    }
+
+    /// Metadata for the `membership_policy` many-to-many join (mirrors the
+    /// `membership_role` metadata exposed by `ManyToManyStore`).
+    fn policy_many_to_many_meta(&self) -> ManyToManyQueryMeta<MembershipIden> {
+        ManyToManyQueryMeta {
+            single_table: MembershipIden::Table,
+            many_table: MembershipIden::Policy,
+            join_table: MembershipIden::MembershipPolicy,
+            single_pk: MembershipIden::Id,
+            many_pk: MembershipIden::PolicyPk,
+            many_fk: MembershipIden::PolicyId,
+            join_fk: MembershipIden::MembershipId,
+            agg_alias: MembershipIden::Policies,
+            has_audit: true,
+        }
     }
 }
 
@@ -329,6 +413,31 @@ mod tests {
         // -- Assert
         assert_eq!(memberships.len(), 1);
         assert_eq!(memberships[0].account_id, account_id_2);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_list_containing_policies_ok() -> Result<()> {
+        // -- Setup
+        let membership_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new().with_all::<MembershipRow>(vec![MembershipRow {
+                id: membership_id,
+                ..membership_row()
+            }]),
+        );
+        let store = MembershipStore::new(dbx);
+        let ctx = StoreCtx::bootstrap();
+
+        // -- Execute
+        let memberships = store
+            .list_containing_policies(&ctx, vec![DbId::from(Uuid::new_v4())], None, None, None)
+            .await?;
+
+        // -- Assert
+        assert_eq!(memberships.len(), 1);
+        assert_eq!(memberships[0].id, membership_id);
 
         Ok(())
     }

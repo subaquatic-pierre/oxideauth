@@ -118,6 +118,11 @@ impl Config {
     }
 
     pub fn mock_config() -> Self {
+        let reset_db = var("DROP_SCHEMA")
+            .unwrap_or("false".to_string()) // 7 days default
+            .parse::<bool>()
+            .unwrap();
+
         Self {
             host: "127.0.0.1".to_string(),
             app_env: "mock".to_string(),
@@ -147,6 +152,11 @@ impl Config {
     }
 
     pub fn test_config() -> Self {
+        let reset_db = var("DROP_SCHEMA")
+            .unwrap_or("false".to_string()) // 7 days default
+            .parse::<bool>()
+            .unwrap();
+
         Self {
             host: "127.0.0.1".to_string(),
             app_env: "test".to_string(),

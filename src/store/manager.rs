@@ -5,8 +5,8 @@ use crate::store::{
     init::PgPool,
     stores::{
         account::AccountStore, client::ClientStore, credential::CredentialStore,
-        membership::MembershipStore, permission::PermissionStore, project::ProjectStore,
-        role::RoleStore, workspace::WorkspaceStore,
+        membership::MembershipStore, permission::PermissionStore, policy::PolicyStore,
+        project::ProjectStore, role::RoleStore, workspace::WorkspaceStore,
     },
     traits::dbx::DbExecutor,
 };
@@ -22,6 +22,7 @@ pub struct StoreManager<D: DbExecutor> {
     pub permission: PermissionStore<D>,
     pub project: ProjectStore<D>,
     pub role: RoleStore<D>,
+    pub policy: PolicyStore<D>,
 }
 
 impl<D: DbExecutor> StoreManager<D> {
@@ -34,6 +35,7 @@ impl<D: DbExecutor> StoreManager<D> {
         let permission = PermissionStore::new(dbx.clone());
         let project = ProjectStore::new(dbx.clone());
         let role = RoleStore::new(dbx.clone());
+        let policy = PolicyStore::new(dbx.clone());
 
         Self {
             dbx: dbx.clone(),
@@ -45,6 +47,7 @@ impl<D: DbExecutor> StoreManager<D> {
             permission,
             project,
             role,
+            policy,
         }
     }
 
@@ -83,6 +86,7 @@ mod tests {
         let _ = &manager.permission;
         let _ = &manager.project;
         let _ = &manager.role;
+        let _ = &manager.policy;
 
         // The Store trait is implemented for each sub-store (dbx() accessor works)
         let _ = manager.account.dbx();
@@ -93,5 +97,6 @@ mod tests {
         let _ = manager.permission.dbx();
         let _ = manager.project.dbx();
         let _ = manager.role.dbx();
+        let _ = manager.policy.dbx();
     }
 }

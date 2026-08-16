@@ -10,10 +10,14 @@ use crate::store::{
     dbx::PgDbx,
     entities::{
         id::DbId,
-        role::{RoleFilter, RoleForCreate, RoleForUpdate, RoleIden, RoleRow, RoleWithPermissions},
+        role::{
+            RoleFilter, RoleForCreate, RoleForUpdate, RoleIden, RoleRow, RoleWithPermissions,
+            RoleWithPolicies,
+        },
     },
     error::{StoreError, StoreResult},
     queries::{
+        join::{attach_link, detach_link, get_many_to_many, set_many_to_many_links},
         list::list_containing_many,
         meta::{
             ContainsFilterQueryMeta, ListContainingManyQueryMeta, ManyToManyQueryMeta,
@@ -86,6 +90,89 @@ impl<D: DbExecutor> RoleStore<D> {
         };
 
         list_containing_many(ctx, &self.dbx, permission_ids, tags, filter, opts, &meta).await
+    }
+
+    /// Lists roles whose set of linked policies **contains all** of the given
+    /// policy IDs (via the `role_policy` join table).
+    pub async fn list_containing_policies(
+        &self,
+        ctx: &StoreCtx,
+        policy_ids: Vec<DbId>,
+        tags: Option<Vec<String>>,
+        filter: Option<RoleFilter>,
+        opts: Option<ListOptions>,
+    ) -> StoreResult<Vec<RoleRow>> {
+        let meta = ListContainingManyQueryMeta {
+            table: RoleIden::Table,
+            pk: RoleIden::Id,
+            join_table: RoleIden::RolePolicy,
+            join_fk: RoleIden::RoleId,
+            join_many_fk: RoleIden::PolicyId,
+            has_audit: true,
+        };
+
+        list_containing_many(ctx, &self.dbx, policy_ids, tags, filter, opts, &meta).await
+    }
+
+    /// Fetches a single role with its linked policies aggregated (via the
+    /// `role_policy` join table). Mirrors `get_many_to_many` for permissions.
+    pub async fn get_many_to_many_policies(
+        &self,
+        ctx: &StoreCtx,
+        role_id: &DbId,
+    ) -> StoreResult<RoleWithPolicies> {
+        let meta = self.policy_many_to_many_meta();
+        get_many_to_many(ctx, &self.dbx, role_id, &meta).await
+    }
+
+    /// Replaces the role's policy links (set semantics) in the `role_policy`
+    /// join table. Mirrors `set_many_to_many_links` for permissions.
+    pub async fn set_many_to_many_policies(
+        &self,
+        ctx: &StoreCtx,
+        role_id: &DbId,
+        policy_ids: Vec<DbId>,
+    ) -> StoreResult<()> {
+        let meta = self.policy_many_to_many_meta();
+        set_many_to_many_links(ctx, &self.dbx, role_id, policy_ids, &meta).await
+    }
+
+    /// Attaches a single policy to the role (idempotent).
+    pub async fn attach_policy(
+        &self,
+        ctx: &StoreCtx,
+        role_id: &DbId,
+        policy_id: &DbId,
+    ) -> StoreResult<()> {
+        let meta = self.policy_many_to_many_meta();
+        attach_link(ctx, &self.dbx, role_id, policy_id, &meta).await
+    }
+
+    /// Detaches a single policy from the role (idempotent).
+    pub async fn detach_policy(
+        &self,
+        ctx: &StoreCtx,
+        role_id: &DbId,
+        policy_id: &DbId,
+    ) -> StoreResult<()> {
+        let meta = self.policy_many_to_many_meta();
+        detach_link(ctx, &self.dbx, role_id, policy_id, &meta).await
+    }
+
+    /// Metadata for the `role_policy` many-to-many join (mirrors the
+    /// `role_permission` metadata exposed by `ManyToManyStore`).
+    fn policy_many_to_many_meta(&self) -> ManyToManyQueryMeta<RoleIden> {
+        ManyToManyQueryMeta {
+            single_table: RoleIden::Table,
+            many_table: RoleIden::Policy,
+            join_table: RoleIden::RolePolicy,
+            single_pk: RoleIden::Id,
+            many_pk: RoleIden::PolicyPk,
+            many_fk: RoleIden::PolicyId,
+            join_fk: RoleIden::RoleId,
+            agg_alias: RoleIden::Policies,
+            has_audit: true,
+        }
     }
 }
 
@@ -345,8 +432,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_many_to_many_ok() -> Result<()> {
+    async fn test_list_containing_policies_ok() -> Result<()> {
         // -- Setup
+        let role_id = DbId::from(Uuid::new_v4());
+        let dbx = Arc::new(
+            MockDbx::new().with_all::<RoleRow>(vec![RoleRow {
+                id: role_id,
+                name: "policy-role".into(),
+                ..role_row()
+            }]),
+        );
+        let store = RoleStore::new(dbx);
+        let ctx = StoreCtx::bootstrap();
+
+        // -- Execute
+        let roles = store
+            .list_containing_policies(&ctx, vec![DbId::from(Uuid::new_v4())], None, None, None)
+            .await?;
+
+        // -- Assert
+        assert_eq!(roles.len(), 1);
+        assert_eq!(roles[0].id, role_id);
+        assert_eq!(roles[0].name, "policy-role");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_many_to_many_ok() -> Result<()> {        // -- Setup
         let role_id = DbId::from(Uuid::new_v4());
 
         let joined_perm = |name: &str| JoinedPermissionOnRole {

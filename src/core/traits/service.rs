@@ -27,6 +27,21 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
     /// [`scope_and_validate`]; this is enforced as a safe guard there.
     fn is_scoped(&self) -> bool;
 
+    /// Optional policy required by every operation of the service.
+    ///
+    /// When set to `Some((action, resource, constraint))`,
+    /// [`scope_and_validate`] additionally enforces that the caller's resolved
+    /// [`crate::core::models::policy::PolicySet`] grants `action` on `resource`
+    /// under `constraint` (allow, default-deny) **after** the permission check
+    /// succeeds. This is the declarative enforcement point for protected
+    /// operations (US5); concrete v1 checks that depend on the *target* of the
+    /// operation (e.g. the membership self-mutation gate) are applied
+    /// explicitly at the call site.
+    ///
+    /// Defaults to `None` — no service currently sets this; it is safe
+    /// infrastructure for future services.
+    const REQUIRED_POLICY: Option<(&'static str, &'static str, &'static str)> = None;
+
     async fn get_workspace(
         &self,
         ctx: &mut CoreCtx,
@@ -66,6 +81,14 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
 
         // validate permissions
         auth_validator.validate_ctx_perms(ctx, required_perms)?;
+
+        // Optional service-level policy gate (US5/T036): when the service
+        // declares a required policy triple, the caller's resolved policy set
+        // must grant the action on the resource under the constraint. Defaults
+        // to `None` for every service today — no-op enforcement point.
+        if let Some((action, resource, constraint)) = Self::REQUIRED_POLICY {
+            auth_validator.validate_policy(ctx.policy_set(), action, resource, Some(constraint))?;
+        }
 
         // Safe guard: a workspace-scoped service must receive a concrete workspace.
         if self.is_scoped() && workspace_id.is_none() {
