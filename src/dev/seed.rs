@@ -293,10 +293,12 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
         (
             system_ws.clone().into(),
             MembershipCreateParams {
-                account_id: system.id.into(),
+                account_id: Some(system.id.into()),
+                email: None,
                 workspace_id: system_ws_id,
                 scope: MembershipScope::Workspace,
-                status: MembershipStatus::Active,
+                status: Some(MembershipStatus::Active),
+                profile_id: None,
                 project_id: None,
                 role_ids: vec![system_admin.id.into()],
                 policy_ids: vec![],
@@ -309,10 +311,12 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
         (
             system_ws.into(),
             MembershipCreateParams {
-                account_id: owner.id.into(),
+                account_id: Some(owner.id.into()),
+                email: None,
                 workspace_id: system_ws_id,
                 scope: MembershipScope::Workspace,
-                status: MembershipStatus::Active,
+                status: Some(MembershipStatus::Active),
+                profile_id: None,
                 project_id: None,
                 role_ids: vec![system_admin.id.into()],
                 policy_ids: vec![],
@@ -325,10 +329,12 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
         (
             default_ws.into(),
             MembershipCreateParams {
-                account_id: owner.id.into(),
+                account_id: Some(owner.id.into()),
+                email: None,
                 workspace_id: default_ws_id,
                 scope: MembershipScope::Workspace,
-                status: MembershipStatus::Active,
+                status: Some(MembershipStatus::Active),
+                profile_id: None,
                 project_id: None,
                 role_ids: vec![default_admin.id.into()],
                 policy_ids: vec![],
@@ -691,10 +697,12 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
     let memberships: Vec<MembershipCreateParams> = vec![
         // test_account as admin of test ws
         MembershipCreateParams {
-            account_id: test_account.id,
+            account_id: Some(test_account.id),
+            email: None,
             workspace_id: test_ws.id,
             scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
+            status: Some(MembershipStatus::Active),
+            profile_id: None,
             project_id: None,
             role_ids: vec![test_admin_role.id.into()],
             policy_ids: vec![],
@@ -705,10 +713,12 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         },
         // public_admin as admin of public ws
         MembershipCreateParams {
-            account_id: public_admin.id,
+            account_id: Some(public_admin.id),
+            email: None,
             workspace_id: public_ws.id,
             scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
+            status: Some(MembershipStatus::Active),
+            profile_id: None,
             project_id: None,
             role_ids: vec![public_admin_role.id.into()],
             policy_ids: vec![],
@@ -719,10 +729,12 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         },
         // private_admin as admin of private ws
         MembershipCreateParams {
-            account_id: private_admin.id,
+            account_id: Some(private_admin.id),
+            email: None,
             workspace_id: private_ws.id,
             scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
+            status: Some(MembershipStatus::Active),
+            profile_id: None,
             project_id: None,
             role_ids: vec![private_admin_role.id.into()],
             policy_ids: vec![],
@@ -733,10 +745,12 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         },
         // member as viewer of test ws
         MembershipCreateParams {
-            account_id: member.id,
+            account_id: Some(member.id),
+            email: None,
             workspace_id: test_ws.id,
             scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
+            status: Some(MembershipStatus::Active),
+            profile_id: None,
             project_id: None,
             role_ids: vec![test_viewer_role.id.into()],
             policy_ids: vec![],
@@ -747,10 +761,12 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         },
         // member as viewer of public ws
         MembershipCreateParams {
-            account_id: member.id,
+            account_id: Some(member.id),
+            email: None,
             workspace_id: public_ws.id,
             scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
+            status: Some(MembershipStatus::Active),
+            profile_id: None,
             project_id: None,
             role_ids: vec![public_viewer_role.id.into()],
             policy_ids: vec![],
@@ -761,10 +777,12 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
         },
         // member as viewer of private ws
         MembershipCreateParams {
-            account_id: member.id,
+            account_id: Some(member.id),
+            email: None,
             workspace_id: private_ws.id,
             scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
+            status: Some(MembershipStatus::Active),
+            profile_id: None,
             project_id: None,
             role_ids: vec![private_viewer_role.id.into()],
             policy_ids: vec![],

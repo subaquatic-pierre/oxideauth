@@ -53,6 +53,7 @@ pub struct MembershipRow {
 
     pub account_id: Uuid,
     pub workspace_id: Uuid,
+    pub profile_id: Option<Uuid>,
     pub scope: MembershipScope,
     pub status: MembershipStatus,
     pub project_id: Option<Uuid>,
@@ -162,6 +163,12 @@ pub enum MembershipStatus {
     Suspended,
 }
 
+impl Default for MembershipStatus {
+    fn default() -> Self {
+        MembershipStatus::Invited
+    }
+}
+
 impl From<MembershipStatus> for SeaValue {
     fn from(value: MembershipStatus) -> Self {
         let s = format!("{value}");
@@ -179,6 +186,7 @@ impl Nullable for MembershipStatus {
 pub struct MembershipForCreate {
     pub account_id: Uuid,
     pub workspace_id: Uuid,
+    pub profile_id: Option<Uuid>,
     pub scope: MembershipScope,
     pub status: MembershipStatus,
     pub project_id: Option<Uuid>,
@@ -191,6 +199,7 @@ pub struct MembershipForUpdate {
     pub scope: Option<MembershipScope>,
     pub status: Option<MembershipStatus>,
     pub project_id: Option<Uuid>,
+    pub profile_id: Option<Uuid>,
     pub version: Option<i64>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<MembershipMeta>,
@@ -223,6 +232,8 @@ pub struct MembershipFilter {
     pub account_id: Option<OpValsString>,
     #[modql(cast_as = "uuid")]
     pub workspace_id: Option<OpValsString>,
+    #[modql(cast_as = "uuid")]
+    pub profile_id: Option<OpValsString>,
     pub scope: Option<OpValsString>,
     #[modql(cast_as = "uuid")]
     pub project_id: Option<OpValsString>,
@@ -257,6 +268,7 @@ impl Default for MembershipForCreate {
         Self {
             account_id: Uuid::new_v4(),
             workspace_id: Uuid::new_v4(),
+            profile_id: None,
             scope: MembershipScope::Workspace,
             project_id: None,
             status: MembershipStatus::Active,
@@ -274,6 +286,7 @@ impl Default for MembershipForUpdate {
         Self {
             scope: None,
             project_id: None,
+            profile_id: None,
             status: None,
             version: None,
             tags: None,

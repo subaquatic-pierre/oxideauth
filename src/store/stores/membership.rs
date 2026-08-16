@@ -255,6 +255,7 @@ mod tests {
             id: DbId::from(Uuid::new_v4()),
             account_id: Uuid::new_v4(),
             workspace_id: Uuid::new_v4(),
+            profile_id: None,
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,

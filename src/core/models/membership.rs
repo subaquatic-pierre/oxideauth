@@ -24,6 +24,10 @@ use crate::{
             MembershipForCreate, MembershipForUpdate, MembershipMeta as StoreMembershipMeta,
             MembershipRow, MembershipScope, MembershipStatus, MembershipWithRoles,
         },
+    store::entities::membership::{
+        MembershipFilter as StoreMembershipFilter, MembershipForUpdate,
+        MembershipMeta as StoreMembershipMeta, MembershipRow, MembershipScope, MembershipStatus,
+        MembershipWithRoles,
     },
 };
 
@@ -35,6 +39,7 @@ pub struct Membership {
     pub id: Uuid,
     pub account_id: Uuid,
     pub workspace_id: Uuid,
+    pub profile_id: Option<Uuid>,
     pub project_id: Option<Uuid>,
 
     pub scope: MembershipScope,
@@ -59,6 +64,7 @@ impl Membership {
             id: membership.id.into(),
             account_id: membership.account_id,
             workspace_id: membership.workspace_id,
+            profile_id: membership.profile_id,
             project_id: membership.project_id,
             scope: membership.scope,
             version: membership.version,
@@ -119,29 +125,17 @@ impl From<JoinedPolicyOnMembership> for Policy {
 
 #[derive(Debug, Deserialize)]
 pub struct MembershipCreateParams {
-    pub account_id: Uuid,
+    pub account_id: Option<Uuid>,
+    pub email: Option<String>,
     pub workspace_id: Uuid,
+    pub profile_id: Option<Uuid>,
     pub scope: MembershipScope,
-    pub status: MembershipStatus,
+    pub status: Option<MembershipStatus>,
     pub project_id: Option<Uuid>,
     pub role_ids: Vec<Uuid>,
     pub policy_ids: Vec<Uuid>,
     pub tags: Vec<String>,
     pub meta: MembershipMeta,
-}
-
-impl From<MembershipCreateParams> for MembershipForCreate {
-    fn from(params: MembershipCreateParams) -> Self {
-        Self {
-            account_id: params.account_id,
-            workspace_id: params.workspace_id,
-            scope: params.scope,
-            status: params.status,
-            project_id: params.project_id,
-            tags: params.tags,
-            meta: params.meta,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,6 +154,7 @@ pub struct MembershipUpdateParams {
     pub role_ids: Option<Vec<Uuid>>,
     pub policy_ids: Option<Vec<Uuid>>,
     pub project_id: Option<Uuid>,
+    pub profile_id: Option<Uuid>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<MembershipMeta>,
 }
@@ -170,6 +165,7 @@ impl MembershipUpdateParams {
             status: self.status,
             scope: self.scope,
             project_id: self.project_id,
+            profile_id: self.profile_id,
             version: Some(version),
             tags: self.tags,
             meta: self.meta,
@@ -220,6 +216,7 @@ impl Default for Membership {
             id: Uuid::new_v4(),
             account_id: Uuid::nil(),
             workspace_id: Uuid::nil(),
+            profile_id: None,
             project_id: None,
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
@@ -249,6 +246,7 @@ mod tests {
             id: id.into(),
             account_id: Uuid::new_v4(),
             workspace_id: Uuid::new_v4(),
+            profile_id: Some(Uuid::new_v4()),
             scope: MembershipScope::Project,
             status: MembershipStatus::Suspended,
             project_id: Some(Uuid::new_v4()),
@@ -275,6 +273,7 @@ mod tests {
         assert_eq!(membership.version, 0);
         assert_eq!(membership.workspace_id, Uuid::nil());
         assert!(membership.project_id.is_none());
+        assert!(membership.profile_id.is_none());
         assert!(membership.roles.is_empty());
         assert!(membership.policies.is_empty());
         assert!(membership.tags.is_empty());
@@ -282,15 +281,18 @@ mod tests {
     }
 
     #[test]
-    fn test_membership_create_params_into_store() {
+    fn test_membership_create_params_shape() {
         let account_id = Uuid::new_v4();
         let workspace_id = Uuid::new_v4();
         let project_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
         let params = MembershipCreateParams {
-            account_id,
+            account_id: Some(account_id),
+            email: None,
             workspace_id,
+            profile_id: Some(profile_id),
             scope: MembershipScope::Project,
-            status: MembershipStatus::Invited,
+            status: Some(MembershipStatus::Invited),
             project_id: Some(project_id),
             role_ids: vec![Uuid::new_v4()],
             policy_ids: vec![Uuid::new_v4()],
@@ -300,14 +302,16 @@ mod tests {
             },
         };
 
-        let store: MembershipForCreate = params.into();
-        assert_eq!(store.account_id, account_id);
-        assert_eq!(store.workspace_id, workspace_id);
-        assert_eq!(store.scope, MembershipScope::Project);
-        assert_eq!(store.status, MembershipStatus::Invited);
-        assert_eq!(store.project_id, Some(project_id));
-        assert_eq!(store.tags, vec!["t".to_string()]);
-        assert_eq!(store.meta.schema_version, "2");
+        // account_id / email are resolved by the service; params must carry them as Option
+        assert_eq!(params.account_id, Some(account_id));
+        assert!(params.email.is_none());
+        assert_eq!(params.workspace_id, workspace_id);
+        assert_eq!(params.profile_id, Some(profile_id));
+        assert_eq!(params.scope, MembershipScope::Project);
+        assert_eq!(params.status, Some(MembershipStatus::Invited));
+        assert_eq!(params.project_id, Some(project_id));
+        assert_eq!(params.tags, vec!["t".to_string()]);
+        assert_eq!(params.meta.schema_version, "2");
     }
 
     #[test]
@@ -320,6 +324,7 @@ mod tests {
             role_ids: Some(vec![Uuid::new_v4()]),
             policy_ids: Some(vec![Uuid::new_v4()]),
             project_id: None,
+            profile_id: Some(Uuid::new_v4()),
             tags: Some(vec!["t".to_string()]),
             meta: Some(MembershipMeta {
                 schema_version: "3".to_string(),
@@ -331,6 +336,7 @@ mod tests {
         assert_eq!(store.scope, Some(MembershipScope::Workspace));
         assert_eq!(store.version, Some(9));
         assert!(store.project_id.is_none());
+        assert!(store.profile_id.is_some());
         assert_eq!(store.tags, Some(vec!["t".to_string()]));
         assert_eq!(store.meta.unwrap().schema_version, "3");
     }

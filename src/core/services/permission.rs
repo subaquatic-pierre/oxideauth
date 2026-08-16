@@ -727,6 +727,29 @@ impl ProjectPermissions {
     }
 }
 
+pub struct ProfilePermissions {
+    pub create: &'static str,
+    pub describe: &'static str,
+    pub list: &'static str,
+    pub update: &'static str,
+    pub delete: &'static str,
+}
+
+impl ProfilePermissions {
+    pub fn all(&self) -> &[(&'static str, &'static str)] {
+        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
+        ALL.get_or_init(|| {
+            [
+                (self.create, "Create new profiles"),
+                (self.describe, "View profile details"),
+                (self.list, "List profiles"),
+                (self.update, "Update profile settings"),
+                (self.delete, "Delete profiles"),
+            ]
+        })
+    }
+}
+
 pub struct MembershipPermissions {
     pub create: &'static str,
     pub describe: &'static str,
@@ -897,6 +920,7 @@ pub struct CanonicalPermissions {
     pub account: AccountPermissions,
     pub workspace: WorkspacePermissions,
     pub project: ProjectPermissions,
+    pub profile: ProfilePermissions,
     pub membership: MembershipPermissions,
     pub role: RolePermissions,
     pub client: ClientPermissions,
@@ -913,6 +937,7 @@ impl CanonicalPermissions {
         v.extend_from_slice(self.account.all());
         v.extend_from_slice(self.workspace.all());
         v.extend_from_slice(self.project.all());
+        v.extend_from_slice(self.profile.all());
         v.extend_from_slice(self.membership.all());
         v.extend_from_slice(self.role.all());
         v.extend_from_slice(self.client.all());
@@ -938,6 +963,9 @@ impl CanonicalPermissions {
             // project
             CANONICAL_PERMISSIONS.project.describe, // describe projects
             CANONICAL_PERMISSIONS.project.list,     // list projects
+            // profile
+            CANONICAL_PERMISSIONS.profile.describe, // describe profiles
+            CANONICAL_PERMISSIONS.profile.list,     // list profiles
             // membership
             CANONICAL_PERMISSIONS.membership.describe, // describe memberships
             CANONICAL_PERMISSIONS.membership.list,     // list memberships
@@ -971,6 +999,13 @@ pub const CANONICAL_PERMISSIONS: CanonicalPermissions = CanonicalPermissions {
         list: "project:list",
         update: "project:update",
         delete: "project:delete",
+    },
+    profile: ProfilePermissions {
+        create: "profile:create",
+        describe: "profile:describe",
+        list: "profile:list",
+        update: "profile:update",
+        delete: "profile:delete",
     },
     membership: MembershipPermissions {
         create: "membership:create",

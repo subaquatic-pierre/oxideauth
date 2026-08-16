@@ -9,7 +9,7 @@ use crate::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
         models::{
-            account::{Account, AccountDescribeParams},
+            account::{AccountCreateParams, AccountDescribeParams, AccountKind},
             list::{ListResponse, RequestFilterParams},
             membership::{
                 Membership, MembershipCreateParams, MembershipDeleteParams,
@@ -17,12 +17,13 @@ use crate::{
                 MembershipWithPolicies,
             },
             permission::PermissionRule,
+            profile::{ProfileCreateParams, ProfileDeleteParams, ProfileMeta},
             role::{Role, RoleDescribeParams, RoleFilter, RoleListParams},
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{
             account::AccountService, validator::AuthValidator, permission::CANONICAL_PERMISSIONS,
-            role::RoleService, workspace::WorkspaceService,
+            profile::ProfileService, role::RoleService, workspace::WorkspaceService,
         },
         traits::{
             list::RequestListParams,
@@ -41,7 +42,7 @@ use crate::{
             id::DbId,
             membership::{
                 JoinedRoleOnMembership, MembershipFilter, MembershipForCreate, MembershipForUpdate,
-                MembershipRow, MembershipWithRoles,
+                MembershipRow, MembershipStatus, MembershipWithRoles,
             },
         },
         join::{GetManyToMany, LinkManyToMany, ListManyToMany},
@@ -56,6 +57,7 @@ pub struct MembershipService<D: DbExecutor, C: CacheExecutor> {
     cm: Arc<CacheManager<C>>,
     ws_svc: Arc<WorkspaceService<D, C>>,
     acc_svc: Arc<AccountService<D, C>>,
+    profile_svc: Arc<ProfileService<D, C>>,
     role_svc: Arc<RoleService<D, C>>,
     validator: Arc<AuthValidator>,
 }
@@ -88,6 +90,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         cm: Arc<CacheManager<C>>,
         ws_svc: Arc<WorkspaceService<D, C>>,
         acc_svc: Arc<AccountService<D, C>>,
+        profile_svc: Arc<ProfileService<D, C>>,
         role_svc: Arc<RoleService<D, C>>,
         validator: Arc<AuthValidator>,
     ) -> Self {
@@ -96,6 +99,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
             cm,
             ws_svc,
             acc_svc,
+            profile_svc,
             role_svc,
             validator,
         }
@@ -105,25 +109,124 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         self.cm = cm.clone()
     }
 
-    async fn get_account(
+    /// Reads the workspace's configured `default_membership_status` from the raw
+    /// row (the `Workspace -> WorkspaceRow` conversion discards the real config).
+    ///
+    /// The workspace table is global (no `workspace_id` column), so the read goes
+    /// through an unscoped store context.
+    async fn default_status_for_workspace(
+        &self,
+        ctx: &CoreCtx,
+        workspace_id: Uuid,
+    ) -> CoreResult<MembershipStatus> {
+        let store_ctx = ctx.unscoped_store_ctx();
+        let row = self
+            .sm
+            .workspace
+            .get(&store_ctx, &workspace_id.into())
+            .await?;
+        Ok(row.config.default_membership_status)
+    }
+
+    /// Resolves the account for `email` (creating it if needed) and ensures a
+    /// profile exists for `(account_id, workspace_id)`, returning the resolved
+    /// `account_id` and linked `profile_id`.
+    ///
+    /// All account/profile access goes through the public `AccountService` and
+    /// `ProfileService` APIs (no direct store access for those tables).
+    async fn resolve_account_and_profile(
         &self,
         ctx: &mut CoreCtx,
-        id: Uuid,
-        _workspace_id: Uuid,
-    ) -> CoreResult<Account> {
-        ctx.escalate_perms(&["account:describe"])?;
-
-        let account = self
+        email: &str,
+        workspace_id: Uuid,
+    ) -> CoreResult<(Uuid, Option<Uuid>)> {
+        // 1. Resolve or create the account.
+        let account_id = match self
             .acc_svc
-            .describe(
+            .get_by_email(
                 ctx,
-                AccountDescribeParams {
-                    email: None,
-                    id: Some(id),
+                &AccountDescribeParams {
+                    id: None,
+                    email: Some(email.to_string()),
                 },
             )
-            .await?;
-        Ok(account)
+            .await?
+        {
+            Some(account) => account.id,
+            None => {
+                let account = self
+                    .acc_svc
+                    .create(
+                        ctx,
+                        AccountCreateParams {
+                            email: email.to_string(),
+                            name: email.to_string(),
+                            kind: AccountKind::User,
+                            enabled: true,
+                            verified: false,
+                            description: None,
+                            avatar_url: None,
+                            tags: None,
+                            meta: None,
+                        },
+                    )
+                    .await?;
+                account.id
+            }
+        };
+
+        // 2. Ensure a profile exists for (account_id, workspace_id).
+        //    Escalate the profile permissions the helpers validate against.
+        ctx.escalate_perms(&[
+            CANONICAL_PERMISSIONS.profile.create,
+            CANONICAL_PERMISSIONS.profile.describe,
+        ])?;
+
+        let profile_id = match self
+            .profile_svc
+            .find_by_account_workspace(ctx, account_id, workspace_id)
+            .await?
+        {
+            Some(profile) => profile.id,
+            None => {
+                let created = self
+                    .profile_svc
+                    .create(
+                        ctx,
+                        ProfileCreateParams {
+                            account_id,
+                            workspace_id,
+                            name: email.to_string(),
+                            description: None,
+                            display_name: None,
+                            job_title: None,
+                            timezone: None,
+                            avatar_url: None,
+                            tags: vec![],
+                            meta: ProfileMeta::default(),
+                        },
+                    )
+                    .await;
+
+                match created {
+                    Ok(profile) => profile.id,
+                    // Concurrent create won the race — fetch the existing profile.
+                    Err(CoreError::AlreadyExists(_)) => self
+                        .profile_svc
+                        .find_by_account_workspace(ctx, account_id, workspace_id)
+                        .await?
+                        .ok_or_else(|| {
+                            CoreError::AlreadyExists(
+                                "profile missing after duplicate create".to_string(),
+                            )
+                        })?
+                        .id,
+                    Err(err) => return Err(err),
+                }
+            }
+        };
+
+        Ok((account_id, Some(profile_id)))
     }
 
     async fn get_roles(
@@ -155,6 +258,12 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         Ok(data)
     }
 
+    /// Hydrates membership rows into [`Membership`] models.
+    ///
+    /// Output goes through `Membership::from_with_roles`, which surfaces
+    /// `account_id` + `profile_id` but never the account email — the account
+    /// entity (incl. email) is intentionally not fetched here (T017, email
+    /// privacy).
     async fn hydrate_memberships(
         &self,
         ctx: &mut CoreCtx,
@@ -187,7 +296,16 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
     type CreateParams = MembershipCreateParams;
     const CREATE_PERMISSION: &'static str = CANONICAL_PERMISSIONS.membership.create;
 
-    /// Creates a membership and optionally associates it with roles
+    /// Creates a membership and optionally associates it with roles.
+    ///
+    /// Two resolution paths are supported:
+    /// - `params.email` — resolves (or creates) the account, ensures a profile
+    ///   exists in the workspace, then links the membership to that profile.
+    /// - `params.account_id` — legacy direct link (profile resolved elsewhere;
+    ///   `profile_id` may be supplied explicitly).
+    ///
+    /// When the caller does not specify a `status`, the workspace config's
+    /// `default_membership_status` is applied.
     async fn create(
         &self,
         ctx: &mut CoreCtx,
@@ -200,13 +318,32 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
             .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
             .await?;
 
-        // Extract fields needed after params is consumed by into()
-        let account_id = params.account_id;
+        // Extract fields needed after params is consumed by resolution.
         let workspace_id = params.workspace_id;
         let role_ids = params.role_ids.clone();
         let policy_ids = params.policy_ids.clone();
+        let scope = params.scope;
+        let project_id = params.project_id;
+        let tags = params.tags;
+        let meta = params.meta;
 
-        let m_create: MembershipForCreate = params.into();
+        // --- Resolve (account_id, profile_id) ---
+        let (account_id, profile_id) = if let Some(email) = &params.email {
+            self.resolve_account_and_profile(ctx, email, workspace_id).await?
+        } else {
+            let account_id = params.account_id.ok_or_else(|| {
+                CoreError::InvalidParams(
+                    "exactly one of 'email' or 'account_id' must be provided".to_string(),
+                )
+            })?;
+            (account_id, params.profile_id)
+        };
+
+        // --- Resolve effective status: explicit param wins, else workspace config default ---
+        let effective_status = match params.status {
+            Some(status) => status,
+            None => self.default_status_for_workspace(ctx, workspace_id).await?,
+        };
 
         // Guard: one membership per account per workspace
         let membership_filter: MembershipFilter = json!({
@@ -225,6 +362,17 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
                 account_id, workspace_id
             )));
         }
+
+        let m_create = MembershipForCreate {
+            account_id,
+            workspace_id,
+            profile_id,
+            scope,
+            status: effective_status,
+            project_id,
+            tags,
+            meta,
+        };
 
         let membership_row = store.create(&store_ctx, m_create).await?;
 
@@ -463,6 +611,35 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Membershi
 
         // The membership no longer exists — drop its policy cache entry too.
         self.cm.policy.invalidate(res.id.into()).await?;
+        // Cleanup: the profile follows the membership (1:1 for now). When the
+        // last membership referencing a profile is removed, delete the
+        // now-orphaned profile — the workspace identity is recreated if the
+        // member is added again.
+        if let Some(profile_id) = to_delete.profile_id {
+            let profile_filter: MembershipFilter = json!({
+                "profile_id": profile_id.to_string()
+            })
+            .try_into()?;
+
+            let remaining = self
+                .sm
+                .membership
+                .list(&store_ctx, Some(profile_filter), None)
+                .await?;
+
+            if remaining.is_empty() {
+                ctx.escalate_perms(&[CANONICAL_PERMISSIONS.profile.delete])?;
+                self.profile_svc
+                    .delete(
+                        ctx,
+                        ProfileDeleteParams {
+                            id: profile_id,
+                            workspace_id: to_delete.workspace_id,
+                        },
+                    )
+                    .await?;
+            }
+        }
 
         // TODO(T032): Push notification trigger — notify all workspace clients
         // that a membership was deleted. Requires wiring a `ClientService`
@@ -502,6 +679,7 @@ mod tests {
                     MembershipStatus, MembershipWithPolicies, MembershipWithRoles,
                 },
                 policy::{PolicyEffect as StorePolicyEffect, PolicyMeta},
+                profile::{ProfileMeta, ProfileRow},
                 workspace::WorkspaceRow,
             },
         },
@@ -532,11 +710,26 @@ mod tests {
         }
     }
 
+    fn profile_row(profile_id: Uuid, account_id: Uuid, ws_id: Uuid) -> ProfileRow {
+        ProfileRow {
+            id: profile_id.into(),
+            account_id,
+            workspace_id: ws_id,
+            name: "email-resolved-profile".to_string(),
+            version: 1,
+            meta: ProfileMeta {
+                schema_version: "1".to_string(),
+            },
+            ..Default::default()
+        }
+    }
+
     fn membership_row(mem_id: Uuid, account_id: Uuid, ws_id: Uuid) -> MembershipRow {
         MembershipRow {
             id: mem_id.into(),
             account_id,
             workspace_id: ws_id,
+            profile_id: None,
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
@@ -606,12 +799,14 @@ mod tests {
         let mut ctx = CoreCtx::bootstrap()?;
 
         let params = MembershipCreateParams {
-            account_id,
+            account_id: Some(account_id),
+            email: None,
             workspace_id: ws_id,
             role_ids: vec![],
             policy_ids: vec![],
             scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
+            status: Some(MembershipStatus::Active),
+            profile_id: None,
             project_id: None,
             tags: vec!["pioneer".to_string()],
             meta: MembershipMeta::default(),
@@ -624,6 +819,81 @@ mod tests {
         assert_eq!(membership.id, mem_id);
         assert_eq!(membership.workspace_id, ws_id);
         assert_eq!(membership.account_id, account_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_create_by_email() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+        let email = "new-member@example.com".to_string();
+
+        let dbx = MockDbx::new()
+            // resolve -> get_by_email (account does not exist)
+            .with_optional::<AccountRow>(None)
+            // account.create -> duplicate-email check (still absent)
+            .with_optional::<AccountRow>(None)
+            // account.create -> INSERT ... RETURNING
+            .with_one::<AccountRow>(account_row(account_id))
+            // profile find -> list (no existing profile)
+            .with_all::<ProfileRow>(vec![])
+            // profile.create -> duplicate guard -> list (none)
+            .with_all::<ProfileRow>(vec![])
+            // profile.create -> INSERT ... RETURNING
+            .with_one::<ProfileRow>(profile_row(profile_id, account_id, ws_id))
+            // default status -> workspace.get (config default -> Invited)
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // membership duplicate guard -> list (none)
+            .with_all::<MembershipRow>(vec![])
+            // membership store.create
+            .with_one::<MembershipRow>(MembershipRow {
+                profile_id: Some(profile_id),
+                status: MembershipStatus::Invited,
+                ..membership_row(mem_id, account_id, ws_id)
+            })
+            // create -> describe -> get_many_to_many (count)
+            .with_one::<(i64,)>((0,))
+            // create -> describe -> get_many_to_many
+            .with_optional::<MembershipWithRoles>(Some(MembershipWithRoles {
+                id: mem_id.into(),
+                membership: MembershipRow {
+                    profile_id: Some(profile_id),
+                    status: MembershipStatus::Invited,
+                    ..membership_row(mem_id, account_id, ws_id)
+                },
+                roles: vec![],
+            }));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        let params = MembershipCreateParams {
+            account_id: None,
+            email: Some(email),
+            workspace_id: ws_id,
+            role_ids: vec![],
+            scope: MembershipScope::Workspace,
+            status: None,
+            profile_id: None,
+            project_id: None,
+            tags: vec![],
+            meta: MembershipMeta::default(),
+        };
+
+        // -- Execute
+        let membership = svc.create(&mut ctx, params).await?;
+
+        // -- Assert
+        assert_eq!(membership.id, mem_id);
+        assert_eq!(membership.workspace_id, ws_id);
+        assert_eq!(membership.account_id, account_id);
+        assert_eq!(membership.profile_id, Some(profile_id));
+        // status falls back to the workspace config default when not specified
+        assert_eq!(membership.status, MembershipStatus::Invited);
 
         Ok(())
     }
@@ -644,12 +914,14 @@ mod tests {
         let mut ctx = CoreCtx::bootstrap()?;
 
         let params = MembershipCreateParams {
-            account_id,
+            account_id: Some(account_id),
+            email: None,
             workspace_id: ws_id,
             role_ids: vec![],
             policy_ids: vec![],
             scope: MembershipScope::Workspace,
-            status: MembershipStatus::Active,
+            status: Some(MembershipStatus::Active),
+            profile_id: None,
             project_id: None,
             tags: vec![],
             meta: MembershipMeta::default(),
@@ -1196,6 +1468,70 @@ mod tests {
 
         // -- Assert
         assert_eq!(deleted.id, mem_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_membership_delete_cascades_profile_cleanup() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+
+        let mw_with_profile = {
+            let row = MembershipRow {
+                profile_id: Some(profile_id),
+                ..membership_row(mem_id, account_id, ws_id)
+            };
+            MembershipWithRoles {
+                id: row.id,
+                membership: row,
+                roles: vec![],
+            }
+        };
+
+        let dbx = MockDbx::new()
+            // delete -> scope_and_validate -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // delete -> describe -> scope_and_validate -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // describe -> get_many_to_many (count)
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many
+            .with_optional::<MembershipWithRoles>(Some(mw_with_profile))
+            // delete -> store.delete
+            .with_optional::<MembershipRow>(Some(MembershipRow {
+                profile_id: Some(profile_id),
+                ..membership_row(mem_id, account_id, ws_id)
+            }))
+            // cleanup -> membership list by profile (no remaining memberships)
+            .with_all::<MembershipRow>(vec![])
+            // cleanup -> profile.delete -> scope_and_validate -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
+            // cleanup -> profile.delete -> guard -> membership list (empty)
+            .with_all::<MembershipRow>(vec![])
+            // cleanup -> profile.delete -> store.delete
+            .with_optional::<ProfileRow>(Some(profile_row(profile_id, account_id, ws_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // -- Execute
+        let deleted = svc
+            .delete(
+                &mut ctx,
+                MembershipDeleteParams {
+                    id: mem_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        // -- Assert
+        assert_eq!(deleted.id, mem_id);
+        assert_eq!(deleted.profile_id, Some(profile_id));
 
         Ok(())
     }

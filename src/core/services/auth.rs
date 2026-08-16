@@ -329,10 +329,12 @@ where
             .create(
                 ctx,
                 MembershipCreateParams {
-                    account_id: account.id,
+                    account_id: Some(account.id),
+                    email: None,
                     workspace_id: ws_id,
+                    profile_id: None,
                     scope: MembershipScope::Workspace,
-                    status: MembershipStatus::Active,
+                    status: Some(MembershipStatus::Active),
                     project_id: None,
                     role_ids: vec![viewer_role.id.into()],
                     policy_ids: vec![],

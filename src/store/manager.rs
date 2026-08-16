@@ -6,6 +6,7 @@ use crate::store::{
     stores::{
         account::AccountStore, client::ClientStore, credential::CredentialStore,
         membership::MembershipStore, permission::PermissionStore, policy::PolicyStore,
+        membership::MembershipStore, permission::PermissionStore, profile::ProfileStore,
         project::ProjectStore, role::RoleStore, workspace::WorkspaceStore,
     },
     traits::dbx::DbExecutor,
@@ -20,6 +21,7 @@ pub struct StoreManager<D: DbExecutor> {
     pub membership: MembershipStore<D>,
     pub workspace: WorkspaceStore<D>,
     pub permission: PermissionStore<D>,
+    pub profile: ProfileStore<D>,
     pub project: ProjectStore<D>,
     pub role: RoleStore<D>,
     pub policy: PolicyStore<D>,
@@ -33,6 +35,7 @@ impl<D: DbExecutor> StoreManager<D> {
         let membership = MembershipStore::new(dbx.clone());
         let workspace = WorkspaceStore::new(dbx.clone());
         let permission = PermissionStore::new(dbx.clone());
+        let profile = ProfileStore::new(dbx.clone());
         let project = ProjectStore::new(dbx.clone());
         let role = RoleStore::new(dbx.clone());
         let policy = PolicyStore::new(dbx.clone());
@@ -45,6 +48,7 @@ impl<D: DbExecutor> StoreManager<D> {
             membership,
             workspace,
             permission,
+            profile,
             project,
             role,
             policy,
@@ -84,6 +88,7 @@ mod tests {
         let _ = &manager.membership;
         let _ = &manager.workspace;
         let _ = &manager.permission;
+        let _ = &manager.profile;
         let _ = &manager.project;
         let _ = &manager.role;
         let _ = &manager.policy;
@@ -95,6 +100,7 @@ mod tests {
         let _ = manager.membership.dbx();
         let _ = manager.workspace.dbx();
         let _ = manager.permission.dbx();
+        let _ = manager.profile.dbx();
         let _ = manager.project.dbx();
         let _ = manager.role.dbx();
         let _ = manager.policy.dbx();

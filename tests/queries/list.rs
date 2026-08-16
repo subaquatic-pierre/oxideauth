@@ -65,6 +65,7 @@ async fn test_list_in_namespace_by_join_table_pass() -> StoreResult<()> {
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
+            profile_id: None,
             tags: vec![],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -119,6 +120,7 @@ async fn test_list_in_namespace_by_join_table_scoped() -> StoreResult<()> {
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
+            profile_id: None,
             tags: vec![],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -176,6 +178,7 @@ async fn test_list_in_namespace_by_join_table_with_filter() -> StoreResult<()> {
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
+            profile_id: None,
             tags: vec![],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -233,6 +236,7 @@ async fn test_list_in_namespace_by_join_table_with_tags() -> StoreResult<()> {
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
+            profile_id: None,
             tags: vec![],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -299,6 +303,7 @@ async fn test_list_in_namespace_by_join_table_distinct() -> StoreResult<()> {
         scope: MembershipScope::Workspace,
         status: MembershipStatus::Active,
         project_id: None,
+        profile_id: None,
         tags: vec![],
         meta: MembershipMeta {
             schema_version: "1".to_string(),
@@ -312,6 +317,7 @@ async fn test_list_in_namespace_by_join_table_distinct() -> StoreResult<()> {
         scope: MembershipScope::Project,
         status: MembershipStatus::Active,
         project_id: Some(proj_id),
+        profile_id: None,
         tags: vec![],
         meta: MembershipMeta {
             schema_version: "1".to_string(),
@@ -402,6 +408,7 @@ async fn test_list_in_namespace_by_join_table_other_namespace() -> StoreResult<(
         scope: MembershipScope::Workspace,
         status: MembershipStatus::Active,
         project_id: None,
+        profile_id: None,
         tags: vec![],
         meta: MembershipMeta {
             schema_version: "1".to_string(),
@@ -448,6 +455,7 @@ async fn test_list_in_namespace_by_join_table_query_fn_direct() -> StoreResult<(
         scope: MembershipScope::Workspace,
         status: MembershipStatus::Active,
         project_id: None,
+        profile_id: None,
         tags: vec![],
         meta: MembershipMeta {
             schema_version: "1".to_string(),

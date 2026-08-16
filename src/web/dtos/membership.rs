@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::core::error::CoreResult;
+use crate::core::error::{CoreError, CoreResult};
 use crate::core::models::{
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
     membership::{
@@ -36,6 +36,7 @@ pub struct MembershipDescribeRes {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub account_id: Uuid,
+    pub profile_id: Option<Uuid>,
     pub project_id: Option<Uuid>,
     pub scope: MembershipScope,
     pub version: i64,
@@ -56,6 +57,7 @@ impl From<Membership> for MembershipDescribeRes {
             id: m.id,
             workspace_id: m.workspace_id,
             account_id: m.account_id,
+            profile_id: m.profile_id,
             project_id: m.project_id,
             version: m.version,
             scope: m.scope,
@@ -73,9 +75,10 @@ impl From<Membership> for MembershipDescribeRes {
 // --- MembershipCreateReq ---
 #[derive(Deserialize)]
 pub struct MembershipCreateReq {
-    pub account_id: Uuid,
+    pub account_id: Option<Uuid>,
+    pub email: Option<String>,
     pub scope: MembershipScope,
-    pub status: MembershipStatus,
+    pub status: Option<MembershipStatus>,
     pub project_id: Option<Uuid>,
     pub role_ids: Vec<Uuid>,
     pub policy_ids: Vec<Uuid>,
@@ -85,9 +88,29 @@ pub struct MembershipCreateReq {
 
 impl IntoParams<MembershipCreateParams> for MembershipCreateReq {
     fn into_params(self, workspace_id: Uuid) -> CoreResult<MembershipCreateParams> {
+        // Exactly one of `email` / `account_id` must be provided.
+        match (self.email.as_ref(), self.account_id.as_ref()) {
+            (Some(_), Some(_)) => {
+                return Err(CoreError::InvalidParams(
+                    "provide exactly one of 'email' or 'account_id'".to_string(),
+                ))
+            }
+            (None, None) => {
+                return Err(CoreError::InvalidParams(
+                    "provide exactly one of 'email' or 'account_id'".to_string(),
+                ))
+            }
+            _ => {}
+        }
+
         Ok(MembershipCreateParams {
             account_id: self.account_id,
+            email: self.email,
             workspace_id,
+            // NOTE: profile_id is not exposed on the create surface — it is
+            // resolved by the email-resolve flow (or left None for the
+            // legacy account_id path).
+            profile_id: None,
             scope: self.scope,
             status: self.status,
             project_id: self.project_id,
@@ -197,9 +220,10 @@ mod tests {
         let role_id = Uuid::new_v4();
         let policy_id = Uuid::new_v4();
         let params = MembershipCreateReq {
-            account_id,
+            account_id: Some(account_id),
+            email: None,
             scope: MembershipScope::Project,
-            status: MembershipStatus::Active,
+            status: Some(MembershipStatus::Active),
             project_id: Some(project_id),
             role_ids: vec![role_id],
             policy_ids: vec![policy_id],
@@ -209,10 +233,11 @@ mod tests {
         .into_params(ws_id)
         .unwrap();
 
-        assert_eq!(params.account_id, account_id);
+        assert_eq!(params.account_id, Some(account_id));
+        assert!(params.email.is_none());
         assert_eq!(params.workspace_id, ws_id);
         assert_eq!(params.scope.to_string(), "project");
-        assert_eq!(params.status.to_string(), "active");
+        assert_eq!(params.status, Some(MembershipStatus::Active));
         assert_eq!(params.project_id, Some(project_id));
         assert_eq!(params.role_ids, vec![role_id]);
         assert_eq!(params.policy_ids, vec![policy_id]);
@@ -221,6 +246,41 @@ mod tests {
             params.meta.schema_version,
             MembershipMeta::default().schema_version
         );
+    }
+
+    #[test]
+    fn test_membership_create_req_requires_exactly_one_identifier() {
+        let ws_id = Uuid::new_v4();
+
+        // neither email nor account_id
+        let err = MembershipCreateReq {
+            account_id: None,
+            email: None,
+            scope: MembershipScope::Workspace,
+            status: None,
+            project_id: None,
+            role_ids: vec![],
+            tags: vec![],
+            meta: MembershipMeta::default(),
+        }
+        .into_params(ws_id)
+        .unwrap_err();
+        assert!(matches!(err, CoreError::InvalidParams(_)));
+
+        // both email and account_id
+        let err = MembershipCreateReq {
+            account_id: Some(Uuid::new_v4()),
+            email: Some("a@b.com".to_string()),
+            scope: MembershipScope::Workspace,
+            status: None,
+            project_id: None,
+            role_ids: vec![],
+            tags: vec![],
+            meta: MembershipMeta::default(),
+        }
+        .into_params(ws_id)
+        .unwrap_err();
+        assert!(matches!(err, CoreError::InvalidParams(_)));
     }
 
     #[test]
@@ -284,5 +344,18 @@ mod tests {
         assert_eq!(res.workspace_id, Uuid::nil());
         assert!(res.roles.is_empty());
         assert!(res.policies.is_empty());
+    }
+
+    #[test]
+    fn test_membership_describe_res_omits_email() {
+        // T018: the membership surface may carry `account_id` (a UUID) but must
+        // never expose the account's email.
+        let res = MembershipDescribeRes::from(Membership::default());
+        let json = serde_json::to_string(&res).expect("MembershipDescribeRes must serialize");
+
+        assert!(
+            !json.contains("\"email\""),
+            "MembershipDescribeRes must not contain an email field: {json}"
+        );
     }
 }

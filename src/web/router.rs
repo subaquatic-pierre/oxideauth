@@ -15,6 +15,7 @@ use crate::{
             account::AccountRouter, auth::AuthRouter, client::ClientRouter,
             credential::CredentialRouter, membership::MembershipRouter,
             permission::PermissionRouter, policy::PolicyRouter, project::ProjectRouter,
+            permission::PermissionRouter, profile::ProfileRouter, project::ProjectRouter,
             role::RoleRouter, root::RootRouter, workspace::WorkspaceRouter,
         },
         middlewares::{
@@ -49,6 +50,7 @@ impl AppRouter {
             .nest("/accounts", AccountRouter::routes())
             .nest("/workspace", WorkspaceRouter::routes())
             .nest("/projects", ProjectRouter::routes())
+            .nest("/profiles", ProfileRouter::routes())
             .nest("/clients", ClientRouter::routes())
             .nest("/roles", RoleRouter::routes())
             .nest("/permissions", PermissionRouter::routes())

@@ -177,6 +177,7 @@ impl OpValWorkspaceId for WorkspaceFilter {
 mod tests {
     use super::*;
     use crate::store::entities::credential::DEFAULT_JWT_MAX_AGE;
+    use crate::store::entities::membership::MembershipStatus;
     use time::OffsetDateTime;
 
     #[test]
@@ -199,6 +200,7 @@ mod tests {
             jwt_max_age: 100,
             jwt_secret: "secret".to_string(),
             public: true,
+            default_membership_status: MembershipStatus::Active,
         };
 
         let workspace: Workspace = row.into();
@@ -214,6 +216,10 @@ mod tests {
         assert_eq!(workspace.config.jwt_secret, "");
         assert!(!workspace.config.public);
         assert!(workspace.config.allowed_auth_providers.is_empty());
+        assert_eq!(
+            workspace.config.default_membership_status,
+            MembershipStatus::Invited
+        );
         assert_eq!(workspace.audit.created_by, Uuid::nil());
     }
 

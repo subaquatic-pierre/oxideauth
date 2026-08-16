@@ -7,6 +7,7 @@ pub mod email;
 pub mod membership;
 pub mod permission;
 pub mod policy;
+pub mod profile;
 pub mod project;
 pub mod registry;
 pub mod role;
