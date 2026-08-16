@@ -47,6 +47,7 @@ pub struct PermissionService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
     ws_svc: Arc<WorkspaceService<D, C>>,
+    validator: Arc<AuthValidator>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for PermissionService<D, C> {
@@ -60,6 +61,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for PermissionServi
     fn ws_svc(&self) -> &WorkspaceService<D, C> {
         self.ws_svc.as_ref()
     }
+
+    fn validator(&self) -> &AuthValidator {
+        self.validator.as_ref()
+    }
+
+    fn is_scoped(&self) -> bool {
+        true
+    }
 }
 
 impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
@@ -67,8 +76,14 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
         sm: Arc<StoreManager<D>>,
         ws_svc: Arc<WorkspaceService<D, C>>,
         cm: Arc<CacheManager<C>>,
+        validator: Arc<AuthValidator>,
     ) -> Self {
-        Self { sm, cm, ws_svc }
+        Self {
+            sm,
+            cm,
+            ws_svc,
+            validator,
+        }
     }
 
     pub async fn create_many(
@@ -76,8 +91,9 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
         ctx: &mut CoreCtx,
         params: PermissionCreateManyParams,
     ) -> CoreResult<Vec<Permission>> {
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
             .await?;
         let data = params.permissions.into_iter().map(|el| el.into()).collect();
         let res = self.store().create_many(&store_ctx, data).await?;
@@ -128,8 +144,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Permissio
         params: Self::CreateParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
             .await?;
 
         let n_perm = store.create(&store_ctx, params.into()).await?;
@@ -147,8 +164,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Permiss
         params: Self::DescribeParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
-        let (store_ctx, _workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let params = params.validate()?;
@@ -176,8 +194,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for PermissionS
         params: Self::ListParams,
     ) -> CoreResult<ListResponse<Self::CoreModel>> {
         let store = self.store();
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::LIST_PERMISSION])
             .await?;
 
         let options = params.list_options();
@@ -216,8 +235,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Permissio
         params: Self::UpdateParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
             .await?;
 
         let new_name = params.name.clone().unwrap_or_default();
@@ -270,8 +290,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Permissio
         params: Self::DeleteParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DELETE_PERMISSION])
             .await?;
 
         let to_delete = self
@@ -362,14 +383,14 @@ mod tests {
         let perm_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // create -> scope_and_validate_ctx -> get_workspace
+            // create -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
             }))
             // create -> store.create
             .with_one::<PermissionRow>(perm_row(perm_id, ws_id, "project:read"))
-            // describe -> scope_and_validate_ctx -> get_workspace
+            // describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -378,7 +399,7 @@ mod tests {
             .with_optional::<PermissionRow>(Some(perm_row(perm_id, ws_id, "project:read")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["permission:create", "permission:describe"])?;
+        ctx.escalate_perms(&["permission:create", "permission:describe"])?;
 
         let params = PermissionCreateParams {
             workspace_id: ws_id,
@@ -404,7 +425,7 @@ mod tests {
         let perm_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -413,7 +434,7 @@ mod tests {
             .with_all::<PermissionRow>(vec![perm_row(perm_id, ws_id, "project:read")]);
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["permission:create"])?;
+        ctx.escalate_perms(&["permission:create"])?;
 
         let perms = vec![PermissionCreateParams {
             workspace_id: ws_id,
@@ -447,7 +468,7 @@ mod tests {
         let perm_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -456,7 +477,7 @@ mod tests {
             .with_optional::<PermissionRow>(Some(perm_row(perm_id, ws_id, "project:read")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["permission:describe"])?;
+        ctx.escalate_perms(&["permission:describe"])?;
 
         let perm = svc
             .describe(
@@ -480,14 +501,14 @@ mod tests {
         let ws_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
             }));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["permission:describe"])?;
+        ctx.escalate_perms(&["permission:describe"])?;
 
         let res = svc
             .describe(
@@ -514,7 +535,7 @@ mod tests {
         let perm_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -525,7 +546,7 @@ mod tests {
             .with_one::<(i64,)>((1,));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["permission:list"])?;
+        ctx.escalate_perms(&["permission:list"])?;
 
         let res = svc
             .list(
@@ -552,7 +573,7 @@ mod tests {
         let perm_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // update -> scope_and_validate_ctx -> get_workspace
+            // update -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -561,7 +582,7 @@ mod tests {
             .with_optional::<PermissionRow>(Some(perm_row(perm_id, ws_id, "project:write")))
             // invalidate_memberships_for_permission -> no roles grant it
             .with_all::<RoleRow>(vec![])
-            // describe -> scope_and_validate_ctx -> get_workspace
+            // describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -570,7 +591,7 @@ mod tests {
             .with_optional::<PermissionRow>(Some(perm_row(perm_id, ws_id, "project:write")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["permission:update", "permission:describe"])?;
+        ctx.escalate_perms(&["permission:update", "permission:describe"])?;
 
         let params = PermissionUpdateParams {
             id: perm_id,
@@ -596,12 +617,12 @@ mod tests {
         let perm_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // delete -> scope_and_validate_ctx -> get_workspace
+            // delete -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
             }))
-            // delete -> describe -> scope_and_validate_ctx -> get_workspace
+            // delete -> describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -614,7 +635,7 @@ mod tests {
             .with_all::<RoleRow>(vec![]);
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["permission:delete", "permission:describe"])?;
+        ctx.escalate_perms(&["permission:delete", "permission:describe"])?;
 
         let deleted = svc
             .delete(
@@ -874,6 +895,11 @@ impl CanonicalPermissions {
         v.extend_from_slice(self.credential.all());
         v.extend_from_slice(self.permission.all());
         v.extend_from_slice(&self.auth.all());
+        // The system-wide wildcard permission granted to workspace admins.
+        v.push((
+            "*:*",
+            "System-wide admin permission (grants all workspace-scoped access)",
+        ));
         v
     }
 
@@ -896,20 +922,6 @@ impl CanonicalPermissions {
         ];
 
         v
-    }
-
-    pub fn default_workspace_admin_perms(&self) -> Vec<&'static str> {
-        let mut all = Vec::new();
-        all.extend_from_slice(self.account.all());
-        // all.extend_from_slice(self.workspace.all());
-        all.extend_from_slice(self.project.all());
-        all.extend_from_slice(self.membership.all());
-        all.extend_from_slice(self.role.all());
-        all.extend_from_slice(self.client.all());
-        all.extend_from_slice(self.credential.all());
-        all.extend_from_slice(self.permission.all());
-        all.extend_from_slice(&self.auth.all());
-        all.into_iter().map(|(name, _)| name).collect()
     }
 }
 

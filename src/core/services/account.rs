@@ -52,6 +52,7 @@ pub struct AccountService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
     ws_svc: Arc<WorkspaceService<D, C>>,
+    validator: Arc<AuthValidator>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for AccountService<D, C> {
@@ -66,8 +67,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for AccountService<
         self.ws_svc.as_ref()
     }
 
-    fn should_remove_workspace_from_store_ctx(&self) -> bool {
-        true
+    fn validator(&self) -> &AuthValidator {
+        self.validator.as_ref()
+    }
+
+    fn is_scoped(&self) -> bool {
+        false
     }
 }
 
@@ -76,8 +81,14 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
         ws_svc: Arc<WorkspaceService<D, C>>,
+        validator: Arc<AuthValidator>,
     ) -> Self {
-        Self { sm, cm, ws_svc }
+        Self {
+            sm,
+            cm,
+            ws_svc,
+            validator,
+        }
     }
 
     async fn get_account_by_id_or_email(
@@ -86,6 +97,7 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
         id_or_email: &str,
     ) -> CoreResult<Account> {
         let store = self.store();
+        // NOTE(workspace-scope): unscoped — the account table has no workspace_id column.
         let mut store_ctx: StoreCtx = ctx.into();
         store_ctx.set_workspace_scope(None);
 
@@ -120,6 +132,7 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
     ) -> CoreResult<Option<Account>> {
         let store = self.store();
 
+        // NOTE(workspace-scope): unscoped — the account table has no workspace_id column.
         let mut store_ctx: StoreCtx = ctx.into();
         store_ctx.set_workspace_scope(None);
 
@@ -137,6 +150,7 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
     }
 
     async fn invalidate_all_memberships(&self, ctx: &CoreCtx, acc_id: Uuid) -> CoreResult<()> {
+        // NOTE(workspace-scope): unscoped — the account table has no workspace_id column.
         let mut store_ctx: StoreCtx = ctx.into();
         store_ctx.set_workspace_scope(None);
         let filter = json!({"account_id":&acc_id.to_string()}).try_into()?;
@@ -162,10 +176,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for AccountSe
     async fn create(&self, ctx: &mut CoreCtx, params: AccountCreateParams) -> CoreResult<Account> {
         let store = self.store();
 
-        let auth_validator = AuthValidator::new(ctx);
-        auth_validator.validate_ctx_perms(&[Self::CREATE_PERMISSION])?;
-        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
-
+        // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
+        let store_ctx = self.scope_and_validate(ctx, None, &[Self::CREATE_PERMISSION]).await?;
         if store
             .get_by_email(&store_ctx, &params.email)
             .await?
@@ -193,9 +205,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Account
     ) -> CoreResult<Account> {
         let store = self.store();
 
-        let auth_validator = AuthValidator::new(ctx);
-        auth_validator.validate_ctx_perms(&[Self::DESCRIBE_PERMISSION])?;
-        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
+        // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
+        let store_ctx = self.scope_and_validate(ctx, None, &[Self::DESCRIBE_PERMISSION]).await?;
 
         let identifier =
             params
@@ -221,11 +232,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for AccountServ
     ) -> CoreResult<ListResponse<Account>> {
         let store = self.store();
 
-        let auth_validator = AuthValidator::new(ctx);
-        auth_validator.validate_ctx_perms(&[Self::LIST_PERMISSION])?;
-        // Account listing is namespace-scoped (join on membership), so keep the
-        // derived workspace scope rather than removing it.
-        let store_ctx = auth_validator.scope_store_workspace(None)?;
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(ctx.scoped_ws_id()), &[Self::LIST_PERMISSION])
+            .await?;
 
         let options = params.list_options();
 
@@ -257,9 +267,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
 
     async fn update(&self, ctx: &mut CoreCtx, params: AccountUpdateParams) -> CoreResult<Account> {
         let store = self.store();
-        let auth_validator = AuthValidator::new(ctx);
-        auth_validator.validate_ctx_perms(&[Self::UPDATE_PERMISSION])?;
-        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
+        // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
+        let store_ctx = self.scope_and_validate(ctx, None, &[Self::UPDATE_PERMISSION]).await?;
 
         // NOTE: updating email constraints need to be enforced
         // currently cannot change account email
@@ -297,9 +306,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
     async fn delete(&self, ctx: &mut CoreCtx, params: AccountDeleteParams) -> CoreResult<Account> {
         let store = self.store();
 
-        let auth_validator = AuthValidator::new(ctx);
-        auth_validator.validate_ctx_perms(&[Self::DELETE_PERMISSION])?;
-        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
+        // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
+        let store_ctx = self.scope_and_validate(ctx, None, &[Self::DELETE_PERMISSION]).await?;
 
         let identifier = params.id_or_email()?;
         let acc = self.get_account_by_id_or_email(ctx, &identifier).await?;
@@ -348,7 +356,7 @@ mod tests {
         let svc = svc_reg.account.clone();
 
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["account:list"])?;
+        ctx.escalate_perms(&["account:list"])?;
 
         let accounts = svc
             .list(
@@ -385,7 +393,7 @@ mod tests {
         let svc_reg = ServiceRegistry::new(&config, sm, cm);
         let svc = svc_reg.account.clone();
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["account:create"])?;
+        ctx.escalate_perms(&["account:create"])?;
 
         let params = AccountCreateParams::default();
 
@@ -422,7 +430,7 @@ mod tests {
         let svc = svc_reg.account.clone();
 
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["account:create"])?;
+        ctx.escalate_perms(&["account:create"])?;
 
         let params = AccountCreateParams::default();
         let new_acc = svc.create(&mut ctx, params).await;

@@ -38,7 +38,7 @@ use crate::{
                 MembershipCreateParams, MembershipDescribeParams, MembershipFilter,
                 MembershipListParams, MembershipMeta, MembershipUpdateParams,
             },
-            permission::{PermissionEngine, PermissionRule},
+            permission::{PermissionSet, PermissionRule},
             role::{RoleDescribeIdentifier, RoleListParams},
             token::{TokenClaims, TokenType},
             workspace::WorkspaceDescribeParams,
@@ -120,6 +120,7 @@ where
     role_svc: Arc<RoleService<D, C>>,
     cm: Arc<CacheManager<C>>,
     config: Config,
+    validator: Arc<AuthValidator>,
 }
 
 impl<D, C> AuthService<D, C>
@@ -138,6 +139,7 @@ where
         ctx_factory: Arc<ContextFactory>,
         role_svc: Arc<RoleService<D, C>>,
         config: Config,
+        validator: Arc<AuthValidator>,
     ) -> Self {
         Self {
             sm,
@@ -150,6 +152,7 @@ where
             role_svc,
             cm,
             config,
+            validator,
         }
     }
 
@@ -271,7 +274,7 @@ where
         // --- Hash password ---
         let secret = hash_password(&password)?;
 
-        ctx.extend_perms(&[
+        ctx.escalate_perms(&[
             CANONICAL_PERMISSIONS.account.create,
             CANONICAL_PERMISSIONS.credential.create,
             CANONICAL_PERMISSIONS.membership.create,
@@ -387,7 +390,7 @@ where
         let ws_id = ws.id;
         ctx.set_scoped_ws(ws.into());
 
-        ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
+        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
 
         // --- Find account by email ---
         let account_row = match self
@@ -471,7 +474,7 @@ where
         })
         .try_into()?;
 
-        ctx.extend_perms(&[CANONICAL_PERMISSIONS.membership.list])?;
+        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.membership.list])?;
         let membership_list_params = MembershipListParams {
             workspace_id: credential.workspace_id.into(),
             filter: Some(RequestFilterParams {
@@ -532,11 +535,11 @@ where
         let ws_id = claims.ws;
 
         // Permission check: caller must have auth:revoke
-        let auth_validator = AuthValidator::new(ctx);
-        auth_validator.validate_ctx_perms(&[CANONICAL_PERMISSIONS.auth.revoke])?;
+        self.validator
+            .validate_ctx_perms(ctx, &[CANONICAL_PERMISSIONS.auth.revoke])?;
 
         // Extend permissions needed to bump the membership version
-        ctx.extend_perms(&[
+        ctx.escalate_perms(&[
             CANONICAL_PERMISSIONS.membership.describe,
             CANONICAL_PERMISSIONS.membership.update,
         ])?;
@@ -656,7 +659,7 @@ where
                 // let auth_cache = AuthCache::from_claims(&claims);
                 // let ws_cache = WorkspaceCache::new_keyed(&claims.ws);
                 // let mut temp_ctx = CoreCtx::new(auth_cache, ws_id)?;
-                ctx.extend_perms(&[
+                ctx.escalate_perms(&[
                     CANONICAL_PERMISSIONS.membership.describe,
                     CANONICAL_PERMISSIONS.membership.update,
                 ]);
@@ -726,7 +729,7 @@ where
     ) -> CoreResult<()> {
         let params = params.validate()?;
 
-        ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
+        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
         let store = self.acc_svc.store();
 
         // Resolve the account: by id if present, else by email.
@@ -799,7 +802,7 @@ where
         let claims = self.token_svc.decode_token_str(&token)?;
         let account_id = claims.validate_password_reset()?;
 
-        ctx.extend_perms(&[
+        ctx.escalate_perms(&[
             CANONICAL_PERMISSIONS.account.describe,
             CANONICAL_PERMISSIONS.credential.describe,
             CANONICAL_PERMISSIONS.credential.list,
@@ -876,7 +879,7 @@ where
         let claims = self.token_svc.decode_token_str(&token)?;
         let account_id = claims.validate_account_confirm()?;
 
-        ctx.extend_perms(&[
+        ctx.escalate_perms(&[
             CANONICAL_PERMISSIONS.account.describe,
             CANONICAL_PERMISSIONS.account.update,
         ])?;
@@ -932,7 +935,7 @@ where
     ) -> CoreResult<()> {
         let params = params.validate()?;
 
-        ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
+        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
         let store = self.acc_svc.store();
 
         // Resolve the account: by id if present, else by email.
@@ -1072,7 +1075,7 @@ where
         let google_user =
             get_google_user(&token_response.access_token, &token_response.id_token).await?;
 
-        ctx.extend_perms(&[
+        ctx.escalate_perms(&[
             CANONICAL_PERMISSIONS.account.describe,
             CANONICAL_PERMISSIONS.account.create,
             CANONICAL_PERMISSIONS.credential.create,
@@ -1209,16 +1212,16 @@ mod tests {
 
     #[test]
     fn test_validate_perms_success() -> CoreResult<()> {
-        let granted = PermissionEngine::from_str_slice(&["account:create", "account:*"])?;
-        let res = AuthValidator::validate_perms(&granted, &["account:create"]);
+        let granted = PermissionSet::from_str_slice(&["account:create", "account:*"])?;
+        let res = AuthValidator::new().validate_perms(&granted, &["account:create"]);
         assert!(res.is_ok(), "granted permission should validate");
         Ok(())
     }
 
     #[test]
     fn test_validate_perms_failure() -> CoreResult<()> {
-        let granted = PermissionEngine::from_str_slice(&["account:create"])?;
-        let res = AuthValidator::validate_perms(&granted, &["account:delete"]);
+        let granted = PermissionSet::from_str_slice(&["account:create"])?;
+        let res = AuthValidator::new().validate_perms(&granted, &["account:delete"]);
         assert!(
             matches!(res, Err(CoreError::Auth(_))),
             "missing permission should fail validation"
@@ -1230,10 +1233,10 @@ mod tests {
     #[serial]
     async fn test_validate_ctx_perms() -> CoreResult<()> {
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.create])?;
-        let auth = AuthValidator::new(&ctx);
+        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.account.create])?;
+        let auth = AuthValidator::new();
 
-        let success = auth.validate_ctx_perms(&[CANONICAL_PERMISSIONS.account.create]);
+        let success = auth.validate_ctx_perms(&ctx, &[CANONICAL_PERMISSIONS.account.create]);
 
         assert!(
             matches!(success, Ok(())),
@@ -1253,9 +1256,9 @@ mod tests {
         };
         let auth_cache = AuthCache::new_keyed(Uuid::new_v4(), Uuid::new_v4(), None);
         let ctx = CoreCtx::new(auth_cache, ws_cache)?;
-        let auth = AuthValidator::new(&ctx);
+        let auth = AuthValidator::new();
 
-        let res = auth.validate_ctx_perms(&[CANONICAL_PERMISSIONS.account.create]);
+        let res = auth.validate_ctx_perms(&ctx, &[CANONICAL_PERMISSIONS.account.create]);
 
         assert!(
             matches!(res, Err(CoreError::Auth(_))),

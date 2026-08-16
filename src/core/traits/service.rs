@@ -4,15 +4,11 @@ use crate::{
     cache::{entities::workspace::WorkspaceCache, traits::CacheExecutor},
     core::{
         ctx::CoreCtx,
-        error::CoreResult,
+        error::{CoreError, CoreResult},
         models::{
-            list::ListResponse, permission::PermissionRule, workspace::Workspace,
-            workspace::WorkspaceDescribeParams,
+            list::ListResponse, workspace::WorkspaceDescribeParams,
         },
-        services::{
-            permission::CANONICAL_PERMISSIONS, validator::AuthValidator,
-            workspace::WorkspaceService,
-        },
+        services::{validator::AuthValidator, workspace::WorkspaceService},
     },
     store::{ctx::StoreCtx, traits::dbx::DbExecutor},
 };
@@ -23,14 +19,19 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
 
     fn store(&self) -> &Self::ServiceStore;
     fn ws_svc(&self) -> &WorkspaceService<D, C>;
+    fn validator(&self) -> &AuthValidator;
+
+    /// Whether the service operates on workspace-scoped data.
+    ///
+    /// A scoped service MUST receive a concrete `workspace_id` when calling
+    /// [`scope_and_validate`]; this is enforced as a safe guard there.
+    fn is_scoped(&self) -> bool;
 
     async fn get_workspace(
         &self,
         ctx: &mut CoreCtx,
         workspace_id: Uuid,
     ) -> CoreResult<WorkspaceCache> {
-        ctx.extend_perms(&[CANONICAL_PERMISSIONS.workspace.describe])?;
-
         let ws = self
             .ws_svc()
             .get_and_cache(
@@ -45,49 +46,48 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
         Ok(ws.into())
     }
 
-    fn should_remove_workspace_from_store_ctx(&self) -> bool {
-        false
-    }
-
-    /// Builds a store context scoped to `requested_workspace_id`.
+    /// Validates `required_perms` and builds a store context.
     ///
-    /// Services whose underlying table has no `workspace_id` column (account,
-    /// workspace) override `should_remove_workspace_from_store_ctx` to `true`,
-    /// which clears the row-level scope so their global queries stay unscoped.
+    /// For a workspace-scoped service ([`is_scoped`] == `true`), `workspace_id`
+    /// MUST be `Some` (a `None` is rejected here). For a global-table service
+    /// ([`is_scoped`] == `false`), pass `None` to query unscoped; a `Some` value
+    /// may still be supplied to scope by a specific workspace (e.g. a
+    /// namespace-scoped listing on a global table).
     ///
-    fn scope_store_ctx(
-        &self,
-        auth_validator: &AuthValidator<'_>,
-        requested_workspace_id: Option<Uuid>,
-    ) -> CoreResult<StoreCtx> {
-        let mut store_ctx = auth_validator.scope_store_workspace(requested_workspace_id)?;
-        if self.should_remove_workspace_from_store_ctx() {
-            store_ctx.set_workspace_scope(None);
-        }
-        Ok(store_ctx)
-    }
-
-    async fn scope_and_validate_ctx(
+    /// Returns only the newly-scoped [`StoreCtx`]; callers that need the
+    /// workspace read it directly off [`CoreCtx`] (e.g. `ctx.ws_cache`).
+    async fn scope_and_validate(
         &self,
         ctx: &mut CoreCtx,
-        workspace_id: Uuid,
+        workspace_id: Option<Uuid>,
         required_perms: &[&str],
-    ) -> CoreResult<(StoreCtx, WorkspaceCache)> {
-        let workspace = &ctx.ws_cache;
-        // let workspace = self.get_workspace(ctx, workspace_id).await?;
-
-        let auth_validator = AuthValidator::new(ctx);
+    ) -> CoreResult<StoreCtx> {
+        let auth_validator = self.validator();
 
         // validate permissions
-        auth_validator.validate_ctx_perms(required_perms)?;
+        auth_validator.validate_ctx_perms(ctx, required_perms)?;
 
-        // TODO: do not build auth validator for each request we need to add auth validator as a service into the service register, it needs to hold the PermissionEngine and Policy engine in the future,
-        // TODO: we should always use scope_store_ctx to build store context
+        // Safe guard: a workspace-scoped service must receive a concrete workspace.
+        if self.is_scoped() && workspace_id.is_none() {
+            return Err(CoreError::InvalidParams(
+                "workspace_id is required for workspace-scoped services".to_string(),
+            ));
+        }
 
-        // scope store_ctx
-        let store_ctx = self.scope_store_ctx(&auth_validator, Some(workspace.id))?;
+        let store_ctx = match workspace_id {
+            Some(ws_id) => {
+                // NOTE(workspace-scope): scoped — scoped to the requested workspace.
+                auth_validator.scope_store_workspace(ctx, Some(ws_id))?
+            }
+            None => {
+                // NOTE(workspace-scope): unscoped — global table (no workspace_id column).
+                let mut store_ctx: StoreCtx = ctx.into();
+                store_ctx.set_workspace_scope(None);
+                store_ctx
+            }
+        };
 
-        Ok((store_ctx, workspace.clone()))
+        Ok(store_ctx)
     }
 }
 

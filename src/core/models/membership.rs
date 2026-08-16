@@ -8,7 +8,7 @@ use crate::{
             account::Account,
             audit::CoreAuditFields,
             list::{RequestFilterParams, RequestListOptions},
-            role::{Role, RoleCheck},
+            role::Role,
             workspace::Workspace,
         },
         traits::{

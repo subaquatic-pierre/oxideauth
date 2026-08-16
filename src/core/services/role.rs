@@ -50,6 +50,7 @@ pub struct RoleService<D: DbExecutor, C: CacheExecutor> {
     cm: Arc<CacheManager<C>>,
     ws_svc: Arc<WorkspaceService<D, C>>,
     perm_svc: Arc<PermissionService<D, C>>,
+    validator: Arc<AuthValidator>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for RoleService<D, C> {
@@ -63,6 +64,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for RoleService<D, 
     fn ws_svc(&self) -> &WorkspaceService<D, C> {
         self.ws_svc.as_ref()
     }
+
+    fn validator(&self) -> &AuthValidator {
+        self.validator.as_ref()
+    }
+
+    fn is_scoped(&self) -> bool {
+        true
+    }
 }
 
 impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
@@ -71,12 +80,14 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
         ws_svc: Arc<WorkspaceService<D, C>>,
         perm_svc: Arc<PermissionService<D, C>>,
         cm: Arc<CacheManager<C>>,
+        validator: Arc<AuthValidator>,
     ) -> Self {
         Self {
             sm,
             cm,
             ws_svc,
             perm_svc,
+            validator,
         }
     }
 
@@ -90,8 +101,9 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
         params: &RoleDescribeIdentifier,
     ) -> CoreResult<Role> {
         let store = self.store();
-        let (store_ctx, _workspace) = self
-            .scope_and_validate_ctx(ctx, ctx.scoped_ws_id(), &[Self::DESCRIBE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(ctx.scoped_ws_id()), &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let role = match params.id {
@@ -188,8 +200,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for RoleServi
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
             .await?;
 
         // Extract permission_ids before params is consumed by into()
@@ -228,8 +241,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for RoleSer
         params: Self::DescribeParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
-        let (store_ctx, _workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let role_with_perms_row = store
@@ -251,8 +265,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for RoleService
         params: Self::ListParams,
     ) -> CoreResult<ListResponse<Self::CoreModel>> {
         let store = self.store();
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::LIST_PERMISSION])
             .await?;
 
         let options = params.list_options();
@@ -288,8 +303,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for RoleServi
         params: Self::UpdateParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
             .await?;
 
         let res = store
@@ -333,8 +349,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for RoleServi
         params: Self::DeleteParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DELETE_PERMISSION])
             .await?;
 
         // TODO: optimize delete operations across all services,
@@ -441,12 +458,29 @@ mod tests {
 
     #[tokio::test]
     #[serial]
+    async fn test_scoped_service_requires_workspace_id() -> CoreResult<()> {
+        let svc = mock_svc(MockDbx::new());
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        // A workspace-scoped service (RoleService: is_scoped == true) must
+        // reject a `None` workspace_id (safe guard).
+        let res = svc
+            .scope_and_validate(&mut ctx, None, &[CANONICAL_PERMISSIONS.role.describe])
+            .await;
+
+        assert!(matches!(res, Err(CoreError::InvalidParams(_))));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn test_role_describe() -> CoreResult<()> {
         let ws_id = Uuid::new_v4();
         let role_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -457,7 +491,7 @@ mod tests {
             .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "admin")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["role:describe"])?;
+        ctx.escalate_perms(&["role:describe"])?;
 
         let role = svc
             .describe(
@@ -483,7 +517,7 @@ mod tests {
         let role_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // create -> scope_and_validate_ctx -> get_workspace
+            // create -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -492,7 +526,7 @@ mod tests {
             .with_one::<RoleRow>(role_row(role_id, ws_id, "dev"))
             // create -> set_many_to_many_links (delete existing join rows)
             .with_execute(Ok(0))
-            // describe -> scope_and_validate_ctx -> get_workspace
+            // describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -503,7 +537,7 @@ mod tests {
             .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["role:create", "role:describe"])?;
+        ctx.escalate_perms(&["role:create", "role:describe"])?;
 
         let params = RoleCreateParams {
             workspace_id: ws_id,
@@ -547,7 +581,7 @@ mod tests {
             )));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["role:create", "role:describe"])?;
+        ctx.escalate_perms(&["role:create", "role:describe"])?;
 
         let role = svc
             .create_workspace_viewer_role(
@@ -572,7 +606,7 @@ mod tests {
         let role_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -585,7 +619,7 @@ mod tests {
             .with_one::<(i64,)>((1,));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["role:list"])?;
+        ctx.escalate_perms(&["role:list"])?;
 
         let res = svc
             .list(
@@ -612,7 +646,7 @@ mod tests {
         let role_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // update -> scope_and_validate_ctx -> get_workspace
+            // update -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -623,7 +657,7 @@ mod tests {
             .with_one::<(i64,)>((0,))
             // invalidate_memberships_for_role -> list_many_to_many rows (none)
             .with_all::<MembershipWithRoles>(vec![])
-            // describe -> scope_and_validate_ctx -> get_workspace
+            // describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -634,7 +668,7 @@ mod tests {
             .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "renamed")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["role:update", "role:describe"])?;
+        ctx.escalate_perms(&["role:update", "role:describe"])?;
 
         let params = RoleUpdateParams {
             id: role_id,
@@ -661,12 +695,12 @@ mod tests {
         let role_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // delete -> scope_and_validate_ctx -> get_workspace
+            // delete -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
             }))
-            // delete -> describe -> scope_and_validate_ctx -> get_workspace
+            // delete -> describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -683,7 +717,7 @@ mod tests {
             .with_all::<MembershipWithRoles>(vec![]);
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["role:delete", "role:describe"])?;
+        ctx.escalate_perms(&["role:delete", "role:describe"])?;
 
         let deleted = svc
             .delete(
@@ -708,7 +742,7 @@ mod tests {
         let role_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -721,7 +755,7 @@ mod tests {
             .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["role:describe"])?;
+        ctx.escalate_perms(&["role:describe"])?;
 
         let role = svc
             .get_by_name(

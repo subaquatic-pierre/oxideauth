@@ -15,6 +15,7 @@ use crate::{
             project::ProjectService,
             role::RoleService,
             token::{TokenService, TokenServiceConfig},
+            validator::AuthValidator,
             workspace::WorkspaceService,
         },
     },
@@ -40,6 +41,7 @@ pub struct ServiceRegistry<D: DbExecutor, C: CacheExecutor> {
     pub client: Arc<ClientService<D, C>>,
     pub auth: Arc<AuthService<D, C>>,
     pub ctx_factory: Arc<ContextFactory>,
+    pub auth_validator: Arc<AuthValidator>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
@@ -52,31 +54,44 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
         );
 
         let ctx_factory = Arc::new(ContextFactory::new());
+        let auth_validator = Arc::new(AuthValidator::new());
 
         // Phase 1: construct in dependency order (leaves first).
-        let workspace = Arc::new(WorkspaceService::new(sm.clone(), cm.clone()));
+        let workspace = Arc::new(WorkspaceService::new(
+            sm.clone(),
+            cm.clone(),
+            auth_validator.clone(),
+        ));
         let permission = Arc::new(PermissionService::new(
             sm.clone(),
             workspace.clone(),
             cm.clone(),
+            auth_validator.clone(),
         ));
         let role = Arc::new(RoleService::new(
             sm.clone(),
             workspace.clone(),
             permission.clone(),
             cm.clone(),
+            auth_validator.clone(),
         ));
         let account = Arc::new(AccountService::new(
             sm.clone(),
             cm.clone(),
             workspace.clone(),
+            auth_validator.clone(),
         ));
-        let project = Arc::new(ProjectService::new(sm.clone(), workspace.clone()));
+        let project = Arc::new(ProjectService::new(
+            sm.clone(),
+            workspace.clone(),
+            auth_validator.clone(),
+        ));
         let token = Arc::new(TokenService::new(workspace.clone(), token_config));
         let credential = Arc::new(CredentialService::new(
             sm.clone(),
             workspace.clone(),
             account.clone(),
+            auth_validator.clone(),
         ));
         let membership = Arc::new(MembershipService::new(
             sm.clone(),
@@ -84,11 +99,13 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             workspace.clone(),
             account.clone(),
             role.clone(),
+            auth_validator.clone(),
         ));
         let client = Arc::new(ClientService::new(
             sm.clone(),
             workspace.clone(),
             cm.clone(),
+            auth_validator.clone(),
         ));
         let auth = Arc::new(AuthService::new(
             sm.clone(),
@@ -101,6 +118,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             ctx_factory.clone(),
             role.clone(),
             config.clone(),
+            auth_validator.clone(),
         ));
 
         // Phase 2: wire cycle-breaking Weak references into WorkspaceService.
@@ -122,6 +140,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             ctx_factory,
             client,
             auth,
+            auth_validator,
         }
     }
 }

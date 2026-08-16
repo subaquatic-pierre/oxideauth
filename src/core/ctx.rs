@@ -8,7 +8,7 @@ use crate::{
     core::{
         error::{CoreError, CoreResult},
         models::{
-            permission::{PermissionEngine, PermissionRule},
+            permission::PermissionSet,
             workspace::Workspace,
         },
     },
@@ -28,17 +28,13 @@ use std::sync::OnceLock;
 pub struct CoreCtx {
     pub auth_cache: AuthCache,
     pub ws_cache: WorkspaceCache,
-    perm_checker: PermissionEngine,
 }
 
 impl CoreCtx {
     pub fn new(auth_cache: AuthCache, ws_cache: WorkspaceCache) -> CoreResult<Self> {
-        let perm_checker =
-            PermissionEngine::from_string_vec(auth_cache.auth_scope.permissions.clone())?;
         Ok(Self {
             auth_cache,
             ws_cache,
-            perm_checker,
         })
     }
 
@@ -49,23 +45,26 @@ impl CoreCtx {
     pub fn bootstrap() -> CoreResult<Self> {
         let auth_cache = AuthCache::bootstrap();
         let ws_cache = WorkspaceCache::bootstrap();
-        // let ws_cache = WorkspaceCache::bootstrap();
-        let perm_checker = PermissionEngine::from_string_vec(vec!["*:*".to_string()])?;
         Ok(Self {
             auth_cache,
             ws_cache,
-            perm_checker,
         })
     }
 
-    pub fn permission_checker(&self) -> &PermissionEngine {
-        &self.perm_checker
+    /// The caller's permission set, derived from the authenticated scope's
+    /// permission strings (`auth_cache.auth_scope.permissions`).
+    ///
+    /// The context itself holds no permission state — it is a pure data holder.
+    pub fn permissions(&self) -> PermissionSet<'_> {
+        PermissionSet::new(&self.auth_cache.auth_scope.permissions)
     }
 
-    pub fn extend_perms(&mut self, perms: &[&str]) -> CoreResult<()> {
-        let new_perms: Vec<PermissionRule> = PermissionRule::perms_from_str_slice(perms)?;
-        self.perm_checker.extend(new_perms);
-        Ok(())
+    /// Escalates the request's permission set for the current request by
+    /// extending the auth scope's permissions (via [`PermissionSet::with_extended`]).
+    ///
+    /// Proxy over `auth_cache.auth_scope.escalate_perms`.
+    pub fn escalate_perms(&mut self, perms: &[&str]) -> CoreResult<()> {
+        self.auth_cache.auth_scope.escalate_perms(perms)
     }
 
     // --- Identity (from auth_cache — the token's claims) ---
@@ -108,12 +107,15 @@ impl CoreCtx {
     /// cross-workspace auth flows where the caller is not operating on a
     /// single workspace.
     pub fn unscoped_store_ctx(&self) -> StoreCtx {
+        // NOTE(workspace-scope): unscoped — global tables / cross-workspace flows.
         let mut store_ctx: StoreCtx = self.into();
         store_ctx.set_workspace_scope(None);
         store_ctx
     }
 }
 
+// NOTE(workspace-scope): the canonical `CoreCtx -> StoreCtx` conversions scope
+// the store context to the caller's operational workspace (`scoped_ws_id()`).
 impl From<CoreCtx> for StoreCtx {
     fn from(ctx: CoreCtx) -> Self {
         Self::new(ctx.auth_cache.acc_id, ctx.scoped_ws_id())
@@ -234,11 +236,9 @@ impl ContextFactory {
             meta: WorkspaceMeta::default(),
         };
 
-        let perm_checker = PermissionEngine::from_string_vec(vec!["*:*".to_string()])?;
         Ok(CoreCtx {
             auth_cache,
             ws_cache,
-            perm_checker,
         })
     }
 }
@@ -254,21 +254,16 @@ mod tests {
     use serial_test::serial;
 
     use super::*;
-
-    fn setup_checker() -> CoreResult<PermissionEngine> {
-        PermissionEngine::from_str_slice(&["project:read", "project:create", "account:*", "*:read"])
-    }
+    use crate::core::models::permission::PermissionRule;
 
     #[tokio::test]
     #[serial]
     async fn test_ctx_extend() -> CoreResult<()> {
-        let mut ctx = CoreCtx::bootstrap()?;
+        let ctx = CoreCtx::bootstrap()?;
 
-        ctx.extend_perms(&["account:create"])?;
-
-        let checker = ctx.permission_checker();
+        let extended = ctx.permissions().with_extended(&["account:create"])?;
         let perms = PermissionRule::perms_from_str_slice(&["account:create"])?;
-        let res = checker.has_subset(&perms);
+        let res = extended.has_subset(&perms);
 
         assert_eq!(res, true, "ctx should have account:create permission");
 

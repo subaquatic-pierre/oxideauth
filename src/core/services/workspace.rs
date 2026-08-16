@@ -61,6 +61,7 @@ use crate::{
 pub struct WorkspaceService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
+    validator: Arc<AuthValidator>,
 
     /// `Weak` to break the Arc cycle with `RoleService`.
     /// Set by `ServiceRegistry` via `wire_role_service()`.
@@ -76,10 +77,15 @@ pub struct WorkspaceService<D: DbExecutor, C: CacheExecutor> {
 }
 
 impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
-    pub fn new(sm: Arc<StoreManager<D>>, cm: Arc<CacheManager<C>>) -> Self {
+    pub fn new(
+        sm: Arc<StoreManager<D>>,
+        cm: Arc<CacheManager<C>>,
+        validator: Arc<AuthValidator>,
+    ) -> Self {
         Self {
             sm,
             cm,
+            validator,
             role_svc: OnceLock::new(),
             perm_svc: OnceLock::new(),
             project_svc: OnceLock::new(),
@@ -156,6 +162,7 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
 
         // The `workspace` table has no `workspace_id` column, so this lookup
         // must run unscoped.
+        // NOTE(workspace-scope): unscoped — the workspace table has no workspace_id column.
         let mut store_ctx: StoreCtx = ctx.into();
         store_ctx.set_workspace_scope(None);
 
@@ -215,11 +222,8 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             .into_iter()
             .map(|s| s.to_string())
             .collect();
-        let admin_names: Vec<String> = CANONICAL_PERMISSIONS
-            .default_workspace_admin_perms()
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
+        // The admin role carries the single system-wide wildcard permission.
+        let admin_names: Vec<String> = vec!["*:*".to_string()];
 
         // 2. Look up the just-seeded permission IDs (workspace-scoped via StoreCtx)
 
@@ -267,6 +271,7 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         ws: &Workspace,
     ) -> CoreResult<()> {
         let ws_id = ws.id;
+        // NOTE(workspace-scope): unscoped — the workspace table has no workspace_id column.
         let mut store_ctx: StoreCtx = ctx.into();
         store_ctx.set_workspace_scope(None);
 
@@ -355,8 +360,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for WorkspaceServic
         &self
     }
 
-    fn should_remove_workspace_from_store_ctx(&self) -> bool {
-        true
+    fn validator(&self) -> &AuthValidator {
+        self.validator.as_ref()
+    }
+
+    fn is_scoped(&self) -> bool {
+        false
     }
 }
 
@@ -372,13 +381,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Workspace
     ) -> CoreResult<Workspace> {
         let store = self.store();
 
-        let auth_validator = AuthValidator::new(ctx);
-
-        // validate permissions
-        auth_validator.validate_ctx_perms(&[Self::CREATE_PERMISSION])?;
-
-        // scope store_ctx
-        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
+        // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
+        let store_ctx = self.scope_and_validate(ctx, None, &[Self::CREATE_PERMISSION]).await?;
 
         // 1. Check if slug already exists
         if store
@@ -400,18 +404,18 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Workspace
 
         // 4. Seed canonical permissions into the new workspace
         let workspace_id: Uuid = new_workspace.id.clone().into();
-        ctx.extend_perms(&[CANONICAL_PERMISSIONS.permission.create]);
+        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.permission.create]);
         self.populate_ws_perms(ctx, workspace_id).await?;
 
         // 5. Seed default roles (Viewer, Admin) into the new workspace
-        ctx.extend_perms(&[
+        ctx.escalate_perms(&[
             CANONICAL_PERMISSIONS.role.create,
             CANONICAL_PERMISSIONS.role.describe,
         ]);
         self.populate_ws_roles(ctx, workspace_id).await?;
 
         // 6. Create default project in the new workspace
-        ctx.extend_perms(&[CANONICAL_PERMISSIONS.project.create]);
+        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.project.create]);
         self.populate_default_project(ctx, workspace_id).await?;
 
         Ok(new_workspace.into())
@@ -434,13 +438,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Workspa
             .get_workspace_by_slug_or_id(ctx, &params)
             .await?;
 
-        let auth_validator = AuthValidator::new(ctx);
-
-        // validate permissions
-        auth_validator.validate_ctx_perms(&[Self::DESCRIBE_PERMISSION])?;
-
-        // scope store_ctx
-        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
+        // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
+        let store_ctx = self.scope_and_validate(ctx, None, &[Self::DESCRIBE_PERMISSION]).await?;
 
         let res = store.get(&store_ctx, &workspace.id.into()).await?;
 
@@ -459,13 +458,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for WorkspaceSe
         params: WorkspaceListParams,
     ) -> CoreResult<ListResponse<Workspace>> {
         let store = self.store();
-        let auth_validator = AuthValidator::new(ctx);
-
-        // validate permissions
-        auth_validator.validate_ctx_perms(&[Self::LIST_PERMISSION])?;
-
-        // scope store_ctx
-        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
+        // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
+        let store_ctx = self.scope_and_validate(ctx, None, &[Self::LIST_PERMISSION]).await?;
 
         let options = params.list_options();
 
@@ -504,13 +498,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
     ) -> CoreResult<Workspace> {
         let store = self.store();
 
-        let auth_validator = AuthValidator::new(ctx);
-
-        // validate permissions
-        auth_validator.validate_ctx_perms(&[Self::UPDATE_PERMISSION])?;
-
-        // scope store_ctx
-        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
+        // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
+        let store_ctx = self.scope_and_validate(ctx, None, &[Self::UPDATE_PERMISSION]).await?;
 
         let ws = self
             .get_workspace_by_slug_or_id(
@@ -548,13 +537,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Workspace
         // Returns the ID of the deleted item
         let store = self.store();
 
-        let auth_validator = AuthValidator::new(ctx);
-
-        // validate permissions
-        auth_validator.validate_ctx_perms(&[Self::DELETE_PERMISSION])?;
-
-        // scope store_ctx
-        let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
+        // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
+        let store_ctx = self.scope_and_validate(ctx, None, &[Self::DELETE_PERMISSION]).await?;
 
         let ws = self
             .get_workspace_by_slug_or_id(
@@ -628,7 +612,7 @@ mod tests {
             }]);
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["workspace:create"])?;
+        ctx.escalate_perms(&["workspace:create"])?;
 
         let mut params = WorkspaceCreateParams::default();
         params.slug = "existing-slug".to_string();
@@ -657,7 +641,7 @@ mod tests {
             .with_one::<(i64,)>((1,));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["workspace:list"])?;
+        ctx.escalate_perms(&["workspace:list"])?;
 
         let res = svc.list(&mut ctx, WorkspaceListParams::default()).await?;
 
@@ -689,7 +673,7 @@ mod tests {
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.set_scoped_ws(ws.into());
-        ctx.extend_perms(&["workspace:update"])?;
+        ctx.escalate_perms(&["workspace:update"])?;
 
         let update_params = WorkspaceUpdateParams {
             id: Some(ws_id),
@@ -720,7 +704,7 @@ mod tests {
             .with_optional::<WorkspaceRow>(None); // describe after delete -> NotFound
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["workspace:delete", "workspace:describe"])?;
+        ctx.escalate_perms(&["workspace:delete", "workspace:describe"])?;
 
         let delete_params = WorkspaceDeleteParams {
             id: Some(ws_id),

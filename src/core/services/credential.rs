@@ -46,6 +46,7 @@ pub struct CredentialService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     ws_svc: Arc<WorkspaceService<D, C>>,
     acc_svc: Arc<AccountService<D, C>>,
+    validator: Arc<AuthValidator>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
@@ -53,11 +54,13 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
         sm: Arc<StoreManager<D>>,
         ws_svc: Arc<WorkspaceService<D, C>>,
         acc_svc: Arc<AccountService<D, C>>,
+        validator: Arc<AuthValidator>,
     ) -> Self {
         Self {
             sm,
             ws_svc,
             acc_svc,
+            validator,
         }
     }
 
@@ -67,7 +70,7 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
         id: Uuid,
         _workspace_id: Uuid,
     ) -> CoreResult<Account> {
-        ctx.extend_perms(&["account:describe"])?;
+        ctx.escalate_perms(&["account:describe"])?;
 
         let account = self
             .acc_svc
@@ -95,6 +98,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for CredentialServi
     fn ws_svc(&self) -> &WorkspaceService<D, C> {
         self.ws_svc.as_ref()
     }
+
+    fn validator(&self) -> &AuthValidator {
+        self.validator.as_ref()
+    }
+
+    fn is_scoped(&self) -> bool {
+        true
+    }
 }
 
 // --- Create ---
@@ -109,8 +120,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Credentia
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
             .await?;
 
         let for_create: CredentialForCreate = params.clone().into();
@@ -142,8 +154,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Credent
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let row = store.get(&store_ctx, &params.id.into()).await?;
@@ -164,8 +177,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for CredentialS
     ) -> CoreResult<ListResponse<Self::CoreModel>> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::LIST_PERMISSION])
             .await?;
         // validate params
         let list_options = params.list_options();
@@ -204,8 +218,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Credentia
         params: Self::UpdateParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
             .await?;
 
         // TODO: invalidate auth_cache for any memberships using this credential
@@ -241,8 +256,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Credentia
         params: Self::DeleteParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DELETE_PERMISSION])
             .await?;
 
         let to_delete = self
@@ -345,9 +361,9 @@ mod tests {
         let dbx = MockDbx::new()
             // create -> store.create
             .with_one::<CredentialRow>(credential_row(cred_id, account_id, ws_id))
-            // create -> scope_and_validate_ctx -> get_workspace
+            // create -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
-            // describe -> scope_and_validate_ctx -> get_workspace
+            // describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // describe -> store.get
             .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)))
@@ -359,7 +375,7 @@ mod tests {
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["credential:create", "credential:describe"])?;
+        ctx.escalate_perms(&["credential:create", "credential:describe"])?;
 
         let params = CredentialCreateParams {
             account_id,
@@ -393,7 +409,7 @@ mod tests {
         let cred_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // store.get
             .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)))
@@ -405,7 +421,7 @@ mod tests {
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["credential:describe"])?;
+        ctx.escalate_perms(&["credential:describe"])?;
 
         let credential = svc
             .describe(
@@ -435,7 +451,7 @@ mod tests {
         let cred_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // list_with_tags_and_filter
             .with_all::<CredentialRow>(vec![credential_row(cred_id, account_id, ws_id)])
@@ -449,7 +465,7 @@ mod tests {
             .with_optional::<AccountRow>(Some(account_row(account_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["credential:list"])?;
+        ctx.escalate_perms(&["credential:list"])?;
 
         let res = svc
             .list(
@@ -478,11 +494,11 @@ mod tests {
         let cred_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // update -> scope_and_validate_ctx -> get_workspace
+            // update -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // update -> store.update
             .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)))
-            // describe -> scope_and_validate_ctx -> get_workspace
+            // describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // describe -> store.get
             .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)))
@@ -494,7 +510,7 @@ mod tests {
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["credential:update", "credential:describe"])?;
+        ctx.escalate_perms(&["credential:update", "credential:describe"])?;
 
         let params = CredentialUpdateParams {
             id: cred_id,
@@ -531,9 +547,9 @@ mod tests {
         let cred_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // delete -> scope_and_validate_ctx -> get_workspace
+            // delete -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
-            // delete -> describe -> scope_and_validate_ctx -> get_workspace
+            // delete -> describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // delete -> describe -> store.get
             .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)))
@@ -547,7 +563,7 @@ mod tests {
             .with_optional::<CredentialRow>(Some(credential_row(cred_id, account_id, ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["credential:delete", "credential:describe"])?;
+        ctx.escalate_perms(&["credential:delete", "credential:describe"])?;
 
         let credential = svc
             .delete(

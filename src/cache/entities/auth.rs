@@ -16,7 +16,13 @@ use crate::{
         error::{CacheError, CacheResult},
         traits::{CacheEntity, CacheKey},
     },
-    core::models::token::{RefreshClaims, TokenClaims},
+    core::{
+        error::CoreResult,
+        models::{
+            permission::PermissionSet,
+            token::{RefreshClaims, TokenClaims},
+        },
+    },
     store::stores::workspace::SYSTEM_CONST,
 };
 
@@ -42,6 +48,17 @@ impl AuthScopeCache {
             roles: vec![],
             permissions: vec!["*:*".to_string()],
         }
+    }
+
+    /// Escalates this scope's permissions for the current request via
+    /// [`PermissionSet::with_extended`] (validates each new permission and
+    /// appends it). This is the data-level escalation primitive: it extends the
+    /// auth scope's permission strings so that `CoreCtx::permissions()` reflects
+    /// them on subsequent validations.
+    pub fn escalate_perms(&mut self, perms: &[&str]) -> CoreResult<()> {
+        let extended = PermissionSet::new(&self.permissions).with_extended(perms)?;
+        self.permissions = extended.into_vec();
+        Ok(())
     }
 }
 

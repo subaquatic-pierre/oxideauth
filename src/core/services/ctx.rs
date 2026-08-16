@@ -100,7 +100,8 @@ where
         // scope global workspace if token is system scope
         // this mutates ctx internal state and ensures correct headers are set
         // for workspace in which to operate
-        self.validate_and_scope_global_workspace(headers, &mut core_ctx)?;
+        self.validate_and_scope_global_workspace(headers, &mut core_ctx)
+            .await?;
         let ws_id = core_ctx.scoped_ws_id();
 
         info!(
@@ -113,37 +114,39 @@ where
         Ok(core_ctx)
     }
 
-    fn validate_and_scope_global_workspace(
+    async fn validate_and_scope_global_workspace(
         &self,
         headers: &HeaderMap,
         ctx: &mut CoreCtx,
     ) -> CoreResult<()> {
         let header_ws = CtxService::<D, C>::parse_workspace_header(headers);
         let is_system = ctx.is_system_workspace().unwrap_or(false);
-        let scoped_ws = if is_system {
-            match header_ws {
-                Some(scoped_ws) => {
-                    // System account gets full root permissions.
-                    // Other system-workspace members use their normal roles.
-                    if ctx.account_id() == self.svc_reg.ctx_factory.system_user_id() {
-                        ctx.extend_perms(&["*:*"]);
-                    }
-                    scoped_ws
-                }
-                None => {
-                    let msg = format!(
-                        "{} header required for global-scope tokens",
-                        SYSTEM_CONST.workspace_header_key
-                    );
-                    error!(msg);
-                    return Err(CoreError::Auth(msg));
-                }
-            }
-        } else {
-            ctx.auth_cache.auth_scope.workspace_id.clone()
-        };
 
-        ctx.set_scoped_ws(ctx.ws_cache.clone());
+        if is_system {
+            // NOTE(workspace-scope): scoped — a system-namespace token switches
+            // its operational workspace via the X-Workspace-Id header.
+            let Some(ws_id) = header_ws else {
+                let msg = format!(
+                    "{} header required for global-scope tokens",
+                    SYSTEM_CONST.workspace_header_key
+                );
+                error!(msg);
+                return Err(CoreError::Auth(msg));
+            };
+
+            // Cache-first: avoid a DB round-trip on every request.
+            let ws_cache = match self.cm.workspace.fetch_by_id(ws_id).await? {
+                Some(ws) => ws,
+                None => {
+                    let hydrated = WorkspaceCache::build_from_db(self.sm.clone(), ws_id).await?;
+                    self.cm.workspace.write(&hydrated, None).await?;
+                    hydrated
+                }
+            };
+
+            ctx.set_scoped_ws(ws_cache);
+        }
+
         Ok(())
     }
 
@@ -370,17 +373,17 @@ mod tests {
 
     #[tokio::test]
     #[serial]
-    async fn test_ctx_bootstrap_and_extend_perms() -> CoreResult<()> {
+    async fn test_ctx_bootstrap_and_escalate_perms() -> CoreResult<()> {
         // -- Setup
         let mut ctx = CoreCtx::bootstrap()?;
 
         // -- Execute
-        ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.list])?;
-        let auth = AuthValidator::new(&ctx);
+        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.account.list])?;
+        let auth = AuthValidator::new();
 
         // -- Assert
         assert!(
-            auth.validate_ctx_perms(&[CANONICAL_PERMISSIONS.account.list])
+            auth.validate_ctx_perms(&ctx, &[CANONICAL_PERMISSIONS.account.list])
                 .is_ok()
         );
         assert_eq!(ctx.account_id(), Uuid::nil());
@@ -397,11 +400,11 @@ mod tests {
         // -- Setup
         let ws_id = Uuid::new_v4();
         let mut ctx = CoreCtx::bootstrap()?;
-        let auth = AuthValidator::new(&ctx);
+        let auth = AuthValidator::new();
 
         // -- Execute / -- Assert: system context may scope to any workspace
-        assert_eq!(auth.validate_workspace(Some(ws_id))?, Some(ws_id));
-        let store_ctx = auth.scope_store_workspace(Some(ws_id))?;
+        assert_eq!(auth.validate_workspace(&ctx, Some(ws_id))?, Some(ws_id));
+        let store_ctx = auth.scope_store_workspace(&ctx, Some(ws_id))?;
         assert_eq!(store_ctx.workspace_scope(), Some(ws_id));
 
         // -- Setup: non-system (workspace-scoped) context
@@ -412,16 +415,16 @@ mod tests {
         };
         let auth_cache = AuthCache::new_keyed(Uuid::new_v4(), Uuid::new_v4(), None);
         let scoped_ctx = CoreCtx::new(auth_cache, ws_cache)?;
-        let auth = AuthValidator::new(&scoped_ctx);
+        let auth = AuthValidator::new();
 
         // -- Execute / -- Assert: matching workspace is allowed
-        assert_eq!(auth.validate_workspace(Some(ws_id))?, Some(ws_id));
+        assert_eq!(auth.validate_workspace(&scoped_ctx, Some(ws_id))?, Some(ws_id));
         // Deriving from the context works when no workspace is requested
-        assert_eq!(auth.validate_workspace(None)?, Some(ws_id));
+        assert_eq!(auth.validate_workspace(&scoped_ctx, None)?, Some(ws_id));
         // -- Execute: mismatched workspace is rejected
         let other = Uuid::new_v4();
         assert!(matches!(
-            auth.validate_workspace(Some(other)),
+            auth.validate_workspace(&scoped_ctx, Some(other)),
             Err(CoreError::Auth(_))
         ));
 
@@ -549,7 +552,8 @@ mod tests {
         // -- Execute: system context without an X-Workspace-Id header is rejected
         let mut system_ctx = CoreCtx::bootstrap()?;
         assert!(matches!(
-            svc.validate_and_scope_global_workspace(&headers, &mut system_ctx),
+            svc.validate_and_scope_global_workspace(&headers, &mut system_ctx)
+                .await,
             Err(CoreError::Auth(_))
         ));
 
@@ -566,6 +570,7 @@ mod tests {
         // -- Execute: scoped context resolves to its own workspace, no header needed
         assert!(
             svc.validate_and_scope_global_workspace(&headers, &mut scoped_ctx)
+                .await
                 .is_ok()
         );
         assert_eq!(scoped_ctx.scoped_ws_id(), ws_id);

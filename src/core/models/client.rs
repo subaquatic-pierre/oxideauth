@@ -3,12 +3,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    cache::entities::workspace::WorkspaceCache,
     core::{
         models::{
             audit::CoreAuditFields,
             list::{RequestFilterParams, RequestListOptions},
-            workspace::Workspace,
         },
         traits::{filter::OpValWorkspaceId, list::RequestListParams},
     },
@@ -36,16 +34,11 @@ pub struct Client {
     pub audit: CoreAuditFields,
 }
 
-impl Client {
-    pub fn from_row_with_workspace(row: ClientRow, workspace: WorkspaceCache) -> Self {
-        assert!(
-            row.workspace_id == workspace.id,
-            "row.workspace_id does not match workspace.id"
-        );
-
+impl From<ClientRow> for Client {
+    fn from(row: ClientRow) -> Self {
         Self {
             id: row.id.into(),
-            workspace_id: workspace.id,
+            workspace_id: row.workspace_id,
             name: row.name,
             endpoint: row.endpoint,
             description: row.description,
@@ -174,7 +167,6 @@ impl OpValWorkspaceId for ClientFilter {
 mod tests {
     use super::*;
     use crate::{
-        cache::entities::workspace::WorkspaceCache,
         core::traits::filter::OpValIsString,
         store::entities::audit::{AuditFields, AuditMeta},
     };
@@ -204,14 +196,11 @@ mod tests {
     }
 
     #[test]
-    fn test_client_from_row_with_workspace() {
+    fn test_client_from_row() {
         let ws_id = Uuid::new_v4();
         let row = make_row(ws_id);
 
-        let mut workspace = WorkspaceCache::default();
-        workspace.id = ws_id;
-
-        let client = Client::from_row_with_workspace(row, workspace);
+        let client = Client::from(row);
         assert_eq!(client.workspace_id, ws_id);
         assert_eq!(client.name, "My Client");
         assert_eq!(client.endpoint.as_deref(), Some("https://client.example.com"));
@@ -220,14 +209,6 @@ mod tests {
         assert_eq!(client.meta.schema_version, "1");
         assert_eq!(client.audit.created_at, OffsetDateTime::UNIX_EPOCH);
         assert!(client.audit.updated_by.is_none());
-    }
-
-    #[test]
-    #[should_panic(expected = "row.workspace_id does not match workspace.id")]
-    fn test_client_from_row_with_workspace_mismatch_panics() {
-        let row = make_row(Uuid::new_v4());
-        let workspace = WorkspaceCache::default(); // id = Uuid::nil()
-        let _ = Client::from_row_with_workspace(row, workspace);
     }
 
     #[test]

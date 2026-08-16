@@ -18,10 +18,13 @@ use crate::{
                 ClientValidateParams,
             },
             list::ListResponse,
-            permission::{PermissionEngine, PermissionRule},
+            permission::{PermissionSet, PermissionRule},
             token::{TokenClaims, TokenType},
         },
-        services::{permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService},
+        services::{
+            permission::CANONICAL_PERMISSIONS, validator::AuthValidator,
+            workspace::WorkspaceService,
+        },
         traits::{
             list::RequestListParams,
             service::{
@@ -58,6 +61,7 @@ pub struct ClientService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     ws_svc: Arc<WorkspaceService<D, C>>,
     cm: Arc<CacheManager<C>>,
+    validator: Arc<AuthValidator>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for ClientService<D, C> {
@@ -71,6 +75,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for ClientService<D
     fn ws_svc(&self) -> &WorkspaceService<D, C> {
         self.ws_svc.as_ref()
     }
+
+    fn validator(&self) -> &AuthValidator {
+        self.validator.as_ref()
+    }
+
+    fn is_scoped(&self) -> bool {
+        true
+    }
 }
 
 impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
@@ -78,8 +90,14 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         sm: Arc<StoreManager<D>>,
         ws_svc: Arc<WorkspaceService<D, C>>,
         cm: Arc<CacheManager<C>>,
+        validator: Arc<AuthValidator>,
     ) -> Self {
-        Self { sm, ws_svc, cm }
+        Self {
+            sm,
+            ws_svc,
+            cm,
+            validator,
+        }
     }
 
     /// Push a notification payload to a single client's endpoint via HTTP POST.
@@ -245,8 +263,9 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         };
 
         // --- 2. Validate the calling Client has permission & scope the store ---
-        let (store_ctx, _workspace) = self
-            .scope_and_validate_ctx(ctx, workspace_id, &[CANONICAL_PERMISSIONS.client.validate])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(workspace_id), &[CANONICAL_PERMISSIONS.client.validate])
             .await?;
 
         // --- 3. Look up the client by workspace_id + secret_hash ---
@@ -286,7 +305,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         let Some(auth_cache) = self.cm.auth.fetch(&keyed.key()).await? else {
             return Ok(false);
         };
-        let checker = match PermissionEngine::from_string_vec(auth_cache.auth_scope.permissions) {
+        let checker = match PermissionSet::from_string_vec(auth_cache.auth_scope.permissions) {
             Ok(checker) => checker,
             Err(_) => return Ok(false),
         };
@@ -315,10 +334,11 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         let ClientRegenerateSecretParams { id, workspace_id } = params;
 
         // Validate permissions
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(
                 ctx,
-                workspace_id,
+                Some(workspace_id),
                 &[CANONICAL_PERMISSIONS.client.regenerate_secret],
             )
             .await?;
@@ -336,7 +356,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
             .update(&store_ctx, &id.into(), for_update)
             .await?;
 
-        let client = Client::from_row_with_workspace(row, workspace);
+        let client = Client::from(row);
         Ok(ClientSecret {
             client,
             plaintext_secret: sh.plaintext,
@@ -353,8 +373,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ClientSer
         ctx: &mut CoreCtx,
         params: Self::CreateParams,
     ) -> CoreResult<Self::CoreModel> {
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
             .await?;
 
         // Generate a random client secret (48-char alphanumeric string using rand)
@@ -370,7 +391,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ClientSer
         let for_create = params.into_store_params(sh.sha256_hash);
 
         let row = self.store().create(&store_ctx, for_create).await?;
-        let client = Client::from_row_with_workspace(row, workspace);
+        let client = Client::from(row);
 
         let _ = sh.plaintext;
 
@@ -393,8 +414,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for ClientServi
         let list_options = params.list_options();
         let tags_filter = params.validate_filter_tags()?;
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::LIST_PERMISSION])
             .await?;
 
         // Combined query: tags (@> containment) + field filter
@@ -417,7 +439,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for ClientServi
 
         let clients: Vec<Client> = rows
             .into_iter()
-            .map(|row| Client::from_row_with_workspace(row, workspace.clone()))
+            .map(|row| Client::from(row))
             .collect();
 
         Ok(ListResponse::new(clients, total, list_options))
@@ -433,12 +455,13 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for ClientS
         ctx: &mut CoreCtx,
         params: Self::DescribeParams,
     ) -> CoreResult<Self::CoreModel> {
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let row = self.store().get(&store_ctx, &params.id.into()).await?;
-        let client = Client::from_row_with_workspace(row, workspace);
+        let client = Client::from(row);
 
         Ok(client)
     }
@@ -453,8 +476,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for ClientSer
         ctx: &mut CoreCtx,
         params: Self::UpdateParams,
     ) -> CoreResult<Self::CoreModel> {
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
             .await?;
 
         let id = params.id;
@@ -463,7 +487,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for ClientSer
             .store()
             .update(&store_ctx, &id.into(), for_update)
             .await?;
-        let client = Client::from_row_with_workspace(row, workspace);
+        let client = Client::from(row);
 
         Ok(client)
     }
@@ -478,8 +502,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for ClientSer
         ctx: &mut CoreCtx,
         params: Self::DeleteParams,
     ) -> CoreResult<Self::CoreModel> {
-        let (store_ctx, _workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DELETE_PERMISSION])
             .await?;
 
         // Capture the entity before deletion so we can return it in the response.
@@ -561,13 +586,13 @@ mod tests {
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace -> get by id
+            // scope_and_validate -> get_workspace -> get by id
             // store.create
             .with_one::<ClientRow>(client_row(client_id, ws_id));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.set_scoped_ws(ws.into());
-        ctx.extend_perms(&["client:create"])?;
+        ctx.escalate_perms(&["client:create"])?;
 
         let params = ClientCreateParams {
             workspace_id: ws_id,
@@ -600,7 +625,7 @@ mod tests {
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             // .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
             //     id: ws_id.into(),
             //     ..Default::default()
@@ -609,7 +634,7 @@ mod tests {
             .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["client:describe"])?;
+        ctx.escalate_perms(&["client:describe"])?;
         ctx.set_scoped_ws(ws.into());
 
         let client = svc
@@ -639,7 +664,7 @@ mod tests {
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -650,7 +675,7 @@ mod tests {
             .with_one::<(i64,)>((1,));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["client:list"])?;
+        ctx.escalate_perms(&["client:list"])?;
         ctx.set_scoped_ws(ws.into());
 
         let res = svc
@@ -682,7 +707,7 @@ mod tests {
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -691,7 +716,7 @@ mod tests {
             .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["client:update"])?;
+        ctx.escalate_perms(&["client:update"])?;
         ctx.set_scoped_ws(ws.into());
 
         let params = ClientUpdateParams {
@@ -723,12 +748,12 @@ mod tests {
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // delete -> scope_and_validate_ctx -> get_workspace
+            // delete -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
             }))
-            // delete -> describe -> scope_and_validate_ctx -> get_workspace
+            // delete -> describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -739,7 +764,7 @@ mod tests {
             .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["client:delete", "client:describe"])?;
+        ctx.escalate_perms(&["client:delete", "client:describe"])?;
         ctx.set_scoped_ws(ws.into());
 
         let deleted = svc
@@ -768,7 +793,7 @@ mod tests {
         let client_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -777,7 +802,7 @@ mod tests {
             .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["client:regenerateSecret"])?;
+        ctx.escalate_perms(&["client:regenerateSecret"])?;
         ctx.set_scoped_ws(ws.into());
 
         let res = svc

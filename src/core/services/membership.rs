@@ -56,6 +56,7 @@ pub struct MembershipService<D: DbExecutor, C: CacheExecutor> {
     ws_svc: Arc<WorkspaceService<D, C>>,
     acc_svc: Arc<AccountService<D, C>>,
     role_svc: Arc<RoleService<D, C>>,
+    validator: Arc<AuthValidator>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for MembershipService<D, C> {
@@ -70,6 +71,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for MembershipServi
     fn ws_svc(&self) -> &WorkspaceService<D, C> {
         self.ws_svc.as_ref()
     }
+
+    fn validator(&self) -> &AuthValidator {
+        self.validator.as_ref()
+    }
+
+    fn is_scoped(&self) -> bool {
+        true
+    }
 }
 
 impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
@@ -79,6 +88,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         ws_svc: Arc<WorkspaceService<D, C>>,
         acc_svc: Arc<AccountService<D, C>>,
         role_svc: Arc<RoleService<D, C>>,
+        validator: Arc<AuthValidator>,
     ) -> Self {
         Self {
             sm,
@@ -86,6 +96,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
             ws_svc,
             acc_svc,
             role_svc,
+            validator,
         }
     }
 
@@ -99,7 +110,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         id: Uuid,
         _workspace_id: Uuid,
     ) -> CoreResult<Account> {
-        ctx.extend_perms(&["account:describe"])?;
+        ctx.escalate_perms(&["account:describe"])?;
 
         let account = self
             .acc_svc
@@ -121,7 +132,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
     ) -> CoreResult<Vec<Role>> {
         let mut data = vec![];
 
-        ctx.extend_perms(&["role:describe"]);
+        ctx.escalate_perms(&["role:describe"]);
 
         // TODO: optimize query, use dedicated role service method
         // to list roles from list of ids
@@ -182,8 +193,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
     ) -> CoreResult<Membership> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
             .await?;
 
         // Extract fields needed after params is consumed by into()
@@ -243,8 +255,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Members
         let store = self.store();
         let db_id: DbId = params.id.into();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         // Get Membership with Roles (Join query)
@@ -269,8 +282,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for MembershipS
         params: Self::ListParams,
     ) -> CoreResult<ListResponse<Self::CoreModel>> {
         let store = self.store();
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::LIST_PERMISSION])
             .await?;
 
         let options = params.list_options();
@@ -305,7 +319,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Membershi
         ctx: &mut CoreCtx,
         params: Self::UpdateParams,
     ) -> CoreResult<Self::CoreModel> {
-        ctx.extend_perms(&[CANONICAL_PERMISSIONS.membership.describe]);
+        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.membership.describe]);
 
         let cur = self
             .describe(
@@ -319,8 +333,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Membershi
 
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
             .await?;
 
         let new_version = cur.version + 1;
@@ -374,8 +389,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Membershi
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DELETE_PERMISSION])
             .await?;
 
         let to_delete = self
@@ -489,13 +505,13 @@ mod tests {
         let mem_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // create -> scope_and_validate_ctx -> get_workspace
+            // create -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // create -> duplicate guard -> list (no existing membership)
             .with_all::<MembershipRow>(vec![])
             // create -> store.create
             .with_one::<MembershipRow>(membership_row(mem_id, account_id, ws_id))
-            // create -> describe -> scope_and_validate_ctx -> get_workspace
+            // create -> describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // create -> describe -> get_many_to_many (count)
             .with_one::<(i64,)>((0,))
@@ -538,7 +554,7 @@ mod tests {
         let account_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // duplicate guard -> list finds an existing membership
             .with_all::<MembershipRow>(vec![membership_row(Uuid::new_v4(), account_id, ws_id)]);
@@ -614,7 +630,7 @@ mod tests {
         let mem_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // list -> scope_and_validate_ctx -> get_workspace
+            // list -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // list_many_to_many -> count
             .with_one::<(i64,)>((1,))
@@ -656,7 +672,7 @@ mod tests {
         let mem_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // update -> describe -> scope_and_validate_ctx -> get_workspace
+            // update -> describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // describe -> get_many_to_many (count)
             .with_one::<(i64,)>((0,))
@@ -666,11 +682,11 @@ mod tests {
             )))
             // describe -> get_account
             .with_optional::<AccountRow>(Some(account_row(account_id)))
-            // update -> scope_and_validate_ctx -> get_workspace
+            // update -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // update -> store.update
             .with_optional::<MembershipRow>(Some(membership_row(mem_id, account_id, ws_id)))
-            // update -> describe -> scope_and_validate_ctx -> get_workspace
+            // update -> describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // describe -> get_many_to_many (count)
             .with_one::<(i64,)>((0,))
@@ -712,9 +728,9 @@ mod tests {
         let mem_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // delete -> scope_and_validate_ctx -> get_workspace
+            // delete -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
-            // delete -> describe -> scope_and_validate_ctx -> get_workspace
+            // delete -> describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(ws_row(ws_id)))
             // describe -> get_many_to_many (count)
             .with_one::<(i64,)>((0,))

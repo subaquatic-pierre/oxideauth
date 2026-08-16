@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{
-        models::permission::{PermissionEngine, PermissionRule},
+        models::permission::{PermissionSet, PermissionRule},
         traits::params::ValidateParams,
     },
     store::entities::{
@@ -234,8 +234,8 @@ impl RoleCheck {
         self.permissions.remove(perms);
     }
 
-    pub fn build_permission_checker(&self) -> PermissionEngine {
-        self.permissions.build_checker()
+    pub fn build_permission_set(&self) -> PermissionSet<'static> {
+        self.permissions.build_permission_set()
     }
 }
 
@@ -267,14 +267,9 @@ impl RolePermissions {
         }
     }
 
-    pub fn build_checker(&self) -> PermissionEngine {
-        let size = self.perms.len();
-        let mut perms: Vec<PermissionRule> = Vec::with_capacity(size);
-        for perm in self.perms.iter() {
-            perms.push(perm.clone())
-        }
-
-        PermissionEngine::new(perms)
+    pub fn build_permission_set(&self) -> PermissionSet<'static> {
+        let perms: Vec<String> = self.perms.iter().map(|p| p.to_string()).collect();
+        PermissionSet::from_owned(perms)
     }
 }
 
@@ -438,16 +433,16 @@ mod tests {
     fn test_role_check_new_permissions_and_checker() -> Result<()> {
         let mut check = RoleCheck::new("dev", &["project:read".try_into()?]);
 
-        let checker = check.build_permission_checker();
+        let checker = check.build_permission_set();
         assert!(checker.is_allowed(&"project:read".try_into()?));
         assert!(!checker.is_allowed(&"project:write".try_into()?));
 
         check.extend_permissions(&["project:write".try_into()?]);
-        let checker = check.build_permission_checker();
+        let checker = check.build_permission_set();
         assert!(checker.is_allowed(&"project:write".try_into()?));
 
         check.remove_permissions(&["project:write".try_into()?]);
-        let checker = check.build_permission_checker();
+        let checker = check.build_permission_set();
         assert!(!checker.is_allowed(&"project:write".try_into()?));
         assert!(checker.is_allowed(&"project:read".try_into()?));
 
@@ -459,7 +454,7 @@ mod tests {
         let perms = RolePermissions::new(&["a:1".try_into()?]);
         let mut perms = perms;
         perms.remove(&["b:2".try_into()?]);
-        let checker = perms.build_checker();
+        let checker = perms.build_permission_set();
         assert!(checker.is_allowed(&"a:1".try_into()?));
         Ok(())
     }

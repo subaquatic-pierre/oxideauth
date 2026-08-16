@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::{Display, write},
-};
+use std::{borrow::Cow, fmt::Display};
 
 use modql::filter::OpValString;
 use serde::{Deserialize, Serialize};
@@ -204,9 +201,85 @@ impl OpValWorkspaceId for PermissionFilter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
-pub struct PermissionSet {
-    granted: HashMap<String, HashSet<String>>,
+/// The canonical permission value for the service layer.
+///
+/// It borrows the authenticated scope's permission strings (zero-copy) via
+/// [`CoreCtx::permissions`], or owns an extended set produced by
+/// [`PermissionSet::with_extended`]. The [`PermissionEngine`] is stateless and
+/// evaluates against a `PermissionSet`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionSet<'a> {
+    granted: Cow<'a, [String]>,
+}
+
+impl<'a> PermissionSet<'a> {
+    /// Borrows the caller's granted permission strings (e.g. from the auth scope).
+    pub fn new(granted: &'a [String]) -> Self {
+        Self {
+            granted: Cow::Borrowed(granted),
+        }
+    }
+
+    /// Owns the caller's granted permission strings.
+    pub fn from_owned(granted: Vec<String>) -> PermissionSet<'static> {
+        PermissionSet {
+            granted: Cow::Owned(granted),
+        }
+    }
+
+    /// Builds an owned set from `&str` permission rules, validating each.
+    pub fn from_str_slice(perms: &[&str]) -> CoreResult<PermissionSet<'static>> {
+        let rules = PermissionRule::perms_from_str_slice(perms)?;
+        Ok(PermissionSet::from_owned(
+            rules.into_iter().map(|r| r.to_string()).collect(),
+        ))
+    }
+
+    /// Builds an owned set from `String` permission rules, validating each.
+    pub fn from_string_vec(perms: Vec<String>) -> CoreResult<PermissionSet<'static>> {
+        for perm in &perms {
+            PermissionRule::try_from(perm.as_str())?;
+        }
+        Ok(PermissionSet::from_owned(perms))
+    }
+
+    /// The raw granted permission strings (`"resource:action"`).
+    pub fn granted(&self) -> &[String] {
+        &self.granted
+    }
+
+    /// Consumes the set, returning the owned permission strings.
+    pub fn into_vec(self) -> Vec<String> {
+        self.granted.into_owned()
+    }
+
+    /// Returns a new owned set that includes `perms` (validated) in addition to
+    /// the current grants. This is the escalation primitive: it never mutates
+    /// the source set or the context.
+    pub fn with_extended(&self, perms: &[&str]) -> CoreResult<PermissionSet<'static>> {
+        let mut extended: Vec<String> = self.granted.iter().cloned().collect();
+        for perm in perms {
+            PermissionRule::try_from(*perm)?;
+            extended.push((*perm).to_string());
+        }
+        Ok(PermissionSet::from_owned(extended))
+    }
+
+    /// True if the set grants the required permission (via wildcard rules).
+    pub fn is_allowed(&self, required: &PermissionRule) -> bool {
+        PermissionEngine::is_allowed(self, required)
+    }
+
+    /// True if every required permission is allowed.
+    pub fn has_subset(&self, required: &[PermissionRule]) -> bool {
+        PermissionEngine::has_subset(self, required)
+    }
+
+    /// True if the set contains a global wildcard (`*` or `*:*`), i.e. the
+    /// caller is a system-namespace admin.
+    pub fn has_global_wildcard(&self) -> bool {
+        self.granted.iter().any(|p| p == "*" || p == "*:*")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
@@ -317,95 +390,38 @@ impl TryFrom<&str> for PermissionRule {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct PermissionEngine {
-    // Key: resource name (e.g., "projects").
-    // Value: Set of actions for that resource (e.g., {"*", "read"}).
-    granted: HashMap<String, HashSet<String>>,
-}
+/// Stateless permission evaluation.
+///
+/// All permission data lives on [`PermissionSet`]; this engine only holds the
+/// wildcard-matching logic and receives the set as an argument.
+#[derive(Clone, Debug, Default)]
+pub struct PermissionEngine;
 
 impl PermissionEngine {
-    pub fn new(perms: Vec<PermissionRule>) -> Self {
-        let mut _self = Self {
-            granted: HashMap::new(),
-        };
-        _self.extend(perms);
-        _self
+    /// True if every required permission is allowed by `set`.
+    pub fn has_subset(set: &PermissionSet<'_>, required: &[PermissionRule]) -> bool {
+        required.iter().all(|needed| Self::is_allowed(set, needed))
     }
 
-    pub fn from_str_slice(perms: &[&str]) -> CoreResult<PermissionEngine> {
-        let perms: CoreResult<Vec<PermissionRule>> = perms
-            .iter()
-            .map(|&el| PermissionRule::try_from(el))
-            .collect();
+    /// True if `set` grants `required`, honoring `*` resource/action wildcards.
+    pub fn is_allowed(set: &PermissionSet<'_>, required: &PermissionRule) -> bool {
+        set.granted().iter().any(|granted_str| {
+            let Ok(granted) = PermissionRule::try_from(granted_str.as_str()) else {
+                return false;
+            };
 
-        let perms = perms?;
-
-        let checker = PermissionEngine::new(perms);
-
-        Ok(checker)
-    }
-
-    pub fn from_string_vec(perms: Vec<String>) -> CoreResult<PermissionEngine> {
-        let perms: CoreResult<Vec<PermissionRule>> = perms
-            .iter()
-            .map(|el| PermissionRule::try_from(el.as_str()))
-            .collect();
-
-        let perms = perms?;
-
-        let checker = PermissionEngine::new(perms);
-
-        Ok(checker)
-    }
-
-    pub fn extend(&mut self, perms: Vec<PermissionRule>) {
-        for perm in perms {
-            if let Some(resource) = self.granted.get_mut(&perm.resource) {
-                resource.insert(perm.action);
-            } else {
-                let mut actions = HashSet::new();
-                actions.insert(perm.action);
-                self.granted.insert(perm.resource, actions);
+            // Global resource wildcard, e.g. "*:delete" or "*:*"
+            if granted.resource == "*" {
+                return granted.action == "*" || granted.action == required.action;
             }
-        }
-    }
 
-    pub fn has_subset(&self, required: &[PermissionRule]) -> bool {
-        required.iter().all(|needed| self.is_allowed(needed))
-    }
-
-    pub fn perms_vec(&self) -> CoreResult<Vec<PermissionRule>> {
-        let mut data: HashSet<PermissionRule> = HashSet::new();
-
-        for (resource, perms) in self.granted.iter() {
-            let perms_vec: Vec<String> =
-                perms.iter().map(|el| format!("{resource}:{el}")).collect();
-
-            let perms_vec = PermissionRule::perms_from_string_slice(&perms_vec)?;
-
-            data.extend(perms_vec.into_iter());
-        }
-
-        Ok(Vec::from_iter(data.into_iter()))
-    }
-
-    pub fn is_allowed(&self, required: &PermissionRule) -> bool {
-        // Check for a global resource wildcard first, e.g., "*:delete"
-        if let Some(actions) = self.granted.get("*") {
-            if actions.contains("*") || actions.contains(&required.action) {
-                return true;
+            // Specific resource, e.g. "projects:*" or "projects:delete"
+            if granted.resource == required.resource {
+                return granted.action == "*" || granted.action == required.action;
             }
-        }
 
-        // Check for a specific resource, e.g., "projects:*" or "projects:delete"
-        if let Some(actions) = self.granted.get(&required.resource) {
-            if actions.contains("*") || actions.contains(&required.action) {
-                return true;
-            }
-        }
-
-        false
+            false
+        })
     }
 }
 
@@ -527,33 +543,29 @@ mod tests {
         Ok(())
     }
 
-    // --- PermissionEngine Tests ---
+    // --- PermissionEngine / PermissionSet Tests ---
 
-    fn setup_checker() -> CoreResult<PermissionEngine> {
-        PermissionEngine::from_str_slice(&["project:read", "project:create", "account:*", "*:read"])
+    fn setup_checker() -> CoreResult<PermissionSet<'static>> {
+        PermissionSet::from_str_slice(&["project:read", "project:create", "account:*", "*:read"])
     }
 
     #[test]
-    fn test_checker_construction_and_extend() -> Result<()> {
-        let mut checker = PermissionEngine::from_str_slice(&["project:read"])?;
-
-        // Check initial state
-        assert_eq!(checker.granted.len(), 1);
-        assert!(checker.granted.get("project").unwrap().contains("read"));
+    fn test_set_with_extended() -> Result<()> {
+        let base = PermissionSet::from_str_slice(&["project:read"])?;
 
         // Extend with new and existing permissions
-        let new_perms: Vec<PermissionRule> = vec![
-            "project:delete".try_into()?,
-            "account:read".try_into()?,
-            "project:read".try_into()?, // Duplicate, should be ignored
-        ];
-        checker.extend(new_perms);
+        let extended =
+            base.with_extended(&["project:delete", "account:read", "project:read"])?;
 
-        // Check extended state
-        assert_eq!(checker.granted.len(), 2);
-        assert!(checker.granted.get("project").unwrap().contains("read"));
-        assert!(checker.granted.get("project").unwrap().contains("delete"));
-        assert!(checker.granted.get("account").unwrap().contains("read"));
+        let required_read: PermissionRule = "project:read".try_into()?;
+        let required_delete: PermissionRule = "project:delete".try_into()?;
+        let required_account: PermissionRule = "account:read".try_into()?;
+        assert!(extended.is_allowed(&required_read));
+        assert!(extended.is_allowed(&required_delete));
+        assert!(extended.is_allowed(&required_account));
+
+        // Base set is unchanged
+        assert!(!base.is_allowed(&required_delete));
 
         Ok(())
     }
@@ -611,8 +623,7 @@ mod tests {
 
     #[test]
     fn test_checker_is_allowed_global_wildcard_grant() -> Result<()> {
-        let mut checker = setup_checker()?;
-        checker.extend(vec!["*".try_into()?]);
+        let checker = setup_checker()?.with_extended(&["*"])?;
         // Granted: * (which is *:*)
         let required_write: PermissionRule = "workspace:write".try_into()?;
         assert!(
@@ -631,7 +642,7 @@ mod tests {
 
     #[test]
     fn test_checker_is_allowed_no_match() -> Result<()> {
-        let mut checker = setup_checker()?;
+        let checker = setup_checker()?;
         // project:delete is neither granted specifically, nor covered by *:read, account:*, or project:read/create
         let required: PermissionRule = "project:delete".try_into()?;
         assert!(
@@ -640,7 +651,7 @@ mod tests {
         );
 
         let required_unrelated: PermissionRule = "files:upload".try_into()?;
-        checker.extend(vec!["*".try_into()?]);
+        let checker = checker.with_extended(&["*"])?;
 
         assert!(
             checker.is_allowed(&required_unrelated),
@@ -648,7 +659,7 @@ mod tests {
         );
 
         // Set up a checker with no wildcards
-        let checker_strict = PermissionEngine::from_str_slice(&["users:list"])?;
+        let checker_strict = PermissionSet::from_str_slice(&["users:list"])?;
         let required_files: PermissionRule = "files:upload".try_into()?;
         assert!(
             !checker_strict.is_allowed(&required_files),

@@ -6,6 +6,7 @@ pub mod ctx;
 pub mod email;
 pub mod membership;
 pub mod permission;
+pub mod policy;
 pub mod project;
 pub mod registry;
 pub mod role;

@@ -1,14 +1,13 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    cache::{entities::workspace::WorkspaceCache, traits::CacheExecutor},
+    cache::traits::CacheExecutor,
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
         models::{
             list::{ListResponse, RequestFilterParams},
-            permission::{PermissionEngine, PermissionRule},
             project::{
                 Project, ProjectCreateParams, ProjectDeleteParams, ProjectDescribeParams,
                 ProjectFilter, ProjectListParams, ProjectUpdateParams,
@@ -44,6 +43,7 @@ use crate::{
 pub struct ProjectService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     ws_svc: Arc<WorkspaceService<D, C>>,
+    validator: Arc<AuthValidator>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for ProjectService<D, C> {
@@ -58,41 +58,28 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelService<D, C> for ProjectService<
     fn ws_svc(&self) -> &WorkspaceService<D, C> {
         self.ws_svc.as_ref()
     }
+
+    fn validator(&self) -> &AuthValidator {
+        self.validator.as_ref()
+    }
+
+    fn is_scoped(&self) -> bool {
+        true
+    }
 }
 
 impl<D: DbExecutor, C: CacheExecutor> ProjectService<D, C> {
-    pub fn new(sm: Arc<StoreManager<D>>, ws_svc: Arc<WorkspaceService<D, C>>) -> Self {
-        Self { sm, ws_svc }
+    pub fn new(
+        sm: Arc<StoreManager<D>>,
+        ws_svc: Arc<WorkspaceService<D, C>>,
+        validator: Arc<AuthValidator>,
+    ) -> Self {
+        Self {
+            sm,
+            ws_svc,
+            validator,
+        }
     }
-
-    // async fn hydrate_projects(
-    //     &self,
-    //     ctx: &mut CoreCtx,
-    //     rows: Vec<ProjectRow>,
-    // ) -> CoreResult<Vec<Project>> {
-    //     let mut workspaces: HashMap<Uuid, WorkspaceCache> = HashMap::new();
-
-    //     let mut projects: Vec<Project> = Vec::with_capacity(rows.len());
-
-    //     // // Hydrate results
-    //     for row in rows.into_iter() {
-    //         let workspace_id: Uuid = row.workspace_id;
-    //         let workspace = match workspaces.get(&workspace_id) {
-    //             Some(ws) => ws,
-    //             None => {
-    //                 let ws = self.get_workspace(ctx, workspace_id).await?;
-    //                 let ws_id = ws.id;
-    //                 workspaces.insert(ws_id, ws);
-    //                 // SAFETY: can unwrap as insert occurs directly above
-    //                 workspaces.get(&ws_id).unwrap()
-    //             }
-    //         };
-    //         let project = Project::from_row_with_workspace(row, workspace.clone())?;
-    //         projects.push(project);
-    //     }
-
-    //     Ok(projects)
-    // }
 
     /// Resolves a Project's DbId from either Uuid or code, enforcing workspace scoping.
     // async fn get_project_id(
@@ -160,8 +147,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ProjectSe
     async fn create(&self, ctx: &mut CoreCtx, params: ProjectCreateParams) -> CoreResult<Project> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
             .await?;
 
         if let Some(code) = &params.code {
@@ -192,8 +180,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Project
     ) -> CoreResult<Project> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let project = self.get_by_id_or_code(ctx, &params.id_or_code()?).await?;
@@ -217,8 +206,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for ProjectServ
         let list_options = params.list_options();
         let tags_filter = params.validate_filter_tags()?;
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::LIST_PERMISSION])
             .await?;
 
         // Combined query: tags (@> containment) + field filter
@@ -249,8 +239,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for ProjectSe
     async fn update(&self, ctx: &mut CoreCtx, params: ProjectUpdateParams) -> CoreResult<Project> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
             .await?;
 
         // check if project with code already exists
@@ -285,8 +276,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for ProjectSe
     async fn delete(&self, ctx: &mut CoreCtx, params: ProjectDeleteParams) -> CoreResult<Project> {
         let store = self.store();
 
-        let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
+        let store_ctx = self
+            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
+            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DELETE_PERMISSION])
             .await?;
 
         let project = self.get_by_id_or_code(ctx, &params.id_or_code()?).await?;
@@ -354,7 +346,7 @@ mod tests {
         let project_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -363,7 +355,7 @@ mod tests {
             .with_one::<ProjectRow>(project_row(project_id, ws_id));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["project:create"])?;
+        ctx.escalate_perms(&["project:create"])?;
 
         let params = ProjectCreateParams {
             workspace_id: ws_id,
@@ -391,7 +383,7 @@ mod tests {
         let ws_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -400,7 +392,7 @@ mod tests {
             .with_all::<ProjectRow>(vec![project_row(Uuid::new_v4(), ws_id)]);
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["project:create"])?;
+        ctx.escalate_perms(&["project:create"])?;
 
         let params = ProjectCreateParams {
             workspace_id: ws_id,
@@ -430,7 +422,7 @@ mod tests {
         let project_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
@@ -439,7 +431,7 @@ mod tests {
             .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["project:describe"])?;
+        ctx.escalate_perms(&["project:describe"])?;
 
         let project = svc
             .describe(
@@ -464,14 +456,14 @@ mod tests {
         let ws_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
             }));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["project:describe"])?;
+        ctx.escalate_perms(&["project:describe"])?;
 
         let res = svc
             .describe(
@@ -499,7 +491,7 @@ mod tests {
         let project_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             // .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
             //     id: ws_id.into(),
             //     ..Default::default()
@@ -515,7 +507,7 @@ mod tests {
             }));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["project:list"])?;
+        ctx.escalate_perms(&["project:list"])?;
 
         let res = svc
             .list(
@@ -542,7 +534,7 @@ mod tests {
         let project_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // scope_and_validate_ctx -> get_workspace
+            // scope_and_validate -> get_workspace
             // .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
             //     id: ws_id.into(),
             //     ..Default::default()
@@ -552,7 +544,7 @@ mod tests {
             .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["project:update"])?;
+        ctx.escalate_perms(&["project:update"])?;
 
         let params = ProjectUpdateParams {
             id: Some(project_id),
@@ -589,7 +581,7 @@ mod tests {
             .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
-        ctx.extend_perms(&["project:delete"])?;
+        ctx.escalate_perms(&["project:delete"])?;
         ctx.set_scoped_ws(ws.into());
 
         let deleted = svc

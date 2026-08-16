@@ -233,6 +233,7 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
         )
         .await?;
 
+    // NOTE(workspace-scope): scoped — seed roles scoped to the system workspace.
     let mut store_ctx: StoreCtx = (&*ctx).into();
 
     // Look up admin role in each workspace (scoped to the expected workspace)
@@ -338,7 +339,7 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
 
     for (ws, params) in memberships {
         ctx.set_scoped_ws(ws);
-        ctx.extend_perms(&["membership:create"])?;
+        ctx.escalate_perms(&["membership:create"])?;
         svc_reg.membership.create(ctx, params).await?;
     }
 
@@ -609,6 +610,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
     // =========================================================================
     // MEMBERSHIPS — owners as admins, member as viewer across workspaces
     // =========================================================================
+    // NOTE(workspace-scope): scoped — seed test roles scoped per workspace.
     let mut store_ctx: StoreCtx = (&*ctx).into();
 
     store_ctx.set_workspace_scope(Some(test_ws.id));
@@ -765,7 +767,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
     ];
 
     for params in memberships {
-        ctx.extend_perms(&["membership:create"])?;
+        ctx.escalate_perms(&["membership:create"])?;
         svc_reg.membership.create(ctx, params).await?;
     }
 
