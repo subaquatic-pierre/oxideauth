@@ -10,6 +10,7 @@ use crate::{
         CacheEntity,
         entities::{
             auth::{AuthCache, AuthScopeCache},
+            policy::PolicyCache,
             workspace::WorkspaceCache,
         },
         manager::CacheManager,
@@ -96,6 +97,24 @@ where
         let ws_id = ws_cache.id;
 
         let mut core_ctx = CoreCtx::new(auth_cache, ws_cache)?;
+
+        // Hydrate the membership's resolved PolicySet (US6): cache-first, DB on
+        // miss — mirrors `fetch_auth_cache` below. System/global contexts carry
+        // no membership id and keep the empty (default-deny) PolicySet.
+        if mem_id != Uuid::nil() {
+            let policy_set = match self.cm.policy.fetch(&PolicyCache::new_key(mem_id)).await? {
+                Some(entity) => entity.policies,
+                None => {
+                    let resolved = self.svc_reg.policy.resolve_for_membership(mem_id).await?;
+                    self.cm
+                        .policy
+                        .write(&PolicyCache::new(mem_id, resolved.clone()), None)
+                        .await?;
+                    resolved
+                }
+            };
+            core_ctx.set_policy_set(policy_set);
+        }
 
         // scope global workspace if token is system scope
         // this mutates ctx internal state and ensures correct headers are set

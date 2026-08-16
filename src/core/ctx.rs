@@ -2,6 +2,7 @@ use uuid::Uuid;
 
 use crate::cache::entities::auth::{AuthCache, AuthScopeCache};
 use crate::cache::entities::workspace::WorkspaceCache;
+use crate::core::models::policy::PolicySet;
 use crate::core::models::workspace::{WorkspaceConfig, WorkspaceMeta};
 use crate::store::stores::workspace::SYSTEM_CONST;
 use crate::{
@@ -24,10 +25,15 @@ use std::sync::OnceLock;
 /// `scoped_ws_id` is the **operational target** — the workspace this request
 /// acts on. For scoped tokens it equals the token's workspace. For system/root
 /// tokens the middleware sets it from the `X-Workspace-Id` header.
+///
+/// `policy_set` is the request's resolved, compiled [`PolicySet`] (US6). It is
+/// hydrated during context resolution from the `oxauth:policy:{mem_id}` cache
+/// (DB on miss) and left empty for contexts without a membership (system/root).
 #[derive(Clone, Debug)]
 pub struct CoreCtx {
     pub auth_cache: AuthCache,
     pub ws_cache: WorkspaceCache,
+    pub policy_set: PolicySet,
 }
 
 impl CoreCtx {
@@ -35,6 +41,7 @@ impl CoreCtx {
         Ok(Self {
             auth_cache,
             ws_cache,
+            policy_set: PolicySet::default(),
         })
     }
 
@@ -48,6 +55,7 @@ impl CoreCtx {
         Ok(Self {
             auth_cache,
             ws_cache,
+            policy_set: PolicySet::default(),
         })
     }
 
@@ -65,6 +73,24 @@ impl CoreCtx {
     /// Proxy over `auth_cache.auth_scope.escalate_perms`.
     pub fn escalate_perms(&mut self, perms: &[&str]) -> CoreResult<()> {
         self.auth_cache.auth_scope.escalate_perms(perms)
+    }
+
+    // --- Policy set (US6) ---
+
+    /// The request's resolved, compiled [`PolicySet`].
+    ///
+    /// Hydrated during context resolution from the `oxauth:policy:{mem_id}`
+    /// cache (or the database on a cache miss). Empty for system/escalated
+    /// contexts that carry no membership.
+    pub fn policy_set(&self) -> &PolicySet {
+        &self.policy_set
+    }
+
+    /// Sets the resolved policy set for this request.
+    ///
+    /// Used by context resolution after a policy cache fetch/hydration.
+    pub fn set_policy_set(&mut self, policy_set: PolicySet) {
+        self.policy_set = policy_set;
     }
 
     // --- Identity (from auth_cache — the token's claims) ---
@@ -239,6 +265,7 @@ impl ContextFactory {
         Ok(CoreCtx {
             auth_cache,
             ws_cache,
+            policy_set: PolicySet::default(),
         })
     }
 }
@@ -266,6 +293,29 @@ mod tests {
         let res = extended.has_subset(&perms);
 
         assert_eq!(res, true, "ctx should have account:create permission");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ctx_policy_set_defaults_empty_and_settable() -> CoreResult<()> {
+        use crate::core::models::policy::{Policy, PolicyEffect};
+
+        let mut ctx = CoreCtx::bootstrap()?;
+        // Contexts without a membership carry an empty (default-deny) policy set.
+        assert!(ctx.policy_set().is_empty());
+
+        let mut p = Policy::default();
+        p.actions = vec!["membership:update".to_string()];
+        p.resource = "self".to_string();
+        let set = PolicySet::from_policies(vec![p]);
+
+        ctx.set_policy_set(set.clone());
+        assert_eq!(ctx.policy_set(), &set);
+        assert_eq!(
+            ctx.policy_set().get("membership:update", "self", None),
+            Some(PolicyEffect::Allow)
+        );
 
         Ok(())
     }

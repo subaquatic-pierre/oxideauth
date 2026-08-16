@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::store::entities::audit::AuditFields;
 use crate::store::entities::id::DbId;
 use crate::store::entities::permission::PermissionMeta;
+use crate::store::entities::policy::{PolicyEffect, PolicyMeta};
 use crate::store::error::{StoreError, StoreResult};
 use crate::store::traits::meta::HasId;
 use crate::store::utils::{gen_rand_str, json_to_sea_value, time_to_sea_value};
@@ -29,6 +30,13 @@ pub enum RoleIden {
     #[iden = "id"]
     PermissionPk,
     Permission,
+    // role_policy many-to-many join (T019)
+    Policies,
+    RolePolicy,
+    PolicyId,
+    #[iden = "id"]
+    PolicyPk,
+    Policy,
 }
 
 // --- Row (DB-facing) ---
@@ -76,6 +84,45 @@ pub struct JoinedPermissionOnRole {
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     pub updated_by: Option<DbId>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub updated_at: Option<OffsetDateTime>,
+}
+
+// The struct to hold the role with its aggregated policies (via `role_policy`)
+#[derive(FromRow, Debug, Deserialize, HasId)]
+pub struct RoleWithPolicies {
+    pub id: DbId,
+    #[sqlx(flatten)]
+    pub role: RoleRow,
+    #[sqlx(json)]
+    pub policies: Vec<JoinedPolicyOnRole>,
+}
+
+/// A policy row aggregated into a `RoleWithPolicies` via the `role_policy`
+/// join table. Mirrors the `policy` table shape (same columns as `PolicyRow`).
+#[derive(FromRow, Debug, Deserialize, HasId)]
+pub struct JoinedPolicyOnRole {
+    pub id: DbId,
+    pub workspace_id: Uuid,
+
+    // Policy identity
+    pub name: Option<String>,
+
+    // Policy body
+    pub effect: PolicyEffect,
+    pub principal_id: Option<Uuid>,
+    pub actions: Vec<String>,
+    pub resource: String,
+    pub constraint_expr: Option<String>,
+    pub description: Option<String>,
+
+    pub tags: Vec<String>,
+    #[sqlx(json)]
+    pub meta: PolicyMeta,
+
+    // Audit (minimal: created_at / updated_at only)
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339::option")]
     pub updated_at: Option<OffsetDateTime>,
 }

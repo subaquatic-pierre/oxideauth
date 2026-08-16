@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::store::entities::audit::{AuditFields, AuditMeta};
 use crate::store::entities::id::DbId;
+use crate::store::entities::policy::{PolicyEffect, PolicyMeta};
 use crate::store::entities::role::RoleMeta;
 use crate::store::error::{StoreError, StoreResult};
 use crate::store::traits::meta::HasId;
@@ -35,6 +36,13 @@ pub enum MembershipIden {
     Role,
     #[iden = "id"]
     RolePk,
+    // membership_policy many-to-many join (T020)
+    Policies,
+    MembershipPolicy,
+    PolicyId,
+    #[iden = "id"]
+    PolicyPk,
+    Policy,
 }
 
 // --- Row (DB-facing) ---
@@ -85,6 +93,46 @@ pub struct MembershipWithRoles {
     pub membership: MembershipRow,
     #[sqlx(json)]
     pub roles: Vec<JoinedRoleOnMembership>,
+}
+
+// The struct to hold the membership with its aggregated policies (via `membership_policy`)
+#[derive(Debug, FromRow, Deserialize, HasId)]
+pub struct MembershipWithPolicies {
+    pub id: DbId,
+    #[sqlx(flatten)]
+    pub membership: MembershipRow,
+    #[sqlx(json)]
+    pub policies: Vec<JoinedPolicyOnMembership>,
+}
+
+/// A policy row aggregated into a `MembershipWithPolicies` via the
+/// `membership_policy` join table. Mirrors the `policy` table shape (same
+/// columns as `PolicyRow`).
+#[derive(Debug, FromRow, Deserialize, HasId)]
+pub struct JoinedPolicyOnMembership {
+    pub id: DbId,
+    pub workspace_id: Uuid,
+
+    // Policy identity
+    pub name: Option<String>,
+
+    // Policy body
+    pub effect: PolicyEffect,
+    pub principal_id: Option<Uuid>,
+    pub actions: Vec<String>,
+    pub resource: String,
+    pub constraint_expr: Option<String>,
+    pub description: Option<String>,
+
+    pub tags: Vec<String>,
+    #[sqlx(json)]
+    pub meta: PolicyMeta,
+
+    // Audit (minimal: created_at / updated_at only)
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub updated_at: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, EnumTextType)]

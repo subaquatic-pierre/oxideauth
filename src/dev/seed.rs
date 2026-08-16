@@ -301,6 +301,7 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
                 profile_id: None,
                 project_id: None,
                 role_ids: vec![system_admin.id.into()],
+                policy_ids: vec![],
                 tags: vec!["system".to_string()],
                 meta: MembershipMeta {
                     schema_version: "1".to_string(),
@@ -318,6 +319,7 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
                 profile_id: None,
                 project_id: None,
                 role_ids: vec![system_admin.id.into()],
+                policy_ids: vec![],
                 tags: vec!["system".to_string()],
                 meta: MembershipMeta {
                     schema_version: "1".to_string(),
@@ -335,6 +337,7 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
                 profile_id: None,
                 project_id: None,
                 role_ids: vec![default_admin.id.into()],
+                policy_ids: vec![],
                 tags: vec!["system".to_string()],
                 meta: MembershipMeta {
                     schema_version: "1".to_string(),
@@ -702,6 +705,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             profile_id: None,
             project_id: None,
             role_ids: vec![test_admin_role.id.into()],
+            policy_ids: vec![],
             tags: vec!["test".to_string()],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -717,6 +721,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             profile_id: None,
             project_id: None,
             role_ids: vec![public_admin_role.id.into()],
+            policy_ids: vec![],
             tags: vec!["test".to_string()],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -732,6 +737,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             profile_id: None,
             project_id: None,
             role_ids: vec![private_admin_role.id.into()],
+            policy_ids: vec![],
             tags: vec!["test".to_string()],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -747,6 +753,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             profile_id: None,
             project_id: None,
             role_ids: vec![test_viewer_role.id.into()],
+            policy_ids: vec![],
             tags: vec!["test".to_string()],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -762,6 +769,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             profile_id: None,
             project_id: None,
             role_ids: vec![public_viewer_role.id.into()],
+            policy_ids: vec![],
             tags: vec!["test".to_string()],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -777,6 +785,7 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
             profile_id: None,
             project_id: None,
             role_ids: vec![private_viewer_role.id.into()],
+            policy_ids: vec![],
             tags: vec!["test".to_string()],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),

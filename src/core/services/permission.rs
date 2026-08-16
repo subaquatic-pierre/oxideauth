@@ -869,6 +869,29 @@ impl PermissionPermissions {
     }
 }
 
+pub struct PolicyPermissions {
+    pub create: &'static str,
+    pub describe: &'static str,
+    pub list: &'static str,
+    pub update: &'static str,
+    pub delete: &'static str,
+}
+
+impl PolicyPermissions {
+    pub fn all(&self) -> &[(&'static str, &'static str)] {
+        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
+        ALL.get_or_init(|| {
+            [
+                (self.create, "Create new policies"),
+                (self.describe, "View policy details"),
+                (self.list, "List policies"),
+                (self.update, "Update policies"),
+                (self.delete, "Delete policies"),
+            ]
+        })
+    }
+}
+
 pub struct AuthPermissions {
     pub refresh: &'static str,
     pub revoke: &'static str,
@@ -903,6 +926,7 @@ pub struct CanonicalPermissions {
     pub client: ClientPermissions,
     pub credential: CredentialPermissions,
     pub permission: PermissionPermissions,
+    pub policy: PolicyPermissions,
     pub auth: AuthPermissions,
 }
 
@@ -919,6 +943,7 @@ impl CanonicalPermissions {
         v.extend_from_slice(self.client.all());
         v.extend_from_slice(self.credential.all());
         v.extend_from_slice(self.permission.all());
+        v.extend_from_slice(self.policy.all());
         v.extend_from_slice(&self.auth.all());
         // The system-wide wildcard permission granted to workspace admins.
         v.push((
@@ -1018,6 +1043,13 @@ pub const CANONICAL_PERMISSIONS: CanonicalPermissions = CanonicalPermissions {
         list: "permission:list",
         update: "permission:update",
         delete: "permission:delete",
+    },
+    policy: PolicyPermissions {
+        create: "policy:create",
+        describe: "policy:describe",
+        list: "policy:list",
+        update: "policy:update",
+        delete: "policy:delete",
     },
     auth: AuthPermissions {
         refresh: "auth:refresh",

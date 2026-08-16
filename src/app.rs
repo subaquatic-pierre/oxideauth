@@ -137,7 +137,9 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
     // TODO: Ensure this is never run in production
     match app_env {
         AppEnv::Development => {
-            init_dev_db(&app).await;
+            if app.config.reset_db {
+                init_dev_db(&app).await;
+            }
 
             debug!("Running init_dev_db, database is reset and seeded");
         }

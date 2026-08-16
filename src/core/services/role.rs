@@ -12,7 +12,8 @@ use crate::{
             permission::PermissionRule,
             role::{
                 Role, RoleCreateParams, RoleDeleteParams, RoleDescribeIdentifier,
-                RoleDescribeParams, RoleListParams, RoleUpdateParams, WorkspaceRoleCreateParams,
+                RoleDescribeParams, RoleListParams, RoleUpdateParams, RoleWithPolicies,
+                WorkspaceRoleCreateParams,
             },
             workspace::{Workspace, WorkspaceDescribeParams},
         },
@@ -119,8 +120,35 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
             }
         };
 
-        let role = store.get_many_to_many(&store_ctx, &role.id).await?;
-        let role = Role::from(role);
+        let role = self.hydrate_role_policies(&store_ctx, &role.id).await?;
+
+        Ok(role)
+    }
+
+    /// Loads the role's many-to-many relations (permissions + policies) and
+    /// assembles the core `Role` model. Mirrors the permission-only path but
+    /// also resolves the role's `role_policy` join into `Role.policies`.
+    async fn hydrate_role_policies(
+        &self,
+        store_ctx: &StoreCtx,
+        role_id: &DbId,
+    ) -> CoreResult<Role> {
+        let store = self.store();
+
+        let role_with_perms_row = store.get_many_to_many(store_ctx, role_id).await?;
+        let role_with_policies_row = store
+            .get_many_to_many_policies(store_ctx, role_id)
+            .await?;
+
+        let role: Role = RoleWithPolicies {
+            role: role_with_perms_row.into(),
+            policies: role_with_policies_row
+                .policies
+                .into_iter()
+                .map(|el| el.into())
+                .collect(),
+        }
+        .into();
 
         Ok(role)
     }
@@ -205,8 +233,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for RoleServi
             .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
             .await?;
 
-        // Extract permission_ids before params is consumed by into()
+        // Extract permission_ids/policy_ids before params is consumed by into()
         let permission_ids = params.permission_ids.clone();
+        let policy_ids = params.policy_ids.clone();
         let workspace_id = params.workspace_id;
 
         let r_create: RoleForCreate = params.into();
@@ -218,6 +247,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for RoleServi
         self.sm
             .role
             .set_many_to_many_links(&store_ctx, &row.id, perm_db_ids)
+            .await?;
+
+        // Sync many-to-many policies
+        let policy_db_ids: Vec<DbId> = policy_ids.iter().map(|id| DbId::from(*id)).collect();
+        store
+            .set_many_to_many_policies(&store_ctx, &row.id, policy_db_ids)
             .await?;
 
         self.describe(
@@ -246,10 +281,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for RoleSer
             .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
             .await?;
 
-        let role_with_perms_row = store
-            .get_many_to_many(&store_ctx, &params.id.into())
-            .await?;
-        let role = Role::from(role_with_perms_row);
+        let role = self.hydrate_role_policies(&store_ctx, &params.id.into()).await?;
 
         Ok(role)
     }
@@ -308,9 +340,31 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for RoleServi
             .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
             .await?;
 
+        // `policy_ids`, when present, replaces the role's policy links
+        // (set semantics). Clone before `params` is consumed by `into()`.
+        let policy_ids = params.policy_ids.clone();
+
         let res = store
             .update(&store_ctx, &params.id.into(), params.into())
             .await?;
+
+        if let Some(policy_ids) = policy_ids {
+            let policy_db_ids: Vec<DbId> = policy_ids.iter().map(|id| DbId::from(*id)).collect();
+            store
+                .set_many_to_many_policies(&store_ctx, &res.id, policy_db_ids)
+                .await?;
+
+            // The role's policy links changed: every membership holding this
+            // role now has a stale `oxauth:policy:{mem_id}` entry.
+            let memberships = self
+                .sm
+                .membership
+                .list_containing_roles(&store_ctx, vec![res.id], None, None, None)
+                .await?;
+            for membership in memberships {
+                self.cm.policy.invalidate(membership.id.into()).await?;
+            }
+        }
 
         // TODO: invalidate auth cache
         self.invalidate_memberships_for_role(&store_ctx, res.id.into())
@@ -408,22 +462,47 @@ mod tests {
 
     use super::*;
     use crate::{
-        cache::{manager::CacheManager, mock::MockChx},
+        cache::{
+            entities::policy::PolicyCache, manager::CacheManager, mock::MockChx, traits::CacheEntity,
+        },
         config::Config,
-        core::services::registry::ServiceRegistry,
+        core::{
+            models::policy::{Policy, PolicySet},
+            services::registry::ServiceRegistry,
+        },
         store::{
             dbx::MockDbx,
             entities::{
                 audit::AuditFields,
                 id::DbId,
-                membership::MembershipWithRoles,
-                role::{RoleMeta, RoleWithPermissions},
+                membership::{
+                    MembershipMeta, MembershipRow, MembershipScope, MembershipStatus,
+                    MembershipWithRoles,
+                },
+                policy::PolicyEffect as StorePolicyEffect,
+                role::{JoinedPolicyOnRole, RoleMeta, RoleWithPermissions, RoleWithPolicies},
                 workspace::WorkspaceRow,
             },
         },
     };
     use serial_test::serial;
     use uuid::Uuid;
+
+    /// Builds a `MembershipRow` for the in-memory mock.
+    fn membership_row(mem_id: Uuid, ws_id: Uuid) -> MembershipRow {
+        MembershipRow {
+            id: mem_id.into(),
+            account_id: Uuid::new_v4(),
+            workspace_id: ws_id,
+            scope: MembershipScope::Workspace,
+            status: MembershipStatus::Active,
+            project_id: None,
+            version: 1,
+            tags: vec![],
+            meta: MembershipMeta::default(),
+            audit: AuditFields::default(),
+        }
+    }
 
     /// Builds a `RoleRow` for the in-memory mock.
     fn role_row(id: Uuid, ws_id: Uuid, name: &str) -> RoleRow {
@@ -444,6 +523,15 @@ mod tests {
             id: id.into(),
             role: role_row(id, ws_id, name),
             permissions: vec![],
+        }
+    }
+
+    /// Builds a `RoleWithPolicies` (many-to-many joined row) for the mock.
+    fn role_with_policies(id: Uuid, ws_id: Uuid, name: &str) -> RoleWithPolicies {
+        RoleWithPolicies {
+            id: id.into(),
+            role: role_row(id, ws_id, name),
+            policies: vec![],
         }
     }
 
@@ -488,7 +576,11 @@ mod tests {
             // get_many_to_many -> count_many guard
             .with_one::<(i64,)>((0,))
             // get_many_to_many -> fetch_optional joined row
-            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "admin")));
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "admin")))
+            // get_many_to_many_policies -> count_many guard
+            .with_one::<(i64,)>((0,))
+            // get_many_to_many_policies -> fetch_optional joined row
+            .with_optional::<RoleWithPolicies>(Some(role_with_policies(role_id, ws_id, "admin")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.escalate_perms(&["role:describe"])?;
@@ -506,6 +598,68 @@ mod tests {
         assert_eq!(role.id, role_id);
         assert_eq!(role.workspace_id, ws_id);
         assert_eq!(role.name, "admin");
+        assert!(role.policies.is_empty());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_role_describe_with_policies() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let role_id = Uuid::new_v4();
+
+        let joined_policy = |name: &str| JoinedPolicyOnRole {
+            id: DbId::from(Uuid::new_v4()),
+            workspace_id: ws_id,
+            name: Some(name.to_string()),
+            effect: StorePolicyEffect::Allow,
+            principal_id: None,
+            actions: vec!["membership:update".to_string()],
+            resource: "self".to_string(),
+            constraint_expr: None,
+            description: None,
+            tags: vec![],
+            meta: crate::store::entities::policy::PolicyMeta::default(),
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
+            updated_at: None,
+        };
+
+        let dbx = MockDbx::new()
+            // scope_and_validate -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // get_many_to_many -> count_many guard
+            .with_one::<(i64,)>((0,))
+            // get_many_to_many -> fetch_optional joined row
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "admin")))
+            // get_many_to_many_policies -> count_many guard
+            .with_one::<(i64,)>((2,))
+            // get_many_to_many_policies -> fetch_optional joined row
+            .with_optional::<RoleWithPolicies>(Some(RoleWithPolicies {
+                id: role_id.into(),
+                role: role_row(role_id, ws_id, "admin"),
+                policies: vec![joined_policy("self-update"), joined_policy("deny-delete")],
+            }));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.escalate_perms(&["role:describe"])?;
+
+        let role = svc
+            .describe(
+                &mut ctx,
+                RoleDescribeParams {
+                    id: role_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        assert_eq!(role.id, role_id);
+        assert_eq!(role.policies.len(), 2, "describe should resolve role policies");
+        assert!(role.policies.iter().any(|p| p.name.as_deref() == Some("self-update")));
 
         Ok(())
     }
@@ -526,6 +680,8 @@ mod tests {
             .with_one::<RoleRow>(role_row(role_id, ws_id, "dev"))
             // create -> set_many_to_many_links (delete existing join rows)
             .with_execute(Ok(0))
+            // create -> set_many_to_many_policies (delete existing join rows)
+            .with_execute(Ok(0))
             // describe -> scope_and_validate -> get_workspace
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
@@ -534,7 +690,11 @@ mod tests {
             // describe -> get_many_to_many -> count_many guard
             .with_one::<(i64,)>((0,))
             // describe -> get_many_to_many -> joined row
-            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")));
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")))
+            // describe -> get_many_to_many_policies -> count_many guard
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many_policies -> joined row
+            .with_optional::<RoleWithPolicies>(Some(role_with_policies(role_id, ws_id, "dev")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.escalate_perms(&["role:create", "role:describe"])?;
@@ -544,6 +704,7 @@ mod tests {
             name: "dev".to_string(),
             description: None,
             permission_ids: vec![],
+            policy_ids: vec![],
             tags: vec![],
             meta: RoleMeta::default(),
         };
@@ -569,12 +730,19 @@ mod tests {
             }))
             .with_one::<RoleRow>(role_row(role_id, ws_id, SYSTEM_CONST.workspace_viewer_role))
             .with_execute(Ok(0))
+            .with_execute(Ok(0))
             .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
                 id: ws_id.into(),
                 ..Default::default()
             }))
             .with_one::<(i64,)>((0,))
             .with_optional::<RoleWithPermissions>(Some(role_with_perms(
+                role_id,
+                ws_id,
+                SYSTEM_CONST.workspace_viewer_role,
+            )))
+            .with_one::<(i64,)>((0,))
+            .with_optional::<RoleWithPolicies>(Some(role_with_policies(
                 role_id,
                 ws_id,
                 SYSTEM_CONST.workspace_viewer_role,
@@ -665,7 +833,11 @@ mod tests {
             // describe -> get_many_to_many count_many guard
             .with_one::<(i64,)>((0,))
             // describe -> get_many_to_many joined row
-            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "renamed")));
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "renamed")))
+            // describe -> get_many_to_many_policies count_many guard
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many_policies joined row
+            .with_optional::<RoleWithPolicies>(Some(role_with_policies(role_id, ws_id, "renamed")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.escalate_perms(&["role:update", "role:describe"])?;
@@ -676,6 +848,7 @@ mod tests {
             name: Some("renamed".to_string()),
             description: None,
             permission_ids: None,
+            policy_ids: None,
             tags: None,
             meta: None,
         };
@@ -684,6 +857,86 @@ mod tests {
 
         assert_eq!(updated.id, role_id);
         assert_eq!(updated.name, "renamed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_role_update_policy_ids_invalidates_policy_cache_for_members() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let role_id = Uuid::new_v4();
+        let mem_id = Uuid::new_v4();
+        let policy_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // update -> scope_and_validate -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // update -> store.update
+            .with_optional::<RoleRow>(Some(role_row(role_id, ws_id, "renamed")))
+            // update -> set_many_to_many_policies (delete existing join rows)
+            .with_execute(Ok(0))
+            // update -> set_many_to_many_policies (insert new join rows)
+            .with_execute(Ok(0))
+            // policy cache invalidation -> membership.list_containing_roles (one member)
+            .with_all::<MembershipRow>(vec![membership_row(mem_id, ws_id)])
+            // invalidate_memberships_for_role -> list_many_to_many count guard
+            .with_one::<(i64,)>((0,))
+            // invalidate_memberships_for_role -> list_many_to_many rows (none)
+            .with_all::<MembershipWithRoles>(vec![])
+            // describe -> scope_and_validate -> get_workspace
+            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
+                id: ws_id.into(),
+                ..Default::default()
+            }))
+            // describe -> get_many_to_many count_many guard
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many joined row
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "renamed")))
+            // describe -> get_many_to_many_policies count_many guard
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many_policies joined row
+            .with_optional::<RoleWithPolicies>(Some(role_with_policies(role_id, ws_id, "renamed")));
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = ServiceRegistry::new(&config, sm, cm.clone());
+
+        // Seed the policy cache entry for the member holding the role.
+        let mut p = Policy::default();
+        p.actions = vec!["membership:update".to_string()];
+        p.resource = "self".to_string();
+        let set = PolicySet::from_policies(vec![p]);
+        cm.policy
+            .write(&PolicyCache::new(mem_id, set), None)
+            .await
+            .unwrap();
+
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.escalate_perms(&["role:update", "role:describe"])?;
+
+        let params = RoleUpdateParams {
+            id: role_id,
+            workspace_id: ws_id,
+            name: Some("renamed".to_string()),
+            description: None,
+            permission_ids: None,
+            policy_ids: Some(vec![policy_id]),
+            tags: None,
+            meta: None,
+        };
+
+        let updated = svc_reg.role.update(&mut ctx, params).await?;
+
+        assert_eq!(updated.id, role_id);
+        assert_eq!(updated.name, "renamed");
+
+        // The member holding the role must lose its policy cache entry.
+        let fetched = cm.policy.fetch(&PolicyCache::new_key(mem_id)).await?;
+        assert!(fetched.is_none(), "policy cache entry must be invalidated");
 
         Ok(())
     }
@@ -709,6 +962,10 @@ mod tests {
             .with_one::<(i64,)>((0,))
             // delete -> describe -> get_many_to_many joined row
             .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")))
+            // delete -> describe -> get_many_to_many_policies count_many guard
+            .with_one::<(i64,)>((0,))
+            // delete -> describe -> get_many_to_many_policies joined row
+            .with_optional::<RoleWithPolicies>(Some(role_with_policies(role_id, ws_id, "dev")))
             // delete -> store.delete
             .with_optional::<RoleRow>(Some(role_row(role_id, ws_id, "dev")))
             // invalidate_memberships_for_role -> list_many_to_many count guard
@@ -752,7 +1009,11 @@ mod tests {
             // get_many_to_many count_many guard
             .with_one::<(i64,)>((0,))
             // get_many_to_many joined row
-            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")));
+            .with_optional::<RoleWithPermissions>(Some(role_with_perms(role_id, ws_id, "dev")))
+            // get_many_to_many_policies count_many guard
+            .with_one::<(i64,)>((0,))
+            // get_many_to_many_policies joined row
+            .with_optional::<RoleWithPolicies>(Some(role_with_policies(role_id, ws_id, "dev")));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.escalate_perms(&["role:describe"])?;

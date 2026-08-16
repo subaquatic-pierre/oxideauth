@@ -9,6 +9,7 @@ use crate::core::models::{
         Membership, MembershipCreateParams, MembershipDeleteParams, MembershipDescribeParams,
         MembershipFilter, MembershipListParams, MembershipMeta, MembershipUpdateParams,
     },
+    policy::Policy,
     role::Role,
 };
 use crate::core::traits::params::IntoParams;
@@ -41,6 +42,7 @@ pub struct MembershipDescribeRes {
     pub version: i64,
     pub status: MembershipStatus,
     pub roles: Vec<Role>,
+    pub policies: Vec<Policy>,
     pub tags: Vec<String>,
     pub meta: MembershipMeta,
     #[serde(with = "time::serde::rfc3339")]
@@ -61,6 +63,7 @@ impl From<Membership> for MembershipDescribeRes {
             scope: m.scope,
             status: m.status,
             roles: m.roles,
+            policies: m.policies,
             tags: m.tags,
             meta: m.meta,
             created_at: m.audit.created_at,
@@ -78,6 +81,7 @@ pub struct MembershipCreateReq {
     pub status: Option<MembershipStatus>,
     pub project_id: Option<Uuid>,
     pub role_ids: Vec<Uuid>,
+    pub policy_ids: Vec<Uuid>,
     pub tags: Vec<String>,
     pub meta: MembershipMeta,
 }
@@ -111,6 +115,7 @@ impl IntoParams<MembershipCreateParams> for MembershipCreateReq {
             status: self.status,
             project_id: self.project_id,
             role_ids: self.role_ids,
+            policy_ids: self.policy_ids,
             tags: self.tags,
             meta: self.meta,
         })
@@ -127,6 +132,7 @@ pub struct MembershipUpdateReq {
     pub scope: Option<MembershipScope>,
     pub project_id: Option<Uuid>,
     pub role_ids: Option<Vec<Uuid>>,
+    pub policy_ids: Option<Vec<Uuid>>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<MembershipMeta>,
 }
@@ -140,6 +146,7 @@ impl IntoParams<MembershipUpdateParams> for MembershipUpdateReq {
             scope: self.scope,
             project_id: self.project_id,
             role_ids: self.role_ids,
+            policy_ids: self.policy_ids,
             tags: self.tags,
             meta: self.meta,
             ..Default::default()
@@ -211,6 +218,7 @@ mod tests {
         let account_id = Uuid::new_v4();
         let project_id = Uuid::new_v4();
         let role_id = Uuid::new_v4();
+        let policy_id = Uuid::new_v4();
         let params = MembershipCreateReq {
             account_id: Some(account_id),
             email: None,
@@ -218,6 +226,7 @@ mod tests {
             status: Some(MembershipStatus::Active),
             project_id: Some(project_id),
             role_ids: vec![role_id],
+            policy_ids: vec![policy_id],
             tags: vec!["t".to_string()],
             meta: MembershipMeta::default(),
         }
@@ -231,6 +240,7 @@ mod tests {
         assert_eq!(params.status, Some(MembershipStatus::Active));
         assert_eq!(params.project_id, Some(project_id));
         assert_eq!(params.role_ids, vec![role_id]);
+        assert_eq!(params.policy_ids, vec![policy_id]);
         assert_eq!(params.tags, vec!["t".to_string()]);
         assert_eq!(
             params.meta.schema_version,
@@ -283,6 +293,7 @@ mod tests {
             scope: Some(MembershipScope::Workspace),
             project_id: None,
             role_ids: None,
+            policy_ids: Some(vec![Uuid::new_v4()]),
             tags: Some(vec!["a".to_string()]),
             meta: None,
         }
@@ -295,6 +306,7 @@ mod tests {
         assert_eq!(params.scope, Some(MembershipScope::Workspace));
         assert!(params.project_id.is_none());
         assert!(params.role_ids.is_none());
+        assert!(params.policy_ids.is_some());
         assert_eq!(params.tags, Some(vec!["a".to_string()]));
         assert!(params.meta.is_none());
     }
@@ -331,6 +343,7 @@ mod tests {
         assert_eq!(res.status.to_string(), "active");
         assert_eq!(res.workspace_id, Uuid::nil());
         assert!(res.roles.is_empty());
+        assert!(res.policies.is_empty());
     }
 
     #[test]

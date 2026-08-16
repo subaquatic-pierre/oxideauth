@@ -12,6 +12,7 @@ use crate::{
             credential::CredentialService,
             membership::MembershipService,
             permission::PermissionService,
+            policy::PolicyService,
             profile::ProfileService,
             project::ProjectService,
             role::RoleService,
@@ -34,6 +35,7 @@ pub struct ServiceRegistry<D: DbExecutor, C: CacheExecutor> {
     pub workspace: Arc<WorkspaceService<D, C>>,
     pub role: Arc<RoleService<D, C>>,
     pub permission: Arc<PermissionService<D, C>>,
+    pub policy: Arc<PolicyService<D, C>>,
     pub account: Arc<AccountService<D, C>>,
     pub profile: Arc<ProfileService<D, C>>,
     pub project: Arc<ProjectService<D, C>>,
@@ -74,6 +76,12 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             sm.clone(),
             workspace.clone(),
             permission.clone(),
+            cm.clone(),
+            auth_validator.clone(),
+        ));
+        let policy = Arc::new(PolicyService::new(
+            sm.clone(),
+            workspace.clone(),
             cm.clone(),
             auth_validator.clone(),
         ));
@@ -134,6 +142,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
         workspace.wire_permission_service(&permission);
         workspace.wire_role_service(&role);
         workspace.wire_project_service(&project);
+        workspace.wire_policy_service(&policy);
 
         Self {
             sm,
@@ -141,6 +150,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             workspace,
             role,
             permission,
+            policy,
             account,
             profile,
             project,
@@ -194,6 +204,7 @@ mod tests {
         let _ = registry.workspace.as_ref();
         let _ = registry.role.as_ref();
         let _ = registry.permission.as_ref();
+        let _ = registry.policy.as_ref();
         let _ = registry.account.as_ref();
         let _ = registry.profile.as_ref();
         let _ = registry.project.as_ref();

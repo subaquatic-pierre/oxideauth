@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{
-        models::permission::{PermissionSet, PermissionRule},
+        models::{
+            permission::{PermissionSet, PermissionRule},
+            policy::Policy,
+        },
         traits::params::ValidateParams,
     },
     store::entities::{
@@ -30,8 +33,8 @@ use crate::{
         traits::{filter::OpValWorkspaceId, list::RequestListParams},
     },
     store::entities::role::{
-        JoinedPermissionOnRole, RoleFilter as StoreRoleFilter, RoleMeta as StoreRoleMeta, RoleRow,
-        RoleWithPermissions,
+        JoinedPermissionOnRole, JoinedPolicyOnRole, RoleFilter as StoreRoleFilter,
+        RoleMeta as StoreRoleMeta, RoleRow, RoleWithPermissions,
     },
     utils::id::id_or_string,
 };
@@ -47,6 +50,7 @@ pub struct Role {
     pub name: String,
     pub description: Option<String>,
     pub permissions: Vec<Permission>,
+    pub policies: Vec<Policy>,
 
     pub tags: Vec<String>,
     pub meta: RoleMeta,
@@ -65,9 +69,57 @@ impl From<RoleWithPermissions> for Role {
             name: row.name,
             description: row.description,
             permissions,
+            policies: vec![],
             tags: row.tags,
             meta: row.meta,
             audit: row.audit.into(),
+        }
+    }
+}
+
+/// A role paired with its resolved policies. Mirrors `RoleWithPermissions`;
+/// used by `RoleService::describe` to attach the `role_policy` join results.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RoleWithPolicies {
+    pub role: Role,
+    pub policies: Vec<Policy>,
+}
+
+impl From<RoleWithPolicies> for Role {
+    fn from(rwp: RoleWithPolicies) -> Self {
+        Self {
+            policies: rwp.policies,
+            ..rwp.role
+        }
+    }
+}
+
+/// Converts a `role_policy`-joined policy row into the core `Policy` model.
+///
+/// The `policy` table (and therefore the joined row) carries only
+/// `created_at`/`updated_at` audit columns, so the identity fields default to
+/// nil / None. Mirrors `From<PolicyRow> for Policy`.
+impl From<JoinedPolicyOnRole> for Policy {
+    fn from(row: JoinedPolicyOnRole) -> Self {
+        Self {
+            id: row.id.into(),
+            workspace_id: row.workspace_id,
+            name: row.name,
+            effect: row.effect,
+            principal_id: row.principal_id,
+            actions: row.actions,
+            resource: row.resource,
+            constraint: row.constraint_expr,
+            description: row.description,
+            tags: row.tags,
+            meta: row.meta,
+            audit: CoreAuditFields {
+                created_by: Uuid::nil(),
+                created_at: row.created_at,
+                updated_by: None,
+                updated_at: row.updated_at,
+                meta: AuditMeta::default(),
+            },
         }
     }
 }
@@ -80,6 +132,7 @@ impl Default for Role {
             name: "New Role".to_string(),
             description: None,
             permissions: vec![],
+            policies: vec![],
             tags: vec![],
             meta: RoleMeta {
                 schema_version: "1".to_string(),
@@ -95,6 +148,7 @@ pub struct RoleCreateParams {
     pub name: String,
     pub description: Option<String>,
     pub permission_ids: Vec<Uuid>,
+    pub policy_ids: Vec<Uuid>,
     pub tags: Vec<String>,
     pub meta: RoleMeta,
 }
@@ -123,6 +177,7 @@ impl RoleCreateParams {
             name: name.to_string(),
             description: desc.map(|d| d.to_string()),
             permission_ids: perm_ids,
+            policy_ids: vec![],
             tags: vec!["system".to_string()],
             meta: RoleMeta::default(),
         }
@@ -136,6 +191,7 @@ pub struct RoleUpdateParams {
     pub name: Option<String>,
     pub description: Option<String>,
     pub permission_ids: Option<Vec<Uuid>>, // To sync the join table
+    pub policy_ids: Option<Vec<Uuid>>, // To sync the join table
     pub tags: Option<Vec<String>>,
     pub meta: Option<RoleMeta>,
 }
@@ -284,7 +340,10 @@ impl Iterator for RolePermissions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::entities::audit::{AuditFields, AuditMeta};
+    use crate::{
+        core::models::policy::PolicyEffect,
+        store::entities::audit::{AuditFields, AuditMeta},
+    };
     use anyhow::Result;
     use time::OffsetDateTime;
 
@@ -341,6 +400,7 @@ mod tests {
         assert_eq!(role.meta.schema_version, "1");
         assert_eq!(role.audit.created_at, OffsetDateTime::UNIX_EPOCH);
         assert_eq!(role.permissions.len(), 1);
+        assert!(role.policies.is_empty(), "no policies loaded in this conversion");
 
         let perm = &role.permissions[0];
         assert_eq!(perm.name, "project:read");
@@ -358,6 +418,7 @@ mod tests {
         assert_eq!(role.workspace_id, Uuid::nil());
         assert!(role.description.is_none());
         assert!(role.permissions.is_empty());
+        assert!(role.policies.is_empty());
         assert!(role.tags.is_empty());
         assert_eq!(role.meta.schema_version, "1");
         assert_eq!(role.audit.created_by, Uuid::nil());
@@ -371,6 +432,7 @@ mod tests {
             name: "Editor".to_string(),
             description: Some("d".to_string()),
             permission_ids: vec![Uuid::new_v4()],
+            policy_ids: vec![Uuid::new_v4()],
             tags: vec!["t".to_string()],
             meta: RoleMeta {
                 schema_version: "1".to_string(),
@@ -400,6 +462,7 @@ mod tests {
         assert_eq!(params.name, "system-owner");
         assert_eq!(params.description.as_deref(), Some("system role"));
         assert_eq!(params.permission_ids, perm_ids);
+        assert!(params.policy_ids.is_empty(), "system roles carry no policies");
         assert_eq!(params.tags, vec!["system".to_string()]);
         assert_eq!(params.meta.schema_version, "");
 
@@ -416,6 +479,7 @@ mod tests {
             name: Some("N".to_string()),
             description: Some("d".to_string()),
             permission_ids: Some(vec![Uuid::new_v4()]),
+            policy_ids: Some(vec![Uuid::new_v4()]),
             tags: Some(vec!["t".to_string()]),
             meta: Some(RoleMeta {
                 schema_version: "2".to_string(),
@@ -427,6 +491,53 @@ mod tests {
         assert_eq!(store.description.as_deref(), Some("d"));
         assert_eq!(store.tags, Some(vec!["t".to_string()]));
         assert_eq!(store.meta.unwrap().schema_version, "2");
+    }
+
+    #[test]
+    fn test_role_with_policies_into_role() {
+        let mut role = Role::default();
+        role.id = Uuid::new_v4();
+        let policies = vec![Policy::default()];
+
+        let role: Role = RoleWithPolicies { role, policies }.into();
+        assert_eq!(role.policies.len(), 1);
+    }
+
+    #[test]
+    fn test_policy_from_joined_policy_on_role() {
+        use crate::store::entities::policy::{PolicyEffect as StorePolicyEffect, PolicyMeta};
+
+        let id = Uuid::new_v4();
+        let ws_id = Uuid::new_v4();
+        let joined = JoinedPolicyOnRole {
+            id: id.into(),
+            workspace_id: ws_id,
+            name: Some("self-update".to_string()),
+            effect: StorePolicyEffect::Allow,
+            principal_id: None,
+            actions: vec!["membership:update".to_string()],
+            resource: "self".to_string(),
+            constraint_expr: None,
+            description: Some("desc".to_string()),
+            tags: vec!["system".to_string()],
+            meta: PolicyMeta {
+                schema_version: "1".to_string(),
+            },
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: None,
+        };
+
+        let policy: Policy = joined.into();
+        assert_eq!(policy.id, id);
+        assert_eq!(policy.workspace_id, ws_id);
+        assert_eq!(policy.name.as_deref(), Some("self-update"));
+        assert_eq!(policy.effect, PolicyEffect::Allow);
+        assert_eq!(policy.actions, vec!["membership:update".to_string()]);
+        assert_eq!(policy.resource, "self");
+        assert_eq!(policy.audit.created_at, OffsetDateTime::UNIX_EPOCH);
+        // The policy table carries no created_by/updated_by columns.
+        assert_eq!(policy.audit.created_by, Uuid::nil());
+        assert!(policy.audit.updated_by.is_none());
     }
 
     #[test]

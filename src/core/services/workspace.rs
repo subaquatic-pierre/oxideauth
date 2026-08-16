@@ -17,6 +17,7 @@ use crate::{
             list::ListResponse,
             membership::MembershipFilter,
             permission::{PermissionCreateManyParams, PermissionCreateParams},
+            policy::{default_self_membership_policy, default_self_profile_policy, PolicyCreateParams},
             role::WorkspaceRoleCreateParams,
             workspace::{
                 Workspace, WorkspaceCreateParams, WorkspaceDeleteParams, WorkspaceDescribeParams,
@@ -26,6 +27,7 @@ use crate::{
         services::{
             validator::AuthValidator,
             permission::{CANONICAL_PERMISSIONS, PermissionService},
+            policy::PolicyService,
             project::ProjectService,
             role::RoleService,
         },
@@ -52,7 +54,7 @@ use crate::{
         },
         error::StoreError,
         manager::StoreManager,
-        stores::workspace::WorkspaceStore,
+        stores::workspace::{WorkspaceStore, SYSTEM_CONST},
         traits::{contains::FilterByContains, crud::*, dbx::DbExecutor},
         utils::{LIST_LIMIT_DEFAULT, ListOptionsValidator},
     },
@@ -74,6 +76,10 @@ pub struct WorkspaceService<D: DbExecutor, C: CacheExecutor> {
     /// `Weak` to break the Arc cycle with `ProjectService`.
     /// Set by `ServiceRegistry` via `wire_project_service()`.
     project_svc: OnceLock<Weak<ProjectService<D, C>>>,
+
+    /// `Weak` to break the Arc cycle with `PolicyService`.
+    /// Set by `ServiceRegistry` via `wire_policy_service()`.
+    policy_svc: OnceLock<Weak<PolicyService<D, C>>>,
 }
 
 impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
@@ -89,6 +95,7 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             role_svc: OnceLock::new(),
             perm_svc: OnceLock::new(),
             project_svc: OnceLock::new(),
+            policy_svc: OnceLock::new(),
         }
     }
 
@@ -110,6 +117,12 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         self.project_svc
             .set(Arc::downgrade(project))
             .expect("wire_project_service must only be called once");
+    }
+
+    pub(crate) fn wire_policy_service(&self, policy: &Arc<PolicyService<D, C>>) {
+        self.policy_svc
+            .set(Arc::downgrade(policy))
+            .expect("wire_policy_service must only be called once");
     }
 
     /// --- Resolvers ---
@@ -136,6 +149,14 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             .expect("ProjectService not wired")
             .upgrade()
             .expect("ProjectService Arc dropped before WorkspaceService")
+    }
+
+    fn policy_svc(&self) -> Arc<PolicyService<D, C>> {
+        self.policy_svc
+            .get()
+            .expect("PolicyService not wired")
+            .upgrade()
+            .expect("PolicyService Arc dropped before WorkspaceService")
     }
 
     pub async fn get_and_cache(
@@ -262,6 +283,65 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             .await?;
 
         tracing::info!(workspace_id = %workspace_id, "Default workspace roles seeded");
+        Ok(())
+    }
+
+    /// Seeds the default "self" policies (T024) into the workspace and attaches
+    /// them to the default viewer role (`WorkspaceViewer`).
+    ///
+    /// Must be called after `populate_ws_roles` so the `WorkspaceViewer` role
+    /// exists. Runs once per workspace: `PolicyService::create` enforces
+    /// `runtime_key` uniqueness, so a duplicate pass is rejected (no duplicate
+    /// seeding).
+    async fn populate_ws_self_policies(
+        &self,
+        ctx: &mut CoreCtx,
+        workspace_id: Uuid,
+    ) -> CoreResult<()> {
+        let policy_svc = self.policy_svc();
+
+        // 1. Create the two default "self" policy documents.
+        let documents = [
+            default_self_membership_policy(),
+            default_self_profile_policy(),
+        ];
+
+        let mut policy_ids: Vec<Uuid> = Vec::with_capacity(documents.len());
+        for document in documents {
+            let created = policy_svc
+                .create(
+                    ctx,
+                    PolicyCreateParams::from_document(workspace_id, document),
+                )
+                .await?;
+            policy_ids.push(created.id);
+        }
+
+        // 2. Look up the default viewer role (scoped to the new workspace).
+        let store_ctx: StoreCtx = ctx.into();
+        let viewer = self
+            .sm
+            .role
+            .get_by_name_opt(
+                &store_ctx,
+                SYSTEM_CONST.workspace_viewer_role,
+                DbId(workspace_id),
+            )
+            .await?
+            .ok_or_else(|| {
+                CoreError::InvalidParams(format!(
+                    "WorkspaceViewer role not found in workspace {workspace_id}"
+                ))
+            })?;
+
+        // 3. Attach the self policies to the viewer role (set semantics).
+        let policy_db_ids: Vec<DbId> = policy_ids.iter().map(|id| DbId::from(*id)).collect();
+        self.sm
+            .role
+            .set_many_to_many_policies(&store_ctx, &viewer.id, policy_db_ids)
+            .await?;
+
+        tracing::info!(workspace_id = %workspace_id, "Default self policies seeded");
         Ok(())
     }
 
@@ -413,6 +493,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Workspace
             CANONICAL_PERMISSIONS.role.describe,
         ]);
         self.populate_ws_roles(ctx, workspace_id).await?;
+
+        // 5b. Seed the default "self" policies and attach them to the Viewer role
+        ctx.escalate_perms(&[
+            CANONICAL_PERMISSIONS.policy.create,
+            CANONICAL_PERMISSIONS.policy.describe,
+            CANONICAL_PERMISSIONS.role.describe,
+        ]);
+        self.populate_ws_self_policies(ctx, workspace_id).await?;
 
         // 6. Create default project in the new workspace
         ctx.escalate_perms(&[CANONICAL_PERMISSIONS.project.create]);
@@ -566,7 +654,17 @@ mod tests {
         cache::{manager::CacheManager, mock::MockChx},
         config::Config,
         core::services::registry::ServiceRegistry,
-        store::{dbx::MockDbx, entities::workspace::WorkspaceRow},
+        store::{
+            dbx::MockDbx,
+            entities::{
+                audit::AuditFields,
+                id::DbId,
+                membership::MembershipRow,
+                policy::{PolicyEffect, PolicyMeta, PolicyRow},
+                role::{RoleMeta, RoleRow},
+                workspace::WorkspaceRow,
+            },
+        },
     };
     use serial_test::serial;
     use uuid::Uuid;
@@ -720,6 +818,141 @@ mod tests {
         };
         let err = svc.describe(&mut ctx, desc_params).await;
         assert!(err.is_err());
+
+        Ok(())
+    }
+
+    // --- default "self" policy seeding (US3, T025) ---
+
+    /// Builds a `PolicyRow` for the in-memory mock.
+    fn policy_row(id: Uuid, ws_id: Uuid, name: &str) -> PolicyRow {
+        PolicyRow {
+            id: DbId::from(id),
+            workspace_id: ws_id,
+            name: Some(name.to_string()),
+            effect: PolicyEffect::Allow,
+            principal_id: None,
+            actions: vec!["membership:update".to_string()],
+            resource: "self".to_string(),
+            constraint_expr: None,
+            description: None,
+            tags: vec![],
+            meta: PolicyMeta::default(),
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
+            updated_at: None,
+        }
+    }
+
+    /// Builds a `RoleRow` for the in-memory mock.
+    fn role_row(id: Uuid, ws_id: Uuid, name: &str) -> RoleRow {
+        RoleRow {
+            id: DbId::from(id),
+            workspace_id: ws_id,
+            name: name.to_string(),
+            description: None,
+            tags: vec![],
+            meta: RoleMeta::default(),
+            audit: AuditFields::default(),
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_populate_ws_self_policies_seeds_and_attaches() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let viewer_role_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // policy create #1 (membership) -> ensure_runtime_key_unique -> list (none)
+            .with_all::<PolicyRow>(vec![])
+            // policy create #1 -> store.create
+            .with_one::<PolicyRow>(policy_row(
+                Uuid::new_v4(),
+                ws_id,
+                "self-membership-update",
+            ))
+            // policy create #1 -> invalidate_memberships_for_policy ->
+            //   membership.list_containing_policies (none) + role.list_containing_policies (none)
+            .with_all::<MembershipRow>(vec![])
+            .with_all::<RoleRow>(vec![])
+            // policy create #2 (profile) -> ensure_runtime_key_unique -> list (none)
+            .with_all::<PolicyRow>(vec![])
+            // policy create #2 -> store.create
+            .with_one::<PolicyRow>(policy_row(Uuid::new_v4(), ws_id, "self-profile-update"))
+            // policy create #2 -> invalidate_memberships_for_policy ->
+            //   membership.list_containing_policies (none) + role.list_containing_policies (none)
+            .with_all::<MembershipRow>(vec![])
+            .with_all::<RoleRow>(vec![])
+            // viewer role lookup -> get_by_name_opt -> store.list
+            .with_all::<RoleRow>(vec![role_row(
+                viewer_role_id,
+                ws_id,
+                SYSTEM_CONST.workspace_viewer_role,
+            )])
+            // set_many_to_many_policies -> delete + insert
+            .with_execute(Ok(0))
+            .with_execute(Ok(0));
+        // Keep `svc_reg` alive for the duration of the call: the workspace
+        // service resolves `PolicyService` through a `Weak` reference.
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
+        let svc = svc_reg.workspace.clone();
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.set_scoped_ws(WorkspaceRow {
+            id: ws_id.into(),
+            ..Default::default()
+        }
+        .into());
+        ctx.escalate_perms(&["policy:create"])?;
+
+        svc.populate_ws_self_policies(&mut ctx, ws_id).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_populate_ws_self_policies_missing_viewer_role_fails() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // policy create #1 -> ensure_runtime_key_unique -> list (none)
+            .with_all::<PolicyRow>(vec![])
+            // policy create #1 -> store.create
+            .with_one::<PolicyRow>(policy_row(
+                Uuid::new_v4(),
+                ws_id,
+                "self-membership-update",
+            ))
+            // policy create #2 -> ensure_runtime_key_unique -> list (none)
+            .with_all::<PolicyRow>(vec![])
+            // policy create #2 -> store.create
+            .with_one::<PolicyRow>(policy_row(Uuid::new_v4(), ws_id, "self-profile-update"))
+            // viewer role lookup -> no WorkspaceViewer role exists
+            .with_all::<RoleRow>(vec![]);
+        // Keep `svc_reg` alive for the duration of the call: the workspace
+        // service resolves `PolicyService` through a `Weak` reference.
+        let config = Config::test_config();
+        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
+        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
+        let svc_reg = ServiceRegistry::new(&config, sm, cm);
+        let svc = svc_reg.workspace.clone();
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.set_scoped_ws(WorkspaceRow {
+            id: ws_id.into(),
+            ..Default::default()
+        }
+        .into());
+        ctx.escalate_perms(&["policy:create"])?;
+
+        let res = svc.populate_ws_self_policies(&mut ctx, ws_id).await;
+
+        assert!(
+            matches!(res, Err(CoreError::InvalidParams(_))),
+            "missing WorkspaceViewer role must fail with InvalidParams"
+        );
 
         Ok(())
     }

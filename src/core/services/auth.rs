@@ -337,6 +337,7 @@ where
                     status: Some(MembershipStatus::Active),
                     project_id: None,
                     role_ids: vec![viewer_role.id.into()],
+                    policy_ids: vec![],
                     tags: vec![],
                     meta: MembershipMeta {
                         schema_version: "1".to_string(),
