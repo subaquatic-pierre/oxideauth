@@ -6,6 +6,7 @@ pub mod hash;
 pub mod id;
 pub mod membership;
 pub mod permission;
+pub mod profile;
 pub mod project;
 pub mod role;
 pub mod workspace;

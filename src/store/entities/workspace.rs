@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::store::entities::audit::{AuditFields, AuditMeta};
 use crate::store::entities::credential::{CredentialProvider, DEFAULT_JWT_MAX_AGE};
 use crate::store::entities::id::DbId;
+use crate::store::entities::membership::MembershipStatus;
 use crate::store::entities::project::{ProjectConfig, ProjectMeta};
 use crate::store::error::{StoreError, StoreResult};
 use crate::store::traits::meta::HasId;
@@ -122,6 +123,10 @@ pub struct WorkspaceConfig {
     pub jwt_max_age: u64,
     pub jwt_secret: String,
     pub public: bool,
+    /// The status assigned to newly created memberships when the caller does
+    /// not specify one (used by the membership email-resolve flow).
+    #[serde(default)]
+    pub default_membership_status: MembershipStatus,
 }
 
 impl Default for WorkspaceConfig {
@@ -133,6 +138,7 @@ impl Default for WorkspaceConfig {
             // use workspace jwt_secret for token generation
             jwt_secret: "".to_string(),
             public: false,
+            default_membership_status: MembershipStatus::default(),
         }
     }
 }
@@ -255,6 +261,27 @@ mod tests {
         assert!(!config.public);
         assert!(config.allowed_auth_providers.is_empty());
         assert_eq!(config.jwt_secret, "");
+        assert_eq!(
+            config.default_membership_status,
+            MembershipStatus::default()
+        );
+    }
+
+    #[test]
+    fn test_workspace_config_legacy_json_missing_default_status() {
+        // Legacy JSONB config without `default_membership_status` must still
+        // deserialize (the field is `#[serde(default)]`).
+        let legacy: WorkspaceConfig = serde_json::from_value(json!({
+            "allowed_auth_providers": ["google"],
+            "jwt_max_age": 120,
+            "jwt_secret": "s3cret",
+            "public": true,
+        }))
+        .unwrap();
+
+        assert_eq!(legacy.default_membership_status, MembershipStatus::Invited);
+        assert_eq!(legacy.jwt_max_age, 120);
+        assert!(legacy.public);
     }
 
     #[test]

@@ -14,8 +14,8 @@ use crate::{
         handlers::{
             account::AccountRouter, auth::AuthRouter, client::ClientRouter,
             credential::CredentialRouter, membership::MembershipRouter,
-            permission::PermissionRouter, project::ProjectRouter, role::RoleRouter,
-            root::RootRouter, workspace::WorkspaceRouter,
+            permission::PermissionRouter, profile::ProfileRouter, project::ProjectRouter,
+            role::RoleRouter, root::RootRouter, workspace::WorkspaceRouter,
         },
         middlewares::{
             cors::build_cors,
@@ -49,6 +49,7 @@ impl AppRouter {
             .nest("/accounts", AccountRouter::routes())
             .nest("/workspace", WorkspaceRouter::routes())
             .nest("/projects", ProjectRouter::routes())
+            .nest("/profiles", ProfileRouter::routes())
             .nest("/clients", ClientRouter::routes())
             .nest("/roles", RoleRouter::routes())
             .nest("/permissions", PermissionRouter::routes())

@@ -12,6 +12,7 @@ use crate::{
             credential::CredentialService,
             membership::MembershipService,
             permission::PermissionService,
+            profile::ProfileService,
             project::ProjectService,
             role::RoleService,
             token::{TokenService, TokenServiceConfig},
@@ -34,6 +35,7 @@ pub struct ServiceRegistry<D: DbExecutor, C: CacheExecutor> {
     pub role: Arc<RoleService<D, C>>,
     pub permission: Arc<PermissionService<D, C>>,
     pub account: Arc<AccountService<D, C>>,
+    pub profile: Arc<ProfileService<D, C>>,
     pub project: Arc<ProjectService<D, C>>,
     pub token: Arc<TokenService<D, C>>,
     pub credential: Arc<CredentialService<D, C>>,
@@ -81,6 +83,12 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             workspace.clone(),
             auth_validator.clone(),
         ));
+        let profile = Arc::new(ProfileService::new(
+            sm.clone(),
+            cm.clone(),
+            workspace.clone(),
+            auth_validator.clone(),
+        ));
         let project = Arc::new(ProjectService::new(
             sm.clone(),
             workspace.clone(),
@@ -98,6 +106,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             cm.clone(),
             workspace.clone(),
             account.clone(),
+            profile.clone(),
             role.clone(),
             auth_validator.clone(),
         ));
@@ -133,6 +142,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             role,
             permission,
             account,
+            profile,
             project,
             token,
             credential,
@@ -185,6 +195,7 @@ mod tests {
         let _ = registry.role.as_ref();
         let _ = registry.permission.as_ref();
         let _ = registry.account.as_ref();
+        let _ = registry.profile.as_ref();
         let _ = registry.project.as_ref();
         let _ = registry.token.as_ref();
         let _ = registry.credential.as_ref();
