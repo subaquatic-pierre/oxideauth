@@ -1,8 +1,8 @@
 use axum::{
+    Router,
     error_handling::HandleErrorLayer,
     extract::Extension,
     middleware::{from_fn, map_response},
-    Router,
 };
 use std::time::Duration;
 use tower::ServiceBuilder;
@@ -14,9 +14,8 @@ use crate::{
         handlers::{
             account::AccountRouter, auth::AuthRouter, client::ClientRouter,
             credential::CredentialRouter, membership::MembershipRouter,
-            permission::PermissionRouter, policy::PolicyRouter, project::ProjectRouter,
-            permission::PermissionRouter, profile::ProfileRouter, project::ProjectRouter,
-            role::RoleRouter, root::RootRouter, workspace::WorkspaceRouter,
+            permission::PermissionRouter, policy::PolicyRouter, profile::ProfileRouter,
+            project::ProjectRouter, role::RoleRouter, root::RootRouter, workspace::WorkspaceRouter,
         },
         middlewares::{
             cors::build_cors,

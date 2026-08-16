@@ -13,8 +13,8 @@ use crate::{
             list::ListResponse,
             permission::PermissionRule,
             policy::{
-                parse_constraint, runtime_key, Policy, PolicyCreateParams, PolicyDeleteParams,
-                PolicyDescribeParams, PolicyListParams, PolicySet, PolicyUpdateParams,
+                Policy, PolicyCreateParams, PolicyDeleteParams, PolicyDescribeParams,
+                PolicyListParams, PolicySet, PolicyUpdateParams, parse_constraint, runtime_key,
             },
         },
         services::{
@@ -32,12 +32,7 @@ use crate::{
     store::{
         contains::FilterByContains,
         ctx::StoreCtx,
-        entities::{
-            id::DbId,
-            membership::MembershipRow,
-            policy::PolicyEffect,
-            role::RoleRow,
-        },
+        entities::{id::DbId, membership::MembershipRow, policy::PolicyEffect, role::RoleRow},
         error::StoreError,
         join::GetManyToMany,
         manager::StoreManager,
@@ -308,7 +303,12 @@ impl<D: DbExecutor, C: CacheExecutor> PolicyService<D, C> {
         }
 
         // membership -> policies (directly attached)
-        policies.extend(membership_with_policies.policies.into_iter().map(Into::into));
+        policies.extend(
+            membership_with_policies
+                .policies
+                .into_iter()
+                .map(Into::into),
+        );
 
         Ok(PolicySet::from_policies(policies))
     }
@@ -442,15 +442,16 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for PolicySer
             .actions
             .clone()
             .unwrap_or_else(|| current.actions.clone());
-        let resource = params.resource.clone().unwrap_or_else(|| current.resource.clone());
-        let constraint = params.constraint.clone().or(current.constraint_expr.clone());
+        let resource = params
+            .resource
+            .clone()
+            .unwrap_or_else(|| current.resource.clone());
+        let constraint = params
+            .constraint
+            .clone()
+            .or(current.constraint_expr.clone());
 
-        Self::validate_policy_body(
-            effect.clone(),
-            &actions,
-            &resource,
-            constraint.as_deref(),
-        )?;
+        Self::validate_policy_body(effect.clone(), &actions, &resource, constraint.as_deref())?;
 
         // Enforce runtime-key uniqueness within the workspace (FR-003), excluding
         // the policy's own id.
@@ -464,7 +465,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for PolicySer
         )
         .await?;
 
-        let res = store.update(&store_ctx, &params.id.into(), params.into()).await?;
+        let res = store
+            .update(&store_ctx, &params.id.into(), params.into())
+            .await?;
 
         // The policy body changed: every membership whose effective set includes
         // it now holds a stale `oxauth:policy:{mem_id}` entry.
@@ -505,7 +508,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for PolicySer
             Err(StoreError::ConstraintViolation) => {
                 return Err(CoreError::InvalidParams(format!(
                     "policy '{}' is still attached to one or more roles or memberships and cannot be deleted",
-                    to_delete.name.as_deref().unwrap_or(&to_delete.id.to_string())
+                    to_delete
+                        .name
+                        .as_deref()
+                        .unwrap_or(&to_delete.id.to_string())
                 )));
             }
             Err(err) => return Err(err.into()),
@@ -527,8 +533,7 @@ mod tests {
     use super::*;
     use crate::{
         cache::{
-            entities::policy::PolicyCache,
-            manager::CacheManager, mock::MockChx,
+            entities::policy::PolicyCache, manager::CacheManager, mock::MockChx,
             traits::CacheEntity,
         },
         config::Config,
@@ -539,8 +544,9 @@ mod tests {
                 audit::AuditFields,
                 id::DbId,
                 membership::{
-                    JoinedPolicyOnMembership, JoinedRoleOnMembership, MembershipMeta, MembershipRow,
-                    MembershipScope, MembershipStatus, MembershipWithPolicies, MembershipWithRoles,
+                    JoinedPolicyOnMembership, JoinedRoleOnMembership, MembershipMeta,
+                    MembershipRow, MembershipScope, MembershipStatus, MembershipWithPolicies,
+                    MembershipWithRoles,
                 },
                 policy::{PolicyMeta, PolicyRow},
                 role::{JoinedPolicyOnRole, RoleMeta, RoleRow, RoleWithPolicies},
@@ -650,11 +656,7 @@ mod tests {
                 ..Default::default()
             }))
             // create -> ensure_runtime_key_unique -> store.list (one existing policy)
-            .with_all::<PolicyRow>(vec![policy_row(
-                existing_id,
-                ws_id,
-                Some("existing"),
-            )]);
+            .with_all::<PolicyRow>(vec![policy_row(existing_id, ws_id, Some("existing"))]);
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.escalate_perms(&["policy:create"])?;
@@ -789,11 +791,7 @@ mod tests {
                 ..Default::default()
             }))
             // describe -> store.get
-            .with_optional::<PolicyRow>(Some(policy_row(
-                policy_id,
-                ws_id,
-                Some("self-update"),
-            )));
+            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.escalate_perms(&["policy:describe"])?;
@@ -866,11 +864,7 @@ mod tests {
                 ..Default::default()
             }))
             // update -> store.get (current row)
-            .with_optional::<PolicyRow>(Some(policy_row(
-                policy_id,
-                ws_id,
-                Some("self-update"),
-            )))
+            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))))
             // update -> ensure_runtime_key_unique -> store.list (only itself)
             .with_all::<PolicyRow>(vec![policy_row(policy_id, ws_id, Some("self-update"))])
             // update -> store.update
@@ -903,7 +897,8 @@ mod tests {
 
     #[tokio::test]
     #[serial]
-    async fn test_policy_update_invalidates_policy_cache_for_affected_memberships() -> CoreResult<()> {
+    async fn test_policy_update_invalidates_policy_cache_for_affected_memberships() -> CoreResult<()>
+    {
         let ws_id = Uuid::new_v4();
         let policy_id = Uuid::new_v4();
         let mem_id = Uuid::new_v4();
@@ -915,11 +910,7 @@ mod tests {
                 ..Default::default()
             }))
             // update -> store.get (current row)
-            .with_optional::<PolicyRow>(Some(policy_row(
-                policy_id,
-                ws_id,
-                Some("self-update"),
-            )))
+            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))))
             // update -> ensure_runtime_key_unique -> store.list (only itself)
             .with_all::<PolicyRow>(vec![policy_row(policy_id, ws_id, Some("self-update"))])
             // update -> store.update
@@ -997,11 +988,7 @@ mod tests {
                 ..Default::default()
             }))
             // update -> store.get (current row: allow|membership:update|self|)
-            .with_optional::<PolicyRow>(Some(policy_row(
-                policy_id,
-                ws_id,
-                Some("self-update"),
-            )))
+            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))))
             // update -> ensure_runtime_key_unique -> store.list (another identical policy)
             .with_all::<PolicyRow>(vec![policy_row(other_id, ws_id, Some("other"))]);
         let svc = mock_svc(dbx);
@@ -1047,17 +1034,9 @@ mod tests {
                 ..Default::default()
             }))
             // delete -> describe -> store.get
-            .with_optional::<PolicyRow>(Some(policy_row(
-                policy_id,
-                ws_id,
-                Some("self-update"),
-            )))
+            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))))
             // delete -> store.delete
-            .with_optional::<PolicyRow>(Some(policy_row(
-                policy_id,
-                ws_id,
-                Some("self-update"),
-            )));
+            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))));
         let svc = mock_svc(dbx);
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.escalate_perms(&["policy:delete", "policy:describe"])?;
@@ -1143,6 +1122,7 @@ mod tests {
             workspace_id: ws_id,
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
+            profile_id: None,
             project_id: None,
             version: 1,
             tags: vec![],
@@ -1270,7 +1250,11 @@ mod tests {
             "direct membership deny must win over any allow"
         );
         assert_eq!(
-            set.get("profile:update", "self", Some("profile.account.id === user.id")),
+            set.get(
+                "profile:update",
+                "self",
+                Some("profile.account.id === user.id")
+            ),
             Some(PolicyEffect::Allow),
             "role-derived allow must be present in the union"
         );

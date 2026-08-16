@@ -18,8 +18,8 @@ use crate::{
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{
-            validator::AuthValidator,
             permission::{CANONICAL_PERMISSIONS, PermissionService},
+            validator::AuthValidator,
             workspace::WorkspaceService,
         },
         traits::{
@@ -136,9 +136,7 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
         let store = self.store();
 
         let role_with_perms_row = store.get_many_to_many(store_ctx, role_id).await?;
-        let role_with_policies_row = store
-            .get_many_to_many_policies(store_ctx, role_id)
-            .await?;
+        let role_with_policies_row = store.get_many_to_many_policies(store_ctx, role_id).await?;
 
         let role: Role = RoleWithPolicies {
             role: role_with_perms_row.into(),
@@ -281,7 +279,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for RoleSer
             .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
             .await?;
 
-        let role = self.hydrate_role_policies(&store_ctx, &params.id.into()).await?;
+        let role = self
+            .hydrate_role_policies(&store_ctx, &params.id.into())
+            .await?;
 
         Ok(role)
     }
@@ -463,7 +463,8 @@ mod tests {
     use super::*;
     use crate::{
         cache::{
-            entities::policy::PolicyCache, manager::CacheManager, mock::MockChx, traits::CacheEntity,
+            entities::policy::PolicyCache, manager::CacheManager, mock::MockChx,
+            traits::CacheEntity,
         },
         config::Config,
         core::{
@@ -496,6 +497,7 @@ mod tests {
             workspace_id: ws_id,
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
+            profile_id: None,
             project_id: None,
             version: 1,
             tags: vec![],
@@ -658,8 +660,16 @@ mod tests {
             .await?;
 
         assert_eq!(role.id, role_id);
-        assert_eq!(role.policies.len(), 2, "describe should resolve role policies");
-        assert!(role.policies.iter().any(|p| p.name.as_deref() == Some("self-update")));
+        assert_eq!(
+            role.policies.len(),
+            2,
+            "describe should resolve role policies"
+        );
+        assert!(
+            role.policies
+                .iter()
+                .any(|p| p.name.as_deref() == Some("self-update"))
+        );
 
         Ok(())
     }

@@ -93,12 +93,12 @@ impl IntoParams<MembershipCreateParams> for MembershipCreateReq {
             (Some(_), Some(_)) => {
                 return Err(CoreError::InvalidParams(
                     "provide exactly one of 'email' or 'account_id'".to_string(),
-                ))
+                ));
             }
             (None, None) => {
                 return Err(CoreError::InvalidParams(
                     "provide exactly one of 'email' or 'account_id'".to_string(),
-                ))
+                ));
             }
             _ => {}
         }
@@ -257,6 +257,7 @@ mod tests {
             account_id: None,
             email: None,
             scope: MembershipScope::Workspace,
+            policy_ids: vec![],
             status: None,
             project_id: None,
             role_ids: vec![],
@@ -272,6 +273,7 @@ mod tests {
             account_id: Some(Uuid::new_v4()),
             email: Some("a@b.com".to_string()),
             scope: MembershipScope::Workspace,
+            policy_ids: vec![],
             status: None,
             project_id: None,
             role_ids: vec![],

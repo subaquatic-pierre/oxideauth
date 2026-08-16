@@ -22,8 +22,8 @@ use crate::{
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{
-            account::AccountService, validator::AuthValidator, permission::CANONICAL_PERMISSIONS,
-            profile::ProfileService, role::RoleService, workspace::WorkspaceService,
+            account::AccountService, permission::CANONICAL_PERMISSIONS, profile::ProfileService,
+            role::RoleService, validator::AuthValidator, workspace::WorkspaceService,
         },
         traits::{
             list::RequestListParams,
@@ -211,16 +211,17 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
                 match created {
                     Ok(profile) => profile.id,
                     // Concurrent create won the race — fetch the existing profile.
-                    Err(CoreError::AlreadyExists(_)) => self
-                        .profile_svc
-                        .find_by_account_workspace(ctx, account_id, workspace_id)
-                        .await?
-                        .ok_or_else(|| {
-                            CoreError::AlreadyExists(
-                                "profile missing after duplicate create".to_string(),
-                            )
-                        })?
-                        .id,
+                    Err(CoreError::AlreadyExists(_)) => {
+                        self.profile_svc
+                            .find_by_account_workspace(ctx, account_id, workspace_id)
+                            .await?
+                            .ok_or_else(|| {
+                                CoreError::AlreadyExists(
+                                    "profile missing after duplicate create".to_string(),
+                                )
+                            })?
+                            .id
+                    }
                     Err(err) => return Err(err),
                 }
             }
@@ -329,7 +330,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
 
         // --- Resolve (account_id, profile_id) ---
         let (account_id, profile_id) = if let Some(email) = &params.email {
-            self.resolve_account_and_profile(ctx, email, workspace_id).await?
+            self.resolve_account_and_profile(ctx, email, workspace_id)
+                .await?
         } else {
             let account_id = params.account_id.ok_or_else(|| {
                 CoreError::InvalidParams(
@@ -425,9 +427,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Members
         let roles = self.get_roles(ctx, membership_with_roles.roles).await?;
 
         // Get Membership with Policies (Join query)
-        let membership_with_policies = store
-            .get_many_to_many_policies(&store_ctx, &db_id)
-            .await?;
+        let membership_with_policies = store.get_many_to_many_policies(&store_ctx, &db_id).await?;
         let policies = membership_with_policies
             .policies
             .into_iter()
@@ -661,7 +661,8 @@ mod tests {
     use super::*;
     use crate::{
         cache::{
-            entities::policy::PolicyCache, manager::CacheManager, mock::MockChx, traits::CacheEntity,
+            entities::policy::PolicyCache, manager::CacheManager, mock::MockChx,
+            traits::CacheEntity,
         },
         config::Config,
         core::{
@@ -876,6 +877,7 @@ mod tests {
             email: Some(email),
             workspace_id: ws_id,
             role_ids: vec![],
+            policy_ids: vec![],
             scope: MembershipScope::Workspace,
             status: None,
             profile_id: None,

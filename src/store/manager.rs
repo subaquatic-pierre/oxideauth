@@ -6,8 +6,7 @@ use crate::store::{
     stores::{
         account::AccountStore, client::ClientStore, credential::CredentialStore,
         membership::MembershipStore, permission::PermissionStore, policy::PolicyStore,
-        membership::MembershipStore, permission::PermissionStore, profile::ProfileStore,
-        project::ProjectStore, role::RoleStore, workspace::WorkspaceStore,
+        profile::ProfileStore, project::ProjectStore, role::RoleStore, workspace::WorkspaceStore,
     },
     traits::dbx::DbExecutor,
 };

@@ -24,10 +24,6 @@ use crate::{
             MembershipForCreate, MembershipForUpdate, MembershipMeta as StoreMembershipMeta,
             MembershipRow, MembershipScope, MembershipStatus, MembershipWithRoles,
         },
-    store::entities::membership::{
-        MembershipFilter as StoreMembershipFilter, MembershipForUpdate,
-        MembershipMeta as StoreMembershipMeta, MembershipRow, MembershipScope, MembershipStatus,
-        MembershipWithRoles,
     },
 };
 
@@ -234,8 +230,7 @@ impl Default for Membership {
 mod tests {
     use super::*;
     use crate::{
-        core::models::policy::PolicyEffect,
-        core::traits::filter::OpValIsString,
+        core::models::policy::PolicyEffect, core::traits::filter::OpValIsString,
         store::entities::audit::AuditFields,
     };
     use time::OffsetDateTime;
@@ -347,7 +342,11 @@ mod tests {
         membership.id = Uuid::new_v4();
         let policies = vec![Policy::default()];
 
-        let membership: Membership = MembershipWithPolicies { membership, policies }.into();
+        let membership: Membership = MembershipWithPolicies {
+            membership,
+            policies,
+        }
+        .into();
         assert_eq!(membership.policies.len(), 1);
     }
 
