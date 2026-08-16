@@ -45,6 +45,29 @@ impl<D: DbExecutor> ProfileStore<D> {
 
         Ok(self.list(ctx, Some(filter), None).await?.into_iter().next())
     }
+
+    /// Finds the single profile with the given email within a workspace (if any).
+    ///
+    /// The email is normalized (trimmed + lowercased) for a case-insensitive
+    /// lookup. Stored emails are lowercased on write (via the core email
+    /// validator), so exact equality is sufficient and aligns with the
+    /// `profile_workspace_email_lower_key` unique index.
+    pub async fn find_by_email_workspace(
+        &self,
+        ctx: &StoreCtx,
+        workspace_id: Uuid,
+        email: &str,
+    ) -> StoreResult<Option<ProfileRow>> {
+        let normalized = email.trim().to_lowercase();
+
+        let filter: ProfileFilter = json!({
+            "workspace_id": workspace_id.to_string(),
+            "email": normalized,
+        })
+        .try_into()?;
+
+        Ok(self.list(ctx, Some(filter), None).await?.into_iter().next())
+    }
 }
 
 // region:    --- Base Trait Implementations
@@ -314,6 +337,53 @@ mod tests {
         // -- Assert
         assert!(found.is_some());
         assert_eq!(found.unwrap().account_id, account_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_find_by_email_workspace_ok() -> Result<()> {
+        // -- Setup
+        let account_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        let dbx = Arc::new(
+            MockDbx::new().with_all::<ProfileRow>(vec![ProfileRow {
+                account_id,
+                workspace_id,
+                email: "alice@example.com".into(),
+                ..profile_row()
+            }]),
+        );
+        let store = ProfileStore::new(dbx);
+        let ctx = StoreCtx::bootstrap();
+
+        // -- Execute
+        // Case-insensitive + whitespace-tolerant lookup.
+        let found = store
+            .find_by_email_workspace(&ctx, workspace_id, "  ALICE@example.com ")
+            .await?;
+
+        // -- Assert
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().workspace_id, workspace_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_find_by_email_workspace_not_found() -> Result<()> {
+        // -- Setup
+        let dbx = Arc::new(MockDbx::new().with_all::<ProfileRow>(vec![]));
+        let store = ProfileStore::new(dbx);
+        let ctx = StoreCtx::bootstrap();
+
+        // -- Execute
+        let found = store
+            .find_by_email_workspace(&ctx, Uuid::new_v4(), "missing@example.com")
+            .await?;
+
+        // -- Assert
+        assert!(found.is_none());
 
         Ok(())
     }

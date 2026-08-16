@@ -15,7 +15,8 @@ use crate::core::traits::params::IntoParams;
 // --- ProfileDescribeReq ---
 #[derive(Deserialize)]
 pub struct ProfileDescribeReq {
-    pub id: Uuid,
+    pub id: Option<Uuid>,
+    pub email: Option<String>,
 }
 
 // Implement IntoParams to convert Web Req to Core Param
@@ -23,6 +24,7 @@ impl IntoParams<ProfileDescribeParams> for ProfileDescribeReq {
     fn into_params(self, workspace_id: Uuid) -> CoreResult<ProfileDescribeParams> {
         Ok(ProfileDescribeParams {
             id: self.id,
+            email: self.email,
             workspace_id,
         })
     }
@@ -169,9 +171,38 @@ mod tests {
     fn test_profile_describe_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = ProfileDescribeReq { id }.into_params(ws_id).unwrap();
-        assert_eq!(params.id, id);
+
+        // id-only
+        let params = ProfileDescribeReq {
+            id: Some(id),
+            email: None,
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.id, Some(id));
+        assert_eq!(params.email, None);
         assert_eq!(params.workspace_id, ws_id);
+
+        // email-only
+        let params = ProfileDescribeReq {
+            id: None,
+            email: Some("alice@example.com".to_string()),
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.id, None);
+        assert_eq!(params.email.as_deref(), Some("alice@example.com"));
+        assert_eq!(params.workspace_id, ws_id);
+
+        // both supplied (id precedence resolved in the service)
+        let params = ProfileDescribeReq {
+            id: Some(id),
+            email: Some("alice@example.com".to_string()),
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.id, Some(id));
+        assert_eq!(params.email.as_deref(), Some("alice@example.com"));
     }
 
     #[test]

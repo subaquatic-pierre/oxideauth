@@ -19,6 +19,7 @@ use crate::{
         ProfileFilter as StoreProfileFilter, ProfileForCreate, ProfileForUpdate,
         ProfileMeta as StoreProfileMeta, ProfileRow,
     },
+    utils::id::id_or_string,
 };
 
 pub type ProfileMeta = StoreProfileMeta;
@@ -105,12 +106,25 @@ pub struct ProfileCreateParams {
 
 #[derive(Debug, Deserialize)]
 pub struct ProfileDescribeParams {
-    pub id: Uuid,
+    pub id: Option<Uuid>,
+    pub email: Option<String>,
     pub workspace_id: Uuid,
+}
+
+impl ProfileDescribeParams {
+    /// Returns the id (as a string) when present, otherwise the email.
+    pub fn id_or_email(&self) -> CoreResult<String> {
+        id_or_string(self.id, self.email.clone(), Some("ID or email required"))
+    }
 }
 
 impl ValidateParams for ProfileDescribeParams {
     fn validate(self) -> CoreResult<Self> {
+        if self.id.is_none() && self.email.is_none() {
+            return Err(CoreError::InvalidParams(
+                "ID or email required".to_string(),
+            ));
+        }
         Ok(self)
     }
 }
@@ -315,11 +329,61 @@ mod tests {
 
     #[test]
     fn test_profile_describe_params_validate() {
+        let ws_id = Uuid::new_v4();
+
+        // id-only is valid
         let params = ProfileDescribeParams {
-            id: Uuid::new_v4(),
-            workspace_id: Uuid::new_v4(),
+            id: Some(Uuid::new_v4()),
+            email: None,
+            workspace_id: ws_id,
         };
         assert!(params.validate().is_ok());
+
+        // email-only is valid
+        let params = ProfileDescribeParams {
+            id: None,
+            email: Some("alice@example.com".to_string()),
+            workspace_id: ws_id,
+        };
+        assert!(params.validate().is_ok());
+
+        // neither id nor email is invalid
+        let params = ProfileDescribeParams {
+            id: None,
+            email: None,
+            workspace_id: ws_id,
+        };
+        assert!(matches!(
+            params.validate(),
+            Err(CoreError::InvalidParams(msg)) if msg == "ID or email required"
+        ));
+    }
+
+    #[test]
+    fn test_profile_describe_params_id_or_email() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+
+        let params = ProfileDescribeParams {
+            id: Some(id),
+            email: Some("alice@example.com".to_string()),
+            workspace_id: ws_id,
+        };
+        assert_eq!(params.id_or_email().unwrap(), id.to_string());
+
+        let params = ProfileDescribeParams {
+            id: None,
+            email: Some("alice@example.com".to_string()),
+            workspace_id: ws_id,
+        };
+        assert_eq!(params.id_or_email().unwrap(), "alice@example.com");
+
+        let params = ProfileDescribeParams {
+            id: None,
+            email: None,
+            workspace_id: ws_id,
+        };
+        assert!(params.id_or_email().is_err());
     }
 
     #[test]

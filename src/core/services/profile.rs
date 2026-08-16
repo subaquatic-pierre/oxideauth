@@ -34,6 +34,7 @@ use crate::{
             membership::MembershipFilter,
             profile::{ProfileForCreate, ProfileForUpdate, ProfileRow},
         },
+        error::StoreError,
         manager::StoreManager,
         stores::profile::ProfileStore,
         traits::{contains::FilterByContains, crud::*, dbx::DbExecutor},
@@ -143,9 +144,34 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ProfileSe
             )));
         }
 
+        // Guard: profile email must be unique within the workspace
+        if store
+            .find_by_email_workspace(&store_ctx, params.workspace_id, &params.email)
+            .await?
+            .is_some()
+        {
+            return Err(CoreError::EmailConflict(format!(
+                "profile email '{}' already in use in workspace '{}'",
+                params.email, params.workspace_id
+            )));
+        }
+
+        let conflict_msg = format!(
+            "profile email '{}' already in use in workspace '{}'",
+            params.email, params.workspace_id
+        );
+
         let n_profile: ProfileForCreate = params.into();
 
-        let profile_row = store.create(&store_ctx, n_profile).await?;
+        // The unique index is the authoritative backstop for concurrent inserts;
+        // map a 23505 unique_violation to the same friendly email-conflict error.
+        let profile_row = match store.create(&store_ctx, n_profile).await {
+            Ok(row) => row,
+            Err(StoreError::ConstraintViolation) => {
+                return Err(CoreError::EmailConflict(conflict_msg));
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         Ok(profile_row.into())
     }
@@ -167,7 +193,30 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Profile
             .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
             .await?;
 
-        let row = store.get(&store_ctx, &params.id.into()).await?;
+        // Prefer id; fall back to email. At least one is required (validated).
+        let row = match params.id {
+            Some(id) => store.get(&store_ctx, &id.into()).await?,
+            None => {
+                let email = params
+                    .email
+                    .as_deref()
+                    .map(crate::core::email::validate_email)
+                    .transpose()?
+                    .ok_or_else(|| {
+                        CoreError::InvalidParams("ID or email required".to_string())
+                    })?;
+
+                store
+                    .find_by_email_workspace(&store_ctx, params.workspace_id, &email)
+                    .await?
+                    .ok_or_else(|| {
+                        CoreError::NotFound(format!(
+                            "profile with email '{}' not found in workspace '{}'",
+                            email, params.workspace_id
+                        ))
+                    })?
+            }
+        };
 
         Ok(row.into())
     }
@@ -232,15 +281,41 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for ProfileSe
             .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
             .await?;
 
+        // Guard: if the email is being changed, ensure it is not already used by
+        // a *different* profile in this workspace (self-excluded).
+        if let Some(email) = &params.email {
+            if let Some(existing) = store
+                .find_by_email_workspace(&store_ctx, params.workspace_id, email)
+                .await?
+            {
+                if existing.id != params.id.into() {
+                    return Err(CoreError::EmailConflict(format!(
+                        "profile email '{}' already in use in workspace '{}'",
+                        email, params.workspace_id
+                    )));
+                }
+            }
+        }
+
         // Bump version based on the current profile state
         let cur_row = store.get(&store_ctx, &params.id.into()).await?;
         let new_version = cur_row.version + 1;
         let id = params.id;
+        let conflict_msg = format!(
+            "profile email '{}' already in use in workspace '{}'",
+            params.email.as_deref().unwrap_or_default(),
+            params.workspace_id
+        );
         let update_data: ProfileForUpdate = params.into_store_params(new_version);
 
-        let profile_row = store
-            .update(&store_ctx, &id.into(), update_data)
-            .await?;
+        // Map a 23505 unique_violation to the friendly email-conflict error.
+        let profile_row = match store.update(&store_ctx, &id.into(), update_data).await {
+            Ok(row) => row,
+            Err(StoreError::ConstraintViolation) => {
+                return Err(CoreError::EmailConflict(conflict_msg));
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         Ok(profile_row.into())
     }
@@ -370,7 +445,9 @@ mod tests {
         let profile_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
-            // create -> duplicate guard -> list (no existing profile)
+            // create -> account/workspace duplicate guard -> list (no existing profile)
+            .with_all::<ProfileRow>(vec![])
+            // create -> email uniqueness guard -> list (no existing email)
             .with_all::<ProfileRow>(vec![])
             // create -> store.create
             .with_one::<ProfileRow>(profile_row(profile_id, account_id, ws_id));
@@ -446,6 +523,93 @@ mod tests {
 
     #[tokio::test]
     #[serial]
+    async fn test_profile_create_email_conflict() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let other_account_id = Uuid::new_v4();
+
+        // Account/workspace guard finds nothing, but the email guard finds an
+        // existing profile (a different account) already using the email.
+        let dbx = MockDbx::new()
+            .with_all::<ProfileRow>(vec![])
+            .with_all::<ProfileRow>(vec![profile_row(
+                Uuid::new_v4(),
+                other_account_id,
+                ws_id,
+            )]);
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.escalate_perms(&["profile:create"])?;
+
+        let params = ProfileCreateParams {
+            account_id,
+            workspace_id: ws_id,
+            email: "alice@example.com".to_string(),
+            name: "conflict".to_string(),
+            description: None,
+            display_name: None,
+            job_title: None,
+            timezone: None,
+            avatar_url: None,
+            tags: vec![],
+            meta: ProfileMeta::default(),
+        };
+
+        let res = svc.create(&mut ctx, params).await;
+
+        assert!(
+            matches!(res, Err(CoreError::EmailConflict(_))),
+            "email conflict must produce EmailConflict"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_profile_create_email_case_insensitive_conflict() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let other_account_id = Uuid::new_v4();
+
+        // Stored email is lowercased; the guard normalizes the incoming email.
+        let dbx = MockDbx::new()
+            .with_all::<ProfileRow>(vec![])
+            .with_all::<ProfileRow>(vec![profile_row(
+                Uuid::new_v4(),
+                other_account_id,
+                ws_id,
+            )]);
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.escalate_perms(&["profile:create"])?;
+
+        let params = ProfileCreateParams {
+            account_id,
+            workspace_id: ws_id,
+            email: "ALICE@example.com".to_string(),
+            name: "conflict".to_string(),
+            description: None,
+            display_name: None,
+            job_title: None,
+            timezone: None,
+            avatar_url: None,
+            tags: vec![],
+            meta: ProfileMeta::default(),
+        };
+
+        let res = svc.create(&mut ctx, params).await;
+
+        assert!(
+            matches!(res, Err(CoreError::EmailConflict(_))),
+            "case-insensitive email conflict must produce EmailConflict"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn test_profile_describe() -> CoreResult<()> {
         let ws_id = Uuid::new_v4();
         let account_id = Uuid::new_v4();
@@ -462,7 +626,8 @@ mod tests {
             .describe(
                 &mut ctx,
                 ProfileDescribeParams {
-                    id: profile_id,
+                    id: Some(profile_id),
+                    email: None,
                     workspace_id: ws_id,
                 },
             )
@@ -471,6 +636,127 @@ mod tests {
         assert_eq!(profile.id, profile_id);
         assert_eq!(profile.workspace_id, ws_id);
         assert_eq!(profile.account_id, account_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_profile_describe_by_email() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // describe-by-email -> find_by_email_workspace -> list
+            .with_all::<ProfileRow>(vec![profile_row(profile_id, account_id, ws_id)]);
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.escalate_perms(&["profile:describe"])?;
+
+        let profile = svc
+            .describe(
+                &mut ctx,
+                ProfileDescribeParams {
+                    id: None,
+                    email: Some("alice@example.com".to_string()),
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        assert_eq!(profile.id, profile_id);
+        assert_eq!(profile.email, "alice@example.com");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_profile_describe_by_email_not_found() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // describe-by-email -> find_by_email_workspace -> list (no match)
+            .with_all::<ProfileRow>(vec![]);
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.escalate_perms(&["profile:describe"])?;
+
+        let res = svc
+            .describe(
+                &mut ctx,
+                ProfileDescribeParams {
+                    id: None,
+                    email: Some("missing@example.com".to_string()),
+                    workspace_id: ws_id,
+                },
+            )
+            .await;
+
+        assert!(
+            matches!(res, Err(CoreError::NotFound(_))),
+            "missing email must produce NotFound"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_profile_describe_id_precedence_over_email() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new()
+            // describe with id present -> store.get (email is ignored)
+            .with_optional::<ProfileRow>(Some(profile_row(profile_id, account_id, ws_id)));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.escalate_perms(&["profile:describe"])?;
+
+        let profile = svc
+            .describe(
+                &mut ctx,
+                ProfileDescribeParams {
+                    id: Some(profile_id),
+                    email: Some("ignored@example.com".to_string()),
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
+
+        assert_eq!(profile.id, profile_id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_profile_describe_neither_id_nor_email() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+
+        let dbx = MockDbx::new();
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.escalate_perms(&["profile:describe"])?;
+
+        let res = svc
+            .describe(
+                &mut ctx,
+                ProfileDescribeParams {
+                    id: None,
+                    email: None,
+                    workspace_id: ws_id,
+                },
+            )
+            .await;
+
+        assert!(
+            matches!(res, Err(CoreError::InvalidParams(_))),
+            "neither id nor email must produce InvalidParams"
+        );
 
         Ok(())
     }
@@ -517,6 +803,8 @@ mod tests {
         let profile_id = Uuid::new_v4();
 
         let dbx = MockDbx::new()
+            // update -> email uniqueness guard -> list (returns self; no conflict)
+            .with_all::<ProfileRow>(vec![profile_row(profile_id, account_id, ws_id)])
             // update -> store.get (current version)
             .with_optional::<ProfileRow>(Some(profile_row(profile_id, account_id, ws_id)))
             // update -> store.update
@@ -550,6 +838,87 @@ mod tests {
         // US4: updating the profile email never alters the account linkage/identity
         assert_eq!(updated.account_id, account_id);
         assert_eq!(updated.email, "alice@example.com");
+        assert_eq!(updated.name, "renamed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_profile_update_email_conflict() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
+
+        // The email guard finds a DIFFERENT profile already using the email.
+        let dbx = MockDbx::new()
+            .with_all::<ProfileRow>(vec![profile_row(
+                Uuid::new_v4(),
+                Uuid::new_v4(),
+                ws_id,
+            )]);
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.escalate_perms(&["profile:update"])?;
+
+        let params = ProfileUpdateParams {
+            id: profile_id,
+            workspace_id: ws_id,
+            name: None,
+            email: Some("alice@example.com".to_string()),
+            description: None,
+            display_name: None,
+            job_title: None,
+            timezone: None,
+            avatar_url: None,
+            tags: None,
+            meta: None,
+        };
+
+        let res = svc.update(&mut ctx, params).await;
+
+        assert!(
+            matches!(res, Err(CoreError::EmailConflict(_))),
+            "updating to a duplicate email must produce EmailConflict"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_profile_update_email_omitted_no_conflict() -> CoreResult<()> {
+        let ws_id = Uuid::new_v4();
+        let account_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
+
+        // email omitted -> the email guard is skipped entirely.
+        let dbx = MockDbx::new()
+            .with_optional::<ProfileRow>(Some(profile_row(profile_id, account_id, ws_id)))
+            .with_optional::<ProfileRow>(Some(ProfileRow {
+                name: "renamed".to_string(),
+                version: 2,
+                ..profile_row(profile_id, account_id, ws_id)
+            }));
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+        ctx.escalate_perms(&["profile:update"])?;
+
+        let params = ProfileUpdateParams {
+            id: profile_id,
+            workspace_id: ws_id,
+            name: Some("renamed".to_string()),
+            email: None,
+            description: None,
+            display_name: None,
+            job_title: None,
+            timezone: None,
+            avatar_url: None,
+            tags: None,
+            meta: None,
+        };
+
+        let updated = svc.update(&mut ctx, params).await?;
         assert_eq!(updated.name, "renamed");
 
         Ok(())

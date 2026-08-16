@@ -28,6 +28,8 @@ pub enum WebError {
     InternalServerError,
     /// 400 Bad Request error with a custom message.
     ValidationError(String),
+    /// 409 Conflict error (e.g., uniqueness violations).
+    Conflict(String),
     /// 401 Unauthorized error.
     Unauthorized,
     ReqStampNotInReqExt,
@@ -60,6 +62,7 @@ impl IntoResponse for WebError {
                 StatusCode::BAD_REQUEST,
                 format!("Validation failed: {}", msg),
             ),
+            WebError::Conflict(msg) => (StatusCode::CONFLICT, msg),
             WebError::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 "Authentication required or invalid credentials.".to_string(),
@@ -89,6 +92,7 @@ impl From<CoreError> for WebError {
             CoreError::ParseError(msg) => WebError::ValidationError(msg),
             CoreError::InvalidParams(msg) => WebError::ValidationError(msg),
             CoreError::AlreadyExists(msg) => WebError::ValidationError(msg), // Conflict/Bad Request
+            CoreError::EmailConflict(msg) => WebError::Conflict(msg),
 
             // 404 Not Found
             CoreError::StoreError(store_err) => match store_err {
@@ -242,6 +246,12 @@ mod tests {
 
         let err: WebError = CoreError::AlreadyExists("dup".to_string()).into();
         assert!(matches!(err, WebError::ValidationError(msg) if msg == "dup"));
+    }
+
+    #[test]
+    fn test_from_core_error_maps_email_conflict_to_conflict() {
+        let err: WebError = CoreError::EmailConflict("email already in use".to_string()).into();
+        assert!(matches!(err, WebError::Conflict(msg) if msg == "email already in use"));
     }
 
     #[test]

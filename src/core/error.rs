@@ -13,6 +13,7 @@ pub type CoreResult<T> = core::result::Result<T, CoreError>;
 pub enum CoreError {
     ApiError(String),
     AlreadyExists(String),
+    EmailConflict(String),
     ParseError(String),
     Auth(String),
     InvalidParams(String),

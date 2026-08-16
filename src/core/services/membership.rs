@@ -1128,6 +1128,62 @@ mod tests {
 
     #[tokio::test]
     #[serial]
+    async fn test_membership_create_email_conflict_not_misclassified() -> CoreResult<()> {
+        // -- Setup
+        let ws_id = Uuid::new_v4();
+        let existing_account_id = Uuid::new_v4();
+        let other_profile_account = Uuid::new_v4();
+        // The supplied email collides with a DIFFERENT account's profile email
+        // in the workspace. This must surface as EmailConflict, NOT be
+        // misclassified as the (benign) account/workspace create race.
+        let conflict_email = "taken@example.com".to_string();
+
+        let dbx = MockDbx::new()
+            // resolve -> get_by_email by id (existing account found)
+            .with_optional::<AccountRow>(Some(account_row(existing_account_id)))
+            // resolve -> profile find_by_account_workspace -> list (none)
+            .with_all::<ProfileRow>(vec![])
+            // profile.create -> account/workspace guard -> list (none)
+            .with_all::<ProfileRow>(vec![])
+            // profile.create -> email guard -> list (email taken by another account)
+            .with_all::<ProfileRow>(vec![ProfileRow {
+                id: Uuid::new_v4().into(),
+                account_id: other_profile_account,
+                workspace_id: ws_id,
+                email: conflict_email.clone(),
+                ..Default::default()
+            }]);
+        let svc = mock_svc(dbx);
+        let mut ctx = CoreCtx::bootstrap()?;
+
+        let params = MembershipCreateParams {
+            account_id: Some(existing_account_id),
+            email: conflict_email,
+            workspace_id: ws_id,
+            role_ids: vec![],
+            policy_ids: vec![],
+            scope: MembershipScope::Workspace,
+            status: Some(MembershipStatus::Active),
+            profile: None,
+            project_id: None,
+            tags: vec![],
+            meta: MembershipMeta::default(),
+        };
+
+        // -- Execute
+        let res = svc.create(&mut ctx, params).await;
+
+        // -- Assert
+        assert!(
+            matches!(res, Err(CoreError::EmailConflict(_))),
+            "email conflict must propagate as EmailConflict, not a create race"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn test_membership_create_by_account_id_not_found() -> CoreResult<()> {
         // -- Setup
         let ws_id = Uuid::new_v4();
@@ -1774,6 +1830,12 @@ mod tests {
             .with_one::<(i64,)>((0,))
             // describe -> get_many_to_many
             .with_optional::<MembershipWithRoles>(Some(mw_with_profile))
+            // describe -> get_many_to_many_policies (count)
+            .with_one::<(i64,)>((0,))
+            // describe -> get_many_to_many_policies
+            .with_optional::<MembershipWithPolicies>(Some(membership_with_policies(
+                mem_id, account_id, ws_id,
+            )))
             // delete -> store.delete
             .with_optional::<MembershipRow>(Some(MembershipRow {
                 profile_id: Some(profile_id),
