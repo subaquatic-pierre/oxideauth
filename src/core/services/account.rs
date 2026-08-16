@@ -19,7 +19,7 @@ use crate::{
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{
-            auth::AuthValidator, permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService,
+            validator::AuthValidator, permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService,
         },
         traits::{
             list::RequestListParams,
@@ -92,7 +92,13 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
         let acc = match Uuid::parse_str(&id_or_email) {
             Ok(id) => self.store().get(&store_ctx, &id.into()).await?.into(),
             Err(_) => self
-                .get_by_email(ctx, &id_or_email)
+                .get_by_email(
+                    ctx,
+                    &AccountDescribeParams {
+                        id: None,
+                        email: Some(id_or_email.to_string()),
+                    },
+                )
                 .await?
                 .ok_or(CoreError::NotFound(format!(
                     "Unable to get account id email: {id_or_email}"
@@ -102,12 +108,30 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
         Ok(acc)
     }
 
-    pub async fn get_by_email(&self, ctx: &CoreCtx, email: &str) -> CoreResult<Option<Account>> {
+    /// Resolves an account from a typed id-or-email descriptor.
+    ///
+    /// When `params.id` is present the account is fetched by id (returning
+    /// `Ok(None)` if it does not exist), otherwise `params.email` is used for
+    /// an email lookup.
+    pub async fn get_by_email(
+        &self,
+        ctx: &CoreCtx,
+        params: &AccountDescribeParams,
+    ) -> CoreResult<Option<Account>> {
         let store = self.store();
 
         let mut store_ctx: StoreCtx = ctx.into();
         store_ctx.set_workspace_scope(None);
-        let acc = store.get_by_email(&store_ctx, &email).await?;
+
+        let acc = match params.id {
+            Some(id) => store.get_opt(&store_ctx, &id.into()).await?,
+            None => {
+                let Some(email) = params.email.as_deref() else {
+                    return Ok(None);
+                };
+                store.get_by_email(&store_ctx, email).await?
+            }
+        };
 
         Ok(acc.map(|el| el.into()))
     }

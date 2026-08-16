@@ -62,14 +62,30 @@ Full API reference, concept guides, and architecture docs are in the [project do
 
 ## Postman Collection
 
-Import-ready collection with all 50 endpoints, example payloads, auto-populated variables, and test scripts:
+Import-ready collection with example payloads and auto-populated variables:
 
 [`references/OxideAuth.postman_collection.json`](references/OxideAuth.postman_collection.json)
 
 1. Import into Postman
 2. Set the `host` variable (default: `http://127.0.0.1:8000`)
 3. Set the `token` variable to a valid Bearer JWT
-4. Run **Workspace → Create Workspace** first to populate the `{{workspace_id}}` variable
+4. Run **Auth → Login** with a workspace slug to populate the `{{workspace_id}}` variable
+
+## Breaking Change: Nested id-or-string descriptors
+
+The following four auth request bodies switched from opaque identifier strings to
+nested id-or-string descriptor objects. `id` takes precedence over `slug`/`email`
+when both are provided.
+
+| Endpoint                | Before                                | After                                        |
+| ----------------------- | ------------------------------------- | -------------------------------------------- |
+| `POST /auth/login`      | `{ ..., "workspace_id": "ws-1" }`     | `{ ..., "workspace": { "slug": "ws-1" } }`   |
+| `POST /auth/register`   | `{ ..., "workspace_id": "ws-1" }`     | `{ ..., "workspace": { "slug": "ws-1" } }`   |
+| `POST /auth/reset-password` | `{ "email": "ada@example.com" }`  | `{ "account": { "email": "ada@example.com" } }` |
+| `POST /auth/resend-confirm` | `{ "email": "ada@example.com" }`  | `{ "account": { "email": "ada@example.com" } }` |
+
+Details and the full before/after contract are in
+[`specs/011-login-service-struct-params/contracts/auth.md`](specs/011-login-service-struct-params/contracts/auth.md).
 
 ## Deployment
 

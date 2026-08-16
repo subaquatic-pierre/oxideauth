@@ -20,7 +20,7 @@ use crate::{
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{
-            account::AccountService, auth::AuthValidator, permission::CANONICAL_PERMISSIONS,
+            account::AccountService, validator::AuthValidator, permission::CANONICAL_PERMISSIONS,
             role::RoleService, workspace::WorkspaceService,
         },
         traits::{

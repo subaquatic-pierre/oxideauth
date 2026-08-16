@@ -11,4 +11,5 @@ pub mod registry;
 pub mod role;
 pub mod storage;
 pub mod token;
+pub mod validator;
 pub mod workspace;

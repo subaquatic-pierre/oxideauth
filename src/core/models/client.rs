@@ -134,6 +134,18 @@ pub struct ClientDeleteParams {
     pub workspace_id: Uuid,
 }
 
+pub struct ClientValidateParams {
+    pub workspace_id: Uuid,
+    pub client_secret: String,
+    pub user_token: String,
+    pub required_permissions: Vec<String>,
+}
+
+pub struct ClientRegenerateSecretParams {
+    pub id: Uuid,
+    pub workspace_id: Uuid,
+}
+
 pub struct ClientListParams {
     pub workspace_id: Uuid,
     pub filter: Option<RequestFilterParams<ClientFilter>>,

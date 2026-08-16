@@ -27,7 +27,7 @@ use crate::{
             list::ListResponse,
         },
         services::{
-            account::AccountService, auth::AuthValidator, permission::CANONICAL_PERMISSIONS,
+            account::AccountService, validator::AuthValidator, permission::CANONICAL_PERMISSIONS,
             workspace::WorkspaceService,
         },
         traits::{

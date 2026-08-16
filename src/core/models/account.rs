@@ -110,7 +110,7 @@ impl From<AccountCreateParams> for AccountForCreate {
 }
 
 impl AccountDescribeParams {
-    fn id_or_email(&self) -> CoreResult<String> {
+    pub fn id_or_email(&self) -> CoreResult<String> {
         id_or_string(self.id, self.email.clone(), Some("ID or email required"))
     }
 }

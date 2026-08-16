@@ -12,7 +12,7 @@ use crate::core::models::{
 };
 
 // --- WorkspaceDescribeReq ---
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct WorkspaceDescribeReq {
     pub id: Option<Uuid>,
     pub slug: Option<String>,

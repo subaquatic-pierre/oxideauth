@@ -16,14 +16,15 @@ use crate::{
             account::Account,
             list::ListResponse,
             membership::MembershipFilter,
-            permission::PermissionCreateParams,
+            permission::{PermissionCreateManyParams, PermissionCreateParams},
+            role::WorkspaceRoleCreateParams,
             workspace::{
                 Workspace, WorkspaceCreateParams, WorkspaceDeleteParams, WorkspaceDescribeParams,
                 WorkspaceListParams, WorkspaceUpdateParams,
             },
         },
         services::{
-            auth::AuthValidator,
+            validator::AuthValidator,
             permission::{CANONICAL_PERMISSIONS, PermissionService},
             project::ProjectService,
             role::RoleService,
@@ -131,16 +132,25 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             .expect("ProjectService Arc dropped before WorkspaceService")
     }
 
-    pub async fn get_and_cache(&self, ctx: &CoreCtx, slug_or_id: &str) -> CoreResult<Workspace> {
-        let ws = self.get_workspace_by_slug_or_id(ctx, slug_or_id).await?;
+    pub async fn get_and_cache(
+        &self,
+        ctx: &CoreCtx,
+        params: &WorkspaceDescribeParams,
+    ) -> CoreResult<Workspace> {
+        let ws = self.get_workspace_by_slug_or_id(ctx, params).await?;
         self.cm.workspace.write(&ws.clone().into(), None).await?;
 
         Ok(ws)
     }
+
+    /// Resolves a workspace from a typed id-or-slug descriptor.
+    ///
+    /// When `params.id` is present the workspace is fetched by id, otherwise
+    /// `params.slug` is used for a slug lookup.
     pub async fn get_workspace_by_slug_or_id(
         &self,
         ctx: &CoreCtx,
-        slug_or_id: &str,
+        params: &WorkspaceDescribeParams,
     ) -> CoreResult<Workspace> {
         let store = self.store();
 
@@ -148,6 +158,8 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         // must run unscoped.
         let mut store_ctx: StoreCtx = ctx.into();
         store_ctx.set_workspace_scope(None);
+
+        let slug_or_id = params.id_or_slug()?;
 
         let ws = match Uuid::parse_str(&slug_or_id) {
             Ok(id) => store.get_opt(&store_ctx, &id.into()).await?,
@@ -176,7 +188,15 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
                 PermissionCreateParams::new_system(workspace_id, name, Some(description))
             })
             .collect();
-        let created = perm_svc.create_many(ctx, workspace_id, perms).await?;
+        let created = perm_svc
+            .create_many(
+                ctx,
+                PermissionCreateManyParams {
+                    workspace_id,
+                    permissions: perms,
+                },
+            )
+            .await?;
 
         tracing::info!(workspace_id = %workspace_id, "Canonical permissions seeded");
         Ok(())
@@ -219,10 +239,22 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
 
         // 3. Create both default roles
         role_svc
-            .create_workspace_viewer_role(ctx, workspace_id, viewer_ids)
+            .create_workspace_viewer_role(
+                ctx,
+                WorkspaceRoleCreateParams {
+                    workspace_id,
+                    permission_ids: viewer_ids,
+                },
+            )
             .await?;
         role_svc
-            .create_workspace_admin_role(ctx, workspace_id, admin_ids)
+            .create_workspace_admin_role(
+                ctx,
+                WorkspaceRoleCreateParams {
+                    workspace_id,
+                    permission_ids: admin_ids,
+                },
+            )
             .await?;
 
         tracing::info!(workspace_id = %workspace_id, "Default workspace roles seeded");
@@ -399,7 +431,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Workspa
         let store = self.store();
 
         let workspace = self
-            .get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?)
+            .get_workspace_by_slug_or_id(ctx, &params)
             .await?;
 
         let auth_validator = AuthValidator::new(ctx);
@@ -481,7 +513,13 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
         let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
 
         let ws = self
-            .get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?)
+            .get_workspace_by_slug_or_id(
+                ctx,
+                &WorkspaceDescribeParams {
+                    id: params.id,
+                    slug: params.slug.clone(),
+                },
+            )
             .await?;
 
         let update_data: WorkspaceForUpdate = params.clone().into();
@@ -519,7 +557,13 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Workspace
         let store_ctx = self.scope_store_ctx(&auth_validator, None)?;
 
         let ws = self
-            .get_workspace_by_slug_or_id(ctx, &params.id_or_slug()?)
+            .get_workspace_by_slug_or_id(
+                ctx,
+                &WorkspaceDescribeParams {
+                    id: params.id,
+                    slug: params.slug.clone(),
+                },
+            )
             .await?;
 
         let deleted = store.delete(&store_ctx, &ws.id.into()).await?;

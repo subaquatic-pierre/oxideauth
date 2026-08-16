@@ -11,13 +11,13 @@ use crate::{
             list::ListResponse,
             permission::PermissionRule,
             role::{
-                Role, RoleCreateParams, RoleDeleteParams, RoleDescribeParams, RoleListParams,
-                RoleUpdateParams,
+                Role, RoleCreateParams, RoleDeleteParams, RoleDescribeIdentifier,
+                RoleDescribeParams, RoleListParams, RoleUpdateParams, WorkspaceRoleCreateParams,
             },
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{
-            auth::AuthValidator,
+            validator::AuthValidator,
             permission::{CANONICAL_PERMISSIONS, PermissionService},
             workspace::WorkspaceService,
         },
@@ -80,16 +80,32 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
         }
     }
 
-    pub async fn get_by_name(&self, ctx: &mut CoreCtx, name: &str) -> CoreResult<Role> {
+    /// Resolves a role from a typed id-or-name descriptor.
+    ///
+    /// When `params.id` is present the role is fetched by id, otherwise
+    /// `params.name` is looked up within the context's scoped workspace.
+    pub async fn get_by_name(
+        &self,
+        ctx: &mut CoreCtx,
+        params: &RoleDescribeIdentifier,
+    ) -> CoreResult<Role> {
         let store = self.store();
         let (store_ctx, _workspace) = self
             .scope_and_validate_ctx(ctx, ctx.scoped_ws_id(), &[Self::DESCRIBE_PERMISSION])
             .await?;
 
-        let role = self
-            .store()
-            .get_by_name(&store_ctx, name, ctx.scoped_ws_id().into())
-            .await?;
+        let role = match params.id {
+            Some(id) => store.get(&store_ctx, &id.into()).await?,
+            None => {
+                let name = params
+                    .name
+                    .clone()
+                    .ok_or(CoreError::InvalidParams("ID or name required".to_string()))?;
+                store
+                    .get_by_name(&store_ctx, &name, ctx.scoped_ws_id().into())
+                    .await?
+            }
+        };
 
         let role = store.get_many_to_many(&store_ctx, &role.id).await?;
         let role = Role::from(role);
@@ -101,32 +117,30 @@ impl<D: DbExecutor, C: CacheExecutor> RoleService<D, C> {
     pub async fn create_workspace_viewer_role(
         &self,
         ctx: &mut CoreCtx,
-        ws_id: Uuid,
-        perm_ids: Vec<Uuid>,
+        params: WorkspaceRoleCreateParams,
     ) -> CoreResult<Role> {
-        let params = RoleCreateParams::new_workspace_system_role(
-            ws_id,
+        let role_params = RoleCreateParams::new_workspace_system_role(
+            params.workspace_id,
             SYSTEM_CONST.workspace_viewer_role,
             Some("Default read-only workspace viewer role"),
-            perm_ids,
+            params.permission_ids,
         );
-        self.create(ctx, params).await
+        self.create(ctx, role_params).await
     }
 
     /// Creates the default "Workspace Admin" role with the given permissions.
     pub async fn create_workspace_admin_role(
         &self,
         ctx: &mut CoreCtx,
-        ws_id: Uuid,
-        perm_ids: Vec<Uuid>,
+        params: WorkspaceRoleCreateParams,
     ) -> CoreResult<Role> {
-        let params = RoleCreateParams::new_workspace_system_role(
-            ws_id,
+        let role_params = RoleCreateParams::new_workspace_system_role(
+            params.workspace_id,
             SYSTEM_CONST.workspace_admin_role,
             Some("Default workspace administrator role"),
-            perm_ids,
+            params.permission_ids,
         );
-        self.create(ctx, params).await
+        self.create(ctx, role_params).await
     }
 
     /// Invalidates the account-level auth cache for every membership that carries
@@ -536,7 +550,13 @@ mod tests {
         ctx.extend_perms(&["role:create", "role:describe"])?;
 
         let role = svc
-            .create_workspace_viewer_role(&mut ctx, ws_id, vec![])
+            .create_workspace_viewer_role(
+                &mut ctx,
+                WorkspaceRoleCreateParams {
+                    workspace_id: ws_id,
+                    permission_ids: vec![],
+                },
+            )
             .await?;
 
         assert_eq!(role.id, role_id);
@@ -703,7 +723,15 @@ mod tests {
         let mut ctx = CoreCtx::bootstrap()?;
         ctx.extend_perms(&["role:describe"])?;
 
-        let role = svc.get_by_name(&mut ctx, "dev").await?;
+        let role = svc
+            .get_by_name(
+                &mut ctx,
+                &RoleDescribeIdentifier {
+                    id: None,
+                    name: Some("dev".to_string()),
+                },
+            )
+            .await?;
 
         assert_eq!(role.id, role_id);
         assert_eq!(role.name, "dev");

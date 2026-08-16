@@ -5,9 +5,13 @@ use crate::{
     core::{
         ctx::CoreCtx,
         error::CoreResult,
-        models::{list::ListResponse, permission::PermissionRule, workspace::Workspace},
+        models::{
+            list::ListResponse, permission::PermissionRule, workspace::Workspace,
+            workspace::WorkspaceDescribeParams,
+        },
         services::{
-            auth::AuthValidator, permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService,
+            permission::CANONICAL_PERMISSIONS, validator::AuthValidator,
+            workspace::WorkspaceService,
         },
     },
     store::{ctx::StoreCtx, traits::dbx::DbExecutor},
@@ -29,7 +33,13 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
 
         let ws = self
             .ws_svc()
-            .get_and_cache(ctx, &workspace_id.to_string())
+            .get_and_cache(
+                ctx,
+                &WorkspaceDescribeParams {
+                    id: Some(workspace_id),
+                    slug: None,
+                },
+            )
             .await?;
 
         Ok(ws.into())

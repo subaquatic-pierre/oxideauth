@@ -246,7 +246,7 @@ async fn test_filter_by_contains_ws_scoped() -> StoreResult<()> {
 
     // Context 1: Scoped to ws_id_a (Root context is usually used for ws_id, but we'll scope explicitly)
     let mut ctx_a = StoreCtx {
-        ws_id: ws_id_a,
+        ws_id: Some(ws_id_a),
         ..StoreCtx::bootstrap()
     };
 
@@ -255,7 +255,7 @@ async fn test_filter_by_contains_ws_scoped() -> StoreResult<()> {
 
     // Context 2: Scoped to ws_id_b
     let mut ctx_b = StoreCtx {
-        ws_id: ws_id_b,
+        ws_id: Some(ws_id_b),
         ..StoreCtx::bootstrap()
     };
 

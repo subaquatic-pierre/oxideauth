@@ -16,7 +16,8 @@ use crate::{
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{
-            auth::AuthValidator, permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService,
+            permission::CANONICAL_PERMISSIONS, validator::AuthValidator,
+            workspace::WorkspaceService,
         },
         traits::{
             list::RequestListParams,

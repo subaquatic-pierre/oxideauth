@@ -14,7 +14,8 @@ use crate::{
         models::{
             client::{
                 Client, ClientCreateParams, ClientDeleteParams, ClientDescribeParams,
-                ClientListParams, ClientUpdateParams,
+                ClientListParams, ClientRegenerateSecretParams, ClientUpdateParams,
+                ClientValidateParams,
             },
             list::ListResponse,
             permission::{PermissionEngine, PermissionRule},
@@ -226,11 +227,15 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     pub async fn validate(
         &self,
         ctx: &mut CoreCtx,
-        workspace_id: Uuid,
-        client_secret: &str,
-        user_token: &str,
-        required_permissions: &[String],
+        params: ClientValidateParams,
     ) -> CoreResult<bool> {
+        let ClientValidateParams {
+            workspace_id,
+            client_secret,
+            user_token,
+            required_permissions,
+        } = params;
+
         // --- 1. Hash the provided client secret ---
         let secret_hash = {
             use sha2::{Digest, Sha256};
@@ -259,7 +264,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
 
         // --- 4. Decode and validate the user token (end user, not the Client) ---
         let claims = match decode::<TokenClaims>(
-            user_token,
+            &user_token,
             &DecodingKey::from_secret(Config::from_env().jwt_secret.as_bytes()),
             &Validation::new(Algorithm::HS256),
         ) {
@@ -288,7 +293,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
 
         // --- 7. Check required permissions against the user's grants ---
         if !required_permissions.is_empty() {
-            let required = match PermissionRule::perms_from_string_slice(required_permissions) {
+            let required = match PermissionRule::perms_from_string_slice(&required_permissions) {
                 Ok(perms) => perms,
                 Err(_) => return Ok(false),
             };
@@ -305,9 +310,10 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     pub async fn regenerate_secret(
         &self,
         ctx: &mut CoreCtx,
-        id: Uuid,
-        workspace_id: Uuid,
+        params: ClientRegenerateSecretParams,
     ) -> CoreResult<ClientSecret> {
+        let ClientRegenerateSecretParams { id, workspace_id } = params;
+
         // Validate permissions
         let (store_ctx, workspace) = self
             .scope_and_validate_ctx(
@@ -774,7 +780,15 @@ mod tests {
         ctx.extend_perms(&["client:regenerateSecret"])?;
         ctx.set_scoped_ws(ws.into());
 
-        let res = svc.regenerate_secret(&mut ctx, client_id, ws_id).await?;
+        let res = svc
+            .regenerate_secret(
+                &mut ctx,
+                ClientRegenerateSecretParams {
+                    id: client_id,
+                    workspace_id: ws_id,
+                },
+            )
+            .await?;
 
         assert_eq!(res.client.id, client_id);
         // Plaintext secret must be a 48-char alphanumeric string, shown once.

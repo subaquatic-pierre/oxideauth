@@ -22,9 +22,14 @@ use crate::{
         error::{CoreError, CoreResult},
         models::{
             account::{
-                Account, AccountCreateParams, AccountKind, AccountMeta, AccountUpdateParams,
+                Account, AccountCreateParams, AccountDescribeParams, AccountKind, AccountMeta,
+                AccountUpdateParams,
             },
-            auth::RegisterParams,
+            auth::{
+                ConfirmParams, LoginParams, OAuthCallbackParams, OAuthInitiateParams,
+                RefreshParams, RegisterParams, ResendConfirmParams, ResetPasswordParams,
+                RevokeParams, UpdatePasswordParams,
+            },
             credential::{
                 CredentialConfig, CredentialCreateParams, CredentialFilter, CredentialUpdateParams,
             },
@@ -34,13 +39,14 @@ use crate::{
                 MembershipListParams, MembershipMeta, MembershipUpdateParams,
             },
             permission::{PermissionEngine, PermissionRule},
-            role::RoleListParams,
+            role::{RoleDescribeIdentifier, RoleListParams},
             token::{TokenClaims, TokenType},
+            workspace::WorkspaceDescribeParams,
         },
         services::{
             account::AccountService, credential::CredentialService, membership::MembershipService,
             permission::CANONICAL_PERMISSIONS, role::RoleService, token::TokenService,
-            workspace::WorkspaceService,
+            validator::AuthValidator, workspace::WorkspaceService,
         },
         traits::{
             params::ValidateParams,
@@ -208,17 +214,24 @@ where
             email,
             password,
             name,
-            workspace_id,
+            workspace,
         } = params.validate()?;
 
-        // --- Resolve target workspace (slug takes precedence, then id) ---
-        let ws = &ctx.ws_cache;
-        let ws_id = ws.id;
-        let ttl = ws.config.jwt_max_age;
+        // --- Resolve target workspace (typed descriptor takes precedence, then ctx fallback) ---
+        let (ws_id, ttl, ws_public) = if workspace.id.is_some() || workspace.slug.is_some() {
+            let ws = self
+                .ws_svc
+                .get_workspace_by_slug_or_id(ctx, &workspace)
+                .await?;
+            (ws.id, ws.config.jwt_max_age, ws.config.public)
+        } else {
+            let ws = &ctx.ws_cache;
+            (ws.id, ws.config.jwt_max_age, ws.config.public)
+        };
 
         // ensure only public workspaces accept open registrations
         // FEATURE: allow for registration link verification with JWT
-        if !ws.config.public {
+        if !ws_public {
             return Err(CoreError::Auth(
                 "Cannot register to private workspace".into(),
             ));
@@ -227,11 +240,28 @@ where
         // --- Look up the default "Workspace Viewer" role ---
         let viewer_role = self
             .role_svc
-            .get_by_name(ctx, SYSTEM_CONST.workspace_viewer_role)
+            .get_by_name(
+                ctx,
+                &RoleDescribeIdentifier {
+                    id: None,
+                    name: Some(SYSTEM_CONST.workspace_viewer_role.to_string()),
+                },
+            )
             .await?;
 
         // --- Check email uniqueness ---
-        if self.acc_svc.get_by_email(ctx, &email).await?.is_some() {
+        if self
+            .acc_svc
+            .get_by_email(
+                ctx,
+                &AccountDescribeParams {
+                    id: None,
+                    email: Some(email.clone()),
+                },
+            )
+            .await?
+            .is_some()
+        {
             return Err(CoreError::AlreadyExists(format!(
                 "account with email '{}' already exists",
                 email
@@ -339,31 +369,20 @@ where
     /// Logs an account in via email/password and returns the account along
     /// with a token pair (access + refresh).
     ///
-    /// Login is scoped to a workspace: the caller must supply the workspace
-    /// (id or slug), and the account's `Local` password credential is looked
-    /// up within that workspace.
-    pub async fn login(
-        &self,
-        ctx: &mut CoreCtx,
-        email: &str,
-        password: &str,
-        workspace_slug_or_id: &str,
-    ) -> CoreResult<AuthResult> {
-        if email.trim().is_empty() || password.is_empty() {
-            return Err(CoreError::InvalidParams(
-                "email and password required".to_string(),
-            ));
-        }
-        if workspace_slug_or_id.trim().is_empty() {
-            return Err(CoreError::InvalidParams("workspace required".to_string()));
-        }
-
-        let email = email.trim().to_lowercase();
+    /// Login is scoped to a workspace: `params.workspace` is a typed id-or-slug
+    /// descriptor, and the account's `Local` password credential is looked up
+    /// within that workspace.
+    pub async fn login(&self, ctx: &mut CoreCtx, params: LoginParams) -> CoreResult<AuthResult> {
+        let LoginParams {
+            email,
+            password,
+            workspace,
+        } = params.validate()?;
 
         // --- Resolve the target workspace (id or slug) ---
         let ws = self
             .ws_svc
-            .get_workspace_by_slug_or_id(ctx, workspace_slug_or_id)
+            .get_workspace_by_slug_or_id(ctx, &workspace)
             .await?;
         let ws_id = ws.id;
         ctx.set_scoped_ws(ws.into());
@@ -371,7 +390,17 @@ where
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
 
         // --- Find account by email ---
-        let account_row = match self.acc_svc.get_by_email(&ctx, &email).await? {
+        let account_row = match self
+            .acc_svc
+            .get_by_email(
+                ctx,
+                &AccountDescribeParams {
+                    id: None,
+                    email: Some(email.clone()),
+                },
+            )
+            .await?
+        {
             Some(row) => row,
             None => {
                 info!(
@@ -426,7 +455,7 @@ where
         })?;
 
         // --- Verify password ---
-        if !verify_password(secret, password)? {
+        if !verify_password(secret, &password)? {
             info!(
                 email = %email,
                 reason = "invalid credentials",
@@ -493,8 +522,9 @@ where
     /// the `auth:revoke` permission, bumps the membership version in the
     /// database, and purges the auth cache. No tokens carrying the old version
     /// will validate after this call.
-    pub async fn revoke_token(&self, ctx: &mut CoreCtx, raw_token: &str) -> CoreResult<bool> {
-        let claims = self.token_svc.decode_token_str(raw_token)?;
+    pub async fn revoke_token(&self, ctx: &mut CoreCtx, params: RevokeParams) -> CoreResult<bool> {
+        let RevokeParams { token } = params;
+        let claims = self.token_svc.decode_token_str(&token)?;
 
         let sid = claims.require_sid()?;
         let mem_id = claims.mem;
@@ -572,9 +602,11 @@ where
     /// session is compromised: the session version is bumped (invalidating
     /// every outstanding token for the session) and the cached auth data is
     /// purged.
-    pub async fn refresh_token(&self, raw_token: &str) -> CoreResult<TokenPair> {
+    pub async fn refresh_token(&self, params: RefreshParams) -> CoreResult<TokenPair> {
+        let RefreshParams { token } = params;
+
         // Decode the refresh token.
-        let claims = self.token_svc.decode_token_str(raw_token)?;
+        let claims = self.token_svc.decode_token_str(&token)?;
         let validated = claims.validate_refresh()?;
         let sid = validated.sid;
         let jti = validated.jti;
@@ -587,7 +619,16 @@ where
         let ws_cache = match self.cm.workspace.fetch_by_id(ws_id).await? {
             Some(ws) => ws,
             None => {
-                let ws = self.ws_svc.get_and_cache(&ctx, &ws_id.to_string()).await?;
+                let ws = self
+                    .ws_svc
+                    .get_and_cache(
+                        &ctx,
+                        &WorkspaceDescribeParams {
+                            id: Some(ws_id),
+                            slug: None,
+                        },
+                    )
+                    .await?;
                 ws.into()
             }
         };
@@ -674,19 +715,34 @@ where
         })
     }
 
-    /// Requests a password reset for the given email.
-    pub async fn request_password_reset(&self, ctx: &mut CoreCtx, email: &str) -> CoreResult<()> {
-        let email = email.trim().to_lowercase();
+    /// Requests a password reset for the account identified by `params.account`.
+    ///
+    /// `account` is a typed id-or-email descriptor: when an `id` is present the
+    /// account is resolved by id, otherwise by email.
+    pub async fn request_password_reset(
+        &self,
+        ctx: &mut CoreCtx,
+        params: ResetPasswordParams,
+    ) -> CoreResult<()> {
+        let params = params.validate()?;
 
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
         let store = self.acc_svc.store();
 
-        // Anti-enumeration: silently succeed if the account does not exist.
-        let Some(account_row) = store
-            .get_by_email(&ctx.unscoped_store_ctx(), &email)
-            .await?
-        else {
-            return Ok(());
+        // Resolve the account: by id if present, else by email.
+        let account_row = match params.account.id {
+            Some(id) => store.get(&ctx.unscoped_store_ctx(), &id.into()).await?,
+            None => {
+                // Anti-enumeration: silently succeed if the account does not exist.
+                let Some(email) = params.account.email else {
+                    return Err(CoreError::InvalidParams("ID or email required".to_string()));
+                };
+                let email = email.trim().to_lowercase();
+                match store.get_by_email(&ctx.unscoped_store_ctx(), &email).await? {
+                    Some(row) => row,
+                    None => return Ok(()),
+                }
+            }
         };
         let account: Account = account_row.into();
 
@@ -724,7 +780,7 @@ where
         //             .await;
         //     });
         //   For now only log the token.
-        info!("password reset token for {email}: {token}");
+        info!("password reset token for {}: {token}", account.email);
 
         Ok(())
     }
@@ -735,15 +791,12 @@ where
     pub async fn update_password(
         &self,
         ctx: &mut CoreCtx,
-        token: &str,
-        new_password: &str,
+        params: UpdatePasswordParams,
     ) -> CoreResult<Uuid> {
-        if new_password.is_empty() {
-            return Err(CoreError::InvalidParams("password required".to_string()));
-        }
+        let UpdatePasswordParams { token, new_password } = params.validate()?;
 
         // Decode and validate the token.
-        let claims = self.token_svc.decode_token_str(token)?;
+        let claims = self.token_svc.decode_token_str(&token)?;
         let account_id = claims.validate_password_reset()?;
 
         ctx.extend_perms(&[
@@ -764,7 +817,7 @@ where
         }
 
         // Hash the new password.
-        let secret = hash_password(new_password)?;
+        let secret = hash_password(&new_password)?;
 
         // Find the account's Local password credential (cross-workspace query via store).
         let filter: CredentialFilter = json!({
@@ -815,10 +868,12 @@ where
     pub async fn confirm_account(
         &self,
         ctx: &mut CoreCtx,
-        token: &str,
+        params: ConfirmParams,
     ) -> CoreResult<AccountConfirmation> {
+        let ConfirmParams { token } = params;
+
         // Decode and validate the token.
-        let claims = self.token_svc.decode_token_str(token)?;
+        let claims = self.token_svc.decode_token_str(&token)?;
         let account_id = claims.validate_account_confirm()?;
 
         ctx.extend_perms(&[
@@ -870,18 +925,30 @@ where
     /// Anti-enumeration: silently succeeds if the account does not exist.
     /// Errors if the account is already verified. Email delivery is stubbed for
     /// now: the token is only logged.
-    pub async fn resend_confirmation(&self, ctx: &mut CoreCtx, email: &str) -> CoreResult<()> {
-        let email = email.trim().to_lowercase();
+    pub async fn resend_confirmation(
+        &self,
+        ctx: &mut CoreCtx,
+        params: ResendConfirmParams,
+    ) -> CoreResult<()> {
+        let params = params.validate()?;
 
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
         let store = self.acc_svc.store();
 
-        // Anti-enumeration: silently succeed if the account does not exist.
-        let Some(account_row) = store
-            .get_by_email(&ctx.unscoped_store_ctx(), &email)
-            .await?
-        else {
-            return Ok(());
+        // Resolve the account: by id if present, else by email.
+        let account_row = match params.account.id {
+            Some(id) => store.get(&ctx.unscoped_store_ctx(), &id.into()).await?,
+            None => {
+                // Anti-enumeration: silently succeed if the account does not exist.
+                let Some(email) = params.account.email else {
+                    return Err(CoreError::InvalidParams("ID or email required".to_string()));
+                };
+                let email = email.trim().to_lowercase();
+                match store.get_by_email(&ctx.unscoped_store_ctx(), &email).await? {
+                    Some(row) => row,
+                    None => return Ok(()),
+                }
+            }
         };
         let account: Account = account_row.into();
 
@@ -924,7 +991,7 @@ where
         //             .await;
         //     });
         //   For now only log the token.
-        info!("account confirmation token for {email}: {token}");
+        info!("account confirmation token for {}: {token}", account.email);
 
         Ok(())
     }
@@ -941,9 +1008,13 @@ where
     pub async fn initiate_google_oauth(
         &self,
         ctx: &mut CoreCtx,
-        redirect_url: &str,
-        workspace_id: Uuid,
+        params: OAuthInitiateParams,
     ) -> CoreResult<String> {
+        let OAuthInitiateParams {
+            redirect_url,
+            workspace_id,
+        } = params;
+
         // Generate the CSRF token used as the OAuth `state` parameter.
         let csrf_token = Uuid::new_v4().to_string();
 
@@ -979,14 +1050,15 @@ where
     pub async fn process_google_callback(
         &self,
         ctx: &mut CoreCtx,
-        code: &str,
-        state: &str,
+        params: OAuthCallbackParams,
     ) -> CoreResult<OAuthCallbackResult> {
+        let OAuthCallbackParams { code, state } = params;
+
         // 1. Validate the CSRF state persisted during initiation.
         let oauth_entity = self
             .cm
             .oauth_state
-            .fetch_and_consume(state)
+            .fetch_and_consume(&state)
             .await
             .map_err(|_| CoreError::Auth("invalid oauth state".to_string()))?;
 
@@ -994,7 +1066,7 @@ where
         // get workspace from self.ws_svc
 
         // 2. Exchange the authorization code for tokens.
-        let token_response = request_google_token(code, &self.config).await?;
+        let token_response = request_google_token(&code, &self.config).await?;
 
         // 3. Fetch the Google user profile.
         let google_user =
@@ -1102,92 +1174,6 @@ where
             refresh_token: tp.refresh_token,
             redirect_url: oauth_entity.redirect_url,
         })
-    }
-}
-
-pub struct AuthValidator<'a> {
-    ctx: &'a CoreCtx,
-}
-
-impl<'a> AuthValidator<'a> {
-    pub fn new(ctx: &'a CoreCtx) -> Self {
-        Self { ctx }
-    }
-
-    pub fn validate_perms<'b>(granted: &PermissionEngine, required: &[&str]) -> CoreResult<()> {
-        let required = PermissionRule::perms_from_str_slice(required)?;
-        let all_required_match_granted = granted.has_subset(&required);
-        if (all_required_match_granted) {
-            Ok(())
-        } else {
-            Err(CoreError::Auth("invalid permissions".to_string()))
-        }
-    }
-
-    pub fn validate_ctx_perms<'b>(&self, required: &[&str]) -> CoreResult<()> {
-        // info!("CTX in validate_ctx_perms: {:#?}", self.ctx);
-        let required = PermissionRule::perms_from_str_slice(required)?;
-        let granted = self.ctx.permission_checker();
-
-        let all_required_match_granted = granted.has_subset(&required);
-        if (all_required_match_granted) {
-            Ok(())
-        } else {
-            Err(CoreError::Auth(format!(
-                "invalid permissions, required premissions: {}",
-                required
-                    .iter()
-                    .map(|el| el.to_string())
-                    .collect::<Vec<String>>()
-                    .join(",")
-            )))
-        }
-    }
-
-    /// Validates the requested workspace ID against the user's operational context.
-    /// If authenticated in the system, then able to operate in any workspace
-    /// If not system namespace authorized
-    /// then requested_workspace_id match must self.ctx.ws_cache.id
-    pub fn scope_store_workspace(
-        &self,
-        requested_workspace_id: Option<Uuid>,
-    ) -> CoreResult<StoreCtx> {
-        let ctx = self.ctx;
-        let mut store_ctx: StoreCtx = ctx.into();
-        // set workspace context to the validated/derived workspace
-        if let Some(workspace_id) = self.validate_workspace(requested_workspace_id)? {
-            store_ctx.set_workspace_scope(Some(workspace_id));
-        }
-        Ok(store_ctx)
-    }
-
-    /// Validates the requested workspace ID against the user's operational context.
-    /// If not system namespace authorized
-    /// then requested_workspace_id match must self.ctx.ws_cache.id
-    pub fn validate_workspace(
-        &self,
-        requested_workspace_id: Option<Uuid>,
-    ) -> CoreResult<Option<Uuid>> {
-        let is_global_context = self.ctx.is_system_workspace()?;
-
-        if is_global_context {
-            // Case 1: system context
-            return Ok(requested_workspace_id);
-        }
-
-        // Case 2: Scoped context — must have a concrete workspace.
-        match requested_workspace_id {
-            Some(id) => {
-                if self.ctx.ws_cache.id != id {
-                    return Err(CoreError::Auth("unauthorized workspace".to_string()));
-                }
-                Ok(Some(id))
-            }
-            None => {
-                // Derive workspace from the context.
-                Ok(Some(self.ctx.ws_cache.id))
-            }
-        }
     }
 }
 
@@ -1325,7 +1311,13 @@ mod tests {
         // -- Execute
         let url = registry
             .auth
-            .initiate_google_oauth(&mut ctx, "http://localhost/callback", Uuid::nil())
+            .initiate_google_oauth(
+                &mut ctx,
+                OAuthInitiateParams {
+                    redirect_url: "http://localhost/callback".to_string(),
+                    workspace_id: Uuid::nil(),
+                },
+            )
             .await?;
 
         // -- Assert
@@ -1346,7 +1338,8 @@ mod tests {
             email: "user@example.com".to_string(),
             password: "secret".to_string(),
             name: Some("User".to_string()),
-            workspace_id: Uuid::nil().to_string(),
+            // Empty descriptor: falls back to ctx.ws_cache (bootstrap → private).
+            workspace: WorkspaceDescribeParams::default(),
         };
 
         // -- Execute
@@ -1369,12 +1362,35 @@ mod tests {
         let mut ctx = CoreCtx::bootstrap()?;
 
         // -- Execute / -- Assert
-        let err = registry.auth.login(&mut ctx, "  ", "secret", "ws-1").await;
+        let err = registry
+            .auth
+            .login(
+                &mut ctx,
+                LoginParams {
+                    email: "  ".to_string(),
+                    password: "secret".to_string(),
+                    workspace: WorkspaceDescribeParams {
+                        id: None,
+                        slug: Some("ws-1".to_string()),
+                    },
+                },
+            )
+            .await;
         assert!(matches!(err, Err(CoreError::InvalidParams(_))));
 
         let err = registry
             .auth
-            .login(&mut ctx, "user@example.com", "", "ws-1")
+            .login(
+                &mut ctx,
+                LoginParams {
+                    email: "user@example.com".to_string(),
+                    password: "".to_string(),
+                    workspace: WorkspaceDescribeParams {
+                        id: None,
+                        slug: Some("ws-1".to_string()),
+                    },
+                },
+            )
             .await;
         assert!(matches!(err, Err(CoreError::InvalidParams(_))));
 
@@ -1396,7 +1412,17 @@ mod tests {
         // -- Execute
         let err = registry
             .auth
-            .login(&mut ctx, "ghost@example.com", "secret", "ws-1")
+            .login(
+                &mut ctx,
+                LoginParams {
+                    email: "ghost@example.com".to_string(),
+                    password: "secret".to_string(),
+                    workspace: WorkspaceDescribeParams {
+                        id: None,
+                        slug: Some("ws-1".to_string()),
+                    },
+                },
+            )
             .await;
 
         // -- Assert
@@ -1423,7 +1449,17 @@ mod tests {
         // -- Execute
         let err = registry
             .auth
-            .login(&mut ctx, "disabled@example.com", "secret", "ws-1")
+            .login(
+                &mut ctx,
+                LoginParams {
+                    email: "disabled@example.com".to_string(),
+                    password: "secret".to_string(),
+                    workspace: WorkspaceDescribeParams {
+                        id: None,
+                        slug: Some("ws-1".to_string()),
+                    },
+                },
+            )
             .await;
 
         // -- Assert
@@ -1443,7 +1479,15 @@ mod tests {
         // -- Execute / -- Assert
         registry
             .auth
-            .request_password_reset(&mut ctx, "ghost@example.com")
+            .request_password_reset(
+                &mut ctx,
+                ResetPasswordParams {
+                    account: AccountDescribeParams {
+                        email: Some("ghost@example.com".to_string()),
+                        id: None,
+                    },
+                },
+            )
             .await?;
 
         Ok(())
@@ -1463,7 +1507,15 @@ mod tests {
         // -- Execute / -- Assert
         registry
             .auth
-            .request_password_reset(&mut ctx, "user@example.com")
+            .request_password_reset(
+                &mut ctx,
+                ResetPasswordParams {
+                    account: AccountDescribeParams {
+                        email: Some("user@example.com".to_string()),
+                        id: None,
+                    },
+                },
+            )
             .await?;
 
         Ok(())
@@ -1483,7 +1535,15 @@ mod tests {
         // -- Execute / -- Assert (generates a token offline, no further DB)
         registry
             .auth
-            .request_password_reset(&mut ctx, "user@example.com")
+            .request_password_reset(
+                &mut ctx,
+                ResetPasswordParams {
+                    account: AccountDescribeParams {
+                        email: Some("user@example.com".to_string()),
+                        id: None,
+                    },
+                },
+            )
             .await?;
 
         Ok(())
@@ -1500,7 +1560,15 @@ mod tests {
         // -- Execute / -- Assert
         registry
             .auth
-            .resend_confirmation(&mut ctx, "ghost@example.com")
+            .resend_confirmation(
+                &mut ctx,
+                ResendConfirmParams {
+                    account: AccountDescribeParams {
+                        email: Some("ghost@example.com".to_string()),
+                        id: None,
+                    },
+                },
+            )
             .await?;
 
         Ok(())
@@ -1520,7 +1588,15 @@ mod tests {
         // -- Execute
         let err = registry
             .auth
-            .resend_confirmation(&mut ctx, "user@example.com")
+            .resend_confirmation(
+                &mut ctx,
+                ResendConfirmParams {
+                    account: AccountDescribeParams {
+                        email: Some("user@example.com".to_string()),
+                        id: None,
+                    },
+                },
+            )
             .await;
 
         // -- Assert
@@ -1558,7 +1634,10 @@ mod tests {
         let mut ctx = CoreCtx::bootstrap()?;
 
         // -- Execute
-        let err = registry.auth.confirm_account(&mut ctx, &token).await;
+        let err = registry
+            .auth
+            .confirm_account(&mut ctx, ConfirmParams { token })
+            .await;
 
         // -- Assert
         assert!(matches!(err, Err(CoreError::AlreadyExists(_))));
@@ -1601,7 +1680,10 @@ mod tests {
         let mut ctx = CoreCtx::bootstrap()?;
 
         // -- Execute
-        let res = registry.auth.confirm_account(&mut ctx, &token).await?;
+        let res = registry
+            .auth
+            .confirm_account(&mut ctx, ConfirmParams { token })
+            .await?;
 
         // -- Assert
         assert_eq!(res.account_id, account_id);

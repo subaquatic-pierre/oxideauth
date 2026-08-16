@@ -12,7 +12,7 @@ use crate::{
         ctx::CoreCtx,
         error::CoreResult,
         models::{
-            account::AccountCreateParams,
+            account::{AccountCreateParams, AccountDescribeParams},
             credential::{CredentialCreateParams, CredentialMeta},
             membership::{MembershipCreateParams, MembershipMeta},
             workspace::{
@@ -263,12 +263,24 @@ pub async fn seed_memberships<D: DbExecutor, C: CacheExecutor>(
     // Look up accounts by email
     let system = svc_reg
         .account
-        .get_by_email(&ctx, SYSTEM_CONST.system_acc_email)
+        .get_by_email(
+            &ctx,
+            &AccountDescribeParams {
+                id: None,
+                email: Some(SYSTEM_CONST.system_acc_email.to_string()),
+            },
+        )
         .await?
         .expect("System account not found");
     let owner = svc_reg
         .account
-        .get_by_email(&ctx, &config.owner_email)
+        .get_by_email(
+            &ctx,
+            &AccountDescribeParams {
+                id: None,
+                email: Some(config.owner_email.clone()),
+            },
+        )
         .await?
         .expect("Owner account not found");
 

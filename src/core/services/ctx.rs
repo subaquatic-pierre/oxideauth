@@ -309,7 +309,8 @@ mod tests {
         core::{
             models::token::{TokenClaims, TokenType},
             services::{
-                auth::AuthValidator, permission::CANONICAL_PERMISSIONS, registry::ServiceRegistry,
+                permission::CANONICAL_PERMISSIONS, registry::ServiceRegistry,
+                validator::AuthValidator,
             },
         },
         store::dbx::MockDbx,
@@ -378,7 +379,10 @@ mod tests {
         let auth = AuthValidator::new(&ctx);
 
         // -- Assert
-        assert!(auth.validate_ctx_perms(&[CANONICAL_PERMISSIONS.account.list]).is_ok());
+        assert!(
+            auth.validate_ctx_perms(&[CANONICAL_PERMISSIONS.account.list])
+                .is_ok()
+        );
         assert_eq!(ctx.account_id(), Uuid::nil());
         assert_eq!(ctx.membership_id(), Uuid::nil());
         // The bootstrap workspace uses the system slug, so it is a global context.
@@ -560,9 +564,10 @@ mod tests {
         let mut scoped_ctx = CoreCtx::new(auth_cache, ws_cache)?;
 
         // -- Execute: scoped context resolves to its own workspace, no header needed
-        assert!(svc
-            .validate_and_scope_global_workspace(&headers, &mut scoped_ctx)
-            .is_ok());
+        assert!(
+            svc.validate_and_scope_global_workspace(&headers, &mut scoped_ctx)
+                .is_ok()
+        );
         assert_eq!(scoped_ctx.scoped_ws_id(), ws_id);
 
         Ok(())

@@ -129,6 +129,13 @@ impl From<PermissionCreateParams> for PermissionForCreate {
     }
 }
 
+/// Params for bulk-creating permissions in a workspace.
+#[derive(Debug)]
+pub struct PermissionCreateManyParams {
+    pub workspace_id: Uuid,
+    pub permissions: Vec<PermissionCreateParams>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct PermissionUpdateParams {
     pub id: Uuid,
@@ -195,6 +202,11 @@ impl OpValWorkspaceId for PermissionFilter {
             .as_ref()
             .and_then(|op_vals| op_vals.0.first())
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
+pub struct PermissionSet {
+    granted: HashMap<String, HashSet<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]

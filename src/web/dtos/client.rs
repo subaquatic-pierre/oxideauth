@@ -6,7 +6,8 @@ use crate::core::error::CoreResult;
 use crate::core::models::{
     client::{
         Client, ClientCreateParams, ClientDeleteParams, ClientDescribeParams, ClientFilter,
-        ClientListParams, ClientMeta, ClientUpdateParams,
+        ClientListParams, ClientMeta, ClientRegenerateSecretParams, ClientUpdateParams,
+        ClientValidateParams,
     },
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
     workspace::Workspace,
@@ -189,6 +190,15 @@ pub struct ClientRegenerateSecretReq {
     pub id: Uuid,
 }
 
+impl IntoParams<ClientRegenerateSecretParams> for ClientRegenerateSecretReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientRegenerateSecretParams> {
+        Ok(ClientRegenerateSecretParams {
+            id: self.id,
+            workspace_id,
+        })
+    }
+}
+
 // --- ClientRegenerateSecretRes ---
 #[derive(Serialize)]
 pub struct ClientRegenerateSecretRes {
@@ -226,6 +236,17 @@ pub struct ClientValidateReq {
     pub client_secret: String,
     pub user_token: String,
     pub required_permissions: Vec<String>,
+}
+
+impl IntoParams<ClientValidateParams> for ClientValidateReq {
+    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientValidateParams> {
+        Ok(ClientValidateParams {
+            workspace_id,
+            client_secret: self.client_secret,
+            user_token: self.user_token,
+            required_permissions: self.required_permissions,
+        })
+    }
 }
 
 // --- ClientValidateRes ---
@@ -318,6 +339,31 @@ mod tests {
         assert_eq!(params.workspace_id, ws_id);
         assert!(params.filter.is_none());
         assert!(params.options.is_none());
+    }
+
+    #[test]
+    fn test_client_validate_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let params = ClientValidateReq {
+            client_secret: "secret".to_string(),
+            user_token: "jwt".to_string(),
+            required_permissions: vec!["a:b".to_string()],
+        }
+        .into_params(ws_id)
+        .unwrap();
+        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.client_secret, "secret");
+        assert_eq!(params.user_token, "jwt");
+        assert_eq!(params.required_permissions, vec!["a:b".to_string()]);
+    }
+
+    #[test]
+    fn test_client_regenerate_secret_req_into_params() {
+        let ws_id = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let params = ClientRegenerateSecretReq { id }.into_params(ws_id).unwrap();
+        assert_eq!(params.id, id);
+        assert_eq!(params.workspace_id, ws_id);
     }
 
     #[test]

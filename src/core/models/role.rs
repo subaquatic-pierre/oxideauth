@@ -33,6 +33,7 @@ use crate::{
         JoinedPermissionOnRole, RoleFilter as StoreRoleFilter, RoleMeta as StoreRoleMeta, RoleRow,
         RoleWithPermissions,
     },
+    utils::id::id_or_string,
 };
 
 pub type RoleMeta = StoreRoleMeta;
@@ -154,6 +155,28 @@ impl From<RoleUpdateParams> for RoleForUpdate {
 pub struct RoleDescribeParams {
     pub id: Uuid,
     pub workspace_id: Uuid,
+}
+
+/// Id-or-string descriptor for identifying a role, either by its `id` or by
+/// its `name`. Mirrors `WorkspaceDescribeParams` / `AccountDescribeParams`.
+#[derive(Default, Clone, Debug)]
+pub struct RoleDescribeIdentifier {
+    pub id: Option<Uuid>,
+    pub name: Option<String>,
+}
+
+impl RoleDescribeIdentifier {
+    pub fn id_or_name(&self) -> CoreResult<String> {
+        id_or_string(self.id, self.name.clone(), Some("ID or name required"))
+    }
+}
+
+/// Params for creating one of the default system workspace roles (Viewer /
+/// Admin). Carries the target workspace id and the permission ids to grant.
+#[derive(Debug, Clone)]
+pub struct WorkspaceRoleCreateParams {
+    pub workspace_id: Uuid,
+    pub permission_ids: Vec<Uuid>,
 }
 
 pub struct RoleDeleteParams {
@@ -462,6 +485,35 @@ mod tests {
         };
         assert!(params.filter().is_none());
         assert!(params.options().is_none());
+    }
+
+    #[test]
+    fn test_role_describe_identifier_id_or_name() {
+        let ident = RoleDescribeIdentifier::default();
+        assert!(matches!(
+            ident.id_or_name().err().expect("both None should fail"),
+            CoreError::InvalidParams(_)
+        ));
+
+        let id = Uuid::new_v4();
+        let ident = RoleDescribeIdentifier {
+            id: Some(id),
+            name: None,
+        };
+        assert_eq!(ident.id_or_name().unwrap(), id.to_string());
+
+        let ident = RoleDescribeIdentifier {
+            id: None,
+            name: Some("admin".to_string()),
+        };
+        assert_eq!(ident.id_or_name().unwrap(), "admin");
+
+        // id wins when both are provided
+        let ident = RoleDescribeIdentifier {
+            id: Some(id),
+            name: Some("admin".to_string()),
+        };
+        assert_eq!(ident.id_or_name().unwrap(), id.to_string());
     }
 
     #[test]

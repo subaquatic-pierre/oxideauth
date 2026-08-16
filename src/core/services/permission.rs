@@ -13,14 +13,14 @@ use crate::{
         models::{
             list::ListResponse,
             permission::{
-                Permission, PermissionCreateParams, PermissionDeleteParams,
-                PermissionDescribeParams, PermissionFilter, PermissionListParams, PermissionRule,
-                PermissionUpdateParams,
+                Permission, PermissionCreateManyParams, PermissionCreateParams,
+                PermissionDeleteParams, PermissionDescribeParams, PermissionFilter,
+                PermissionListParams, PermissionRule, PermissionUpdateParams,
             },
             role::Role,
             workspace::{Workspace, WorkspaceDescribeParams},
         },
-        services::{auth::AuthValidator, workspace::WorkspaceService},
+        services::{validator::AuthValidator, workspace::WorkspaceService},
         traits::{
             list::RequestListParams,
             params::ValidateParams,
@@ -74,13 +74,12 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
     pub async fn create_many(
         &self,
         ctx: &mut CoreCtx,
-        ws_id: Uuid,
-        perms: Vec<PermissionCreateParams>,
+        params: PermissionCreateManyParams,
     ) -> CoreResult<Vec<Permission>> {
         let (store_ctx, workspace) = self
-            .scope_and_validate_ctx(ctx, ws_id, &[Self::CREATE_PERMISSION])
+            .scope_and_validate_ctx(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
             .await?;
-        let data = perms.into_iter().map(|el| el.into()).collect();
+        let data = params.permissions.into_iter().map(|el| el.into()).collect();
         let res = self.store().create_many(&store_ctx, data).await?;
 
         let ret = res.into_iter().map(|el| el.into()).collect();
@@ -424,7 +423,15 @@ mod tests {
             meta: PermissionMeta::default(),
         }];
 
-        let created = svc.create_many(&mut ctx, ws_id, perms).await?;
+        let created = svc
+            .create_many(
+                &mut ctx,
+                PermissionCreateManyParams {
+                    workspace_id: ws_id,
+                    permissions: perms,
+                },
+            )
+            .await?;
 
         assert_eq!(created.len(), 1);
         assert_eq!(created[0].id, perm_id);

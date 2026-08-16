@@ -7,7 +7,7 @@ use crate::{
         ctx::CoreCtx,
         models::client::{
             ClientCreateParams, ClientDeleteParams, ClientDescribeParams, ClientListParams,
-            ClientUpdateParams,
+            ClientRegenerateSecretParams, ClientUpdateParams, ClientValidateParams,
         },
         services::client::ClientSecret,
         traits::{
@@ -89,16 +89,8 @@ pub async fn validate_client(
     let Json(body) = body?;
     let svc = app.svc_reg.client.clone();
     let ws_id = ctx.scoped_ws_id();
-    let authorized = svc
-        .validate(
-            &mut ctx,
-            ws_id,
-            &body.client_secret,
-            &body.user_token,
-            &body.required_permissions,
-        )
-        .await
-        .unwrap_or(false); // Any error → not authorized
+    let params: ClientValidateParams = body.into_params(ws_id)?;
+    let authorized = svc.validate(&mut ctx, params).await.unwrap_or(false); // Any error → not authorized
     let res = ClientValidateRes { authorized };
     WebResponse::json(res)
 }
@@ -172,9 +164,8 @@ pub async fn regenerate_secret_client(
     let svc = app.svc_reg.client.clone();
 
     let ws_id = ctx.scoped_ws_id();
-    let client_secret = svc
-        .regenerate_secret(&mut ctx, body.id, ws_id)
-        .await?;
+    let params: ClientRegenerateSecretParams = body.into_params(ws_id)?;
+    let client_secret = svc.regenerate_secret(&mut ctx, params).await?;
 
     let res = ClientRegenerateSecretRes {
         id: client_secret.client.id,

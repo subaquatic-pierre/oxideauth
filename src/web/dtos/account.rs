@@ -14,10 +14,21 @@ use crate::core::models::{
 use crate::core::traits::params::IntoParams;
 
 // --- AccountDescribeReq ---
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AccountDescribeReq {
     pub email: Option<String>,
     pub id: Option<Uuid>,
+}
+
+// Implement From to convert Web Req to Core Param (id-or-email descriptor).
+impl From<AccountDescribeReq> for AccountDescribeParams {
+    fn from(value: AccountDescribeReq) -> Self {
+        Self {
+            email: value.email,
+            id: value.id,
+        }
+    }
 }
 
 // Implement IntoParams to convert Web Req to Core Param
