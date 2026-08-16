@@ -15,9 +15,6 @@ pub fn hash_password(password: &str) -> CoreResult<String> {
 }
 
 pub fn verify_password(secret: &str, password: &str) -> CoreResult<bool> {
-    let hashed = hash_password(password)?;
-    // info!("suplied password: {password}, database password: {secret}, hashed: {hashed}");
-
     argon2::verify_encoded(secret, password.as_bytes())
         .map_err(|e| CoreError::Auth("unable to hash password".to_string()))
 }

@@ -43,6 +43,8 @@ pub struct AuthRegisterRes {
 pub struct AuthLoginReq {
     pub email: String,
     pub password: String,
+    /// The workspace to log in to. Either a workspace id (UUID) or slug.
+    pub workspace_id: String,
 }
 
 // --- AuthLoginRes ---

@@ -338,19 +338,35 @@ where
 
     /// Logs an account in via email/password and returns the account along
     /// with a token pair (access + refresh).
+    ///
+    /// Login is scoped to a workspace: the caller must supply the workspace
+    /// (id or slug), and the account's `Local` password credential is looked
+    /// up within that workspace.
     pub async fn login(
         &self,
         ctx: &mut CoreCtx,
         email: &str,
         password: &str,
+        workspace_slug_or_id: &str,
     ) -> CoreResult<AuthResult> {
         if email.trim().is_empty() || password.is_empty() {
             return Err(CoreError::InvalidParams(
                 "email and password required".to_string(),
             ));
         }
+        if workspace_slug_or_id.trim().is_empty() {
+            return Err(CoreError::InvalidParams("workspace required".to_string()));
+        }
 
         let email = email.trim().to_lowercase();
+
+        // --- Resolve the target workspace (id or slug) ---
+        let ws = self
+            .ws_svc
+            .get_workspace_by_slug_or_id(ctx, workspace_slug_or_id)
+            .await?;
+        let ws_id = ws.id;
+        ctx.set_scoped_ws(ws.into());
 
         ctx.extend_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
 
@@ -375,10 +391,11 @@ where
             return Err(CoreError::Auth("account disabled".to_string()));
         }
 
-        // --- Find Local password credential for the account (cross-workspace query via store) ---
+        // --- Find Local password credential for the account in this workspace ---
         let filter: CredentialFilter = json!({
             "account_id": account.id.to_string(),
-            "provider": CredentialProvider::Local.to_string()
+            "provider": CredentialProvider::Local.to_string(),
+            "workspace_id": ws_id.to_string()
         })
         .try_into()?;
 
@@ -665,7 +682,10 @@ where
         let store = self.acc_svc.store();
 
         // Anti-enumeration: silently succeed if the account does not exist.
-        let Some(account_row) = store.get_by_email(&ctx.unscoped_store_ctx(), &email).await? else {
+        let Some(account_row) = store
+            .get_by_email(&ctx.unscoped_store_ctx(), &email)
+            .await?
+        else {
             return Ok(());
         };
         let account: Account = account_row.into();
@@ -735,7 +755,9 @@ where
         let store = self.acc_svc.store();
 
         // Load the account and reject disabled accounts.
-        let account_row = store.get(&ctx.unscoped_store_ctx(), &account_id.into()).await?;
+        let account_row = store
+            .get(&ctx.unscoped_store_ctx(), &account_id.into())
+            .await?;
         let account: Account = account_row.into();
         if !account.enabled {
             return Err(CoreError::Auth("account disabled".to_string()));
@@ -805,7 +827,9 @@ where
         ])?;
         let store = self.acc_svc.store();
 
-        let account_row = store.get(&ctx.unscoped_store_ctx(), &account_id.into()).await?;
+        let account_row = store
+            .get(&ctx.unscoped_store_ctx(), &account_id.into())
+            .await?;
         let account: Account = account_row.into();
 
         // Reject accounts that have already been verified.
@@ -853,7 +877,10 @@ where
         let store = self.acc_svc.store();
 
         // Anti-enumeration: silently succeed if the account does not exist.
-        let Some(account_row) = store.get_by_email(&ctx.unscoped_store_ctx(), &email).await? else {
+        let Some(account_row) = store
+            .get_by_email(&ctx.unscoped_store_ctx(), &email)
+            .await?
+        else {
             return Ok(());
         };
         let account: Account = account_row.into();
@@ -1173,7 +1200,11 @@ mod tests {
         cache::{manager::CacheManager, mock::MockChx},
         config::Config,
         core::services::registry::ServiceRegistry,
-        store::{dbx::MockDbx, entities::account::AccountRow, manager::StoreManager},
+        store::{
+            dbx::MockDbx,
+            entities::{account::AccountRow, workspace::WorkspaceRow},
+            manager::StoreManager,
+        },
     };
     use serial_test::serial;
     use uuid::Uuid;
@@ -1338,10 +1369,13 @@ mod tests {
         let mut ctx = CoreCtx::bootstrap()?;
 
         // -- Execute / -- Assert
-        let err = registry.auth.login(&mut ctx, "  ", "secret").await;
+        let err = registry.auth.login(&mut ctx, "  ", "secret", "ws-1").await;
         assert!(matches!(err, Err(CoreError::InvalidParams(_))));
 
-        let err = registry.auth.login(&mut ctx, "user@example.com", "").await;
+        let err = registry
+            .auth
+            .login(&mut ctx, "user@example.com", "", "ws-1")
+            .await;
         assert!(matches!(err, Err(CoreError::InvalidParams(_))));
 
         Ok(())
@@ -1352,6 +1386,8 @@ mod tests {
     async fn test_login_account_not_found() -> CoreResult<()> {
         // -- Setup
         let dbx = MockDbx::new()
+            // ws_svc.get_workspace_by_slug_or_id -> list by slug
+            .with_all::<WorkspaceRow>(vec![WorkspaceRow::default()])
             // acc_svc.get_by_email -> list -> no rows
             .with_all::<AccountRow>(vec![]);
         let registry = mock_registry(dbx);
@@ -1360,7 +1396,7 @@ mod tests {
         // -- Execute
         let err = registry
             .auth
-            .login(&mut ctx, "ghost@example.com", "secret")
+            .login(&mut ctx, "ghost@example.com", "secret", "ws-1")
             .await;
 
         // -- Assert
@@ -1374,6 +1410,8 @@ mod tests {
     async fn test_login_account_disabled() -> CoreResult<()> {
         // -- Setup
         let dbx = MockDbx::new()
+            // ws_svc.get_workspace_by_slug_or_id -> list by slug
+            .with_all::<WorkspaceRow>(vec![WorkspaceRow::default()])
             // acc_svc.get_by_email -> list -> a disabled account
             .with_all::<AccountRow>(vec![AccountRow {
                 enabled: false,
@@ -1385,7 +1423,7 @@ mod tests {
         // -- Execute
         let err = registry
             .auth
-            .login(&mut ctx, "disabled@example.com", "secret")
+            .login(&mut ctx, "disabled@example.com", "secret", "ws-1")
             .await;
 
         // -- Assert

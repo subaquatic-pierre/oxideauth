@@ -44,6 +44,7 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
     /// Services whose underlying table has no `workspace_id` column (account,
     /// workspace) override `should_remove_workspace_from_store_ctx` to `true`,
     /// which clears the row-level scope so their global queries stay unscoped.
+    ///
     fn scope_store_ctx(
         &self,
         auth_validator: &AuthValidator<'_>,
@@ -69,6 +70,9 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
 
         // validate permissions
         auth_validator.validate_ctx_perms(required_perms)?;
+
+        // TODO: do not build auth validator for each request we need to add auth validator as a service into the service register, it needs to hold the PermissionEngine and Policy engine in the future,
+        // TODO: we should always use scope_store_ctx to build store context
 
         // scope store_ctx
         let store_ctx = self.scope_store_ctx(&auth_validator, Some(workspace.id))?;

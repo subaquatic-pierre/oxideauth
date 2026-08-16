@@ -49,7 +49,9 @@ pub async fn login(
     let Json(body) = body?;
     let mut ctx = app.system_context()?;
     let svc = app.svc_reg.auth.clone();
-    let result = svc.login(&mut ctx, &body.email, &body.password).await?;
+    let result = svc
+        .login(&mut ctx, &body.email, &body.password, &body.workspace_id)
+        .await?;
     WebResponse::json(AuthLoginRes {
         account: result.account,
         access_token: result.access_token,
