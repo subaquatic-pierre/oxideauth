@@ -41,21 +41,22 @@ src/
 
 ## API Endpoints
 
-All 55 endpoints use JSON POST with a standard `{ success, status, data }` response envelope (except 2 GET health endpoints and 1 GET OAuth callback).
+All 62 endpoints use JSON POST with a standard `{ success, status, data }` response envelope (except 2 GET health endpoints and 1 GET OAuth callback).
 
 | Resource    | Endpoints | Description                                                   |
 | ----------- | --------- | ------------------------------------------------------------- |
 | Health      | 2         | `GET /`, `GET /health-check`                                  |
-| Auth        | 11        | Register, Login, Refresh, OAuth2, password & token management |
+| Auth        | 10        | Register, Login, Refresh, OAuth2, password & token management |
 | Workspaces  | 5         | CRUD + List — multi-tenant containers                         |
 | Accounts    | 5         | CRUD + List — user identity management                        |
 | Projects    | 5         | CRUD + List — scoped work areas                               |
+| Profiles    | 4         | CRUD + List — workspace-scoped identities                     |
+| Clients     | 7         | CRUD + List + Validate + regenerate-secret                    |
 | Roles       | 5         | CRUD + List — permission bundles                              |
 | Permissions | 5         | CRUD + List — fine-grained access control                     |
-| Policies    | 5         | CRUD + List — AWS-like authorization policies (JSON/YAML)     |
+| Policies    | 5         | CRUD + List — allow/deny authorization rules (constraint DSL) |
 | Memberships | 5         | CRUD + List — account-to-workspace links                      |
 | Credentials | 4         | Describe, List, Update, Delete                                |
-| Tokens      | 3         | Describe, List, Delete — token blacklist                      |
 
 ## Documentation
 
