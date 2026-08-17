@@ -181,7 +181,7 @@ pub struct CredentialFilter {
     pub id: Option<OpValsString>,
     #[modql(cast_as = "uuid")]
     pub account_id: Option<OpValsString>,
-    #[modql(cast_as = "uuid")]
+    #[modql(cast_as = "uuid", rel = "credential")]
     pub workspace_id: Option<OpValsString>,
     pub kind: Option<OpValsString>,
     pub provider: Option<OpValsString>,

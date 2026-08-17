@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use time::Duration;
-use tracing::info;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 use crate::{
@@ -38,7 +38,7 @@ use crate::{
                 MembershipCreateParams, MembershipDescribeParams, MembershipFilter,
                 MembershipListParams, MembershipMeta, MembershipUpdateParams,
             },
-            permission::{PermissionSet, PermissionRule},
+            permission::{PermissionRule, PermissionSet},
             role::{RoleDescribeIdentifier, RoleListParams},
             token::{TokenClaims, TokenType},
             workspace::WorkspaceDescribeParams,
@@ -381,11 +381,15 @@ where
     /// descriptor, and the account's `Local` password credential is looked up
     /// within that workspace.
     pub async fn login(&self, ctx: &mut CoreCtx, params: LoginParams) -> CoreResult<AuthResult> {
+        debug!("LOGIN PARAMS: {params:?}");
+
         let LoginParams {
             email,
             password,
             workspace,
         } = params.validate()?;
+
+        debug!("LOGIN PARAMS: {email}, {password}, {workspace:?}");
 
         // --- Resolve the target workspace (id or slug) ---
         let ws = self
@@ -746,7 +750,10 @@ where
                     return Err(CoreError::InvalidParams("ID or email required".to_string()));
                 };
                 let email = email.trim().to_lowercase();
-                match store.get_by_email(&ctx.unscoped_store_ctx(), &email).await? {
+                match store
+                    .get_by_email(&ctx.unscoped_store_ctx(), &email)
+                    .await?
+                {
                     Some(row) => row,
                     None => return Ok(()),
                 }
@@ -801,7 +808,10 @@ where
         ctx: &mut CoreCtx,
         params: UpdatePasswordParams,
     ) -> CoreResult<Uuid> {
-        let UpdatePasswordParams { token, new_password } = params.validate()?;
+        let UpdatePasswordParams {
+            token,
+            new_password,
+        } = params.validate()?;
 
         // Decode and validate the token.
         let claims = self.token_svc.decode_token_str(&token)?;
@@ -954,7 +964,10 @@ where
                     return Err(CoreError::InvalidParams("ID or email required".to_string()));
                 };
                 let email = email.trim().to_lowercase();
-                match store.get_by_email(&ctx.unscoped_store_ctx(), &email).await? {
+                match store
+                    .get_by_email(&ctx.unscoped_store_ctx(), &email)
+                    .await?
+                {
                     Some(row) => row,
                     None => return Ok(()),
                 }

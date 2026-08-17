@@ -35,6 +35,7 @@ impl ValidateParams for RegisterParams {
 ///
 /// Login is scoped to a workspace: `workspace` is a typed id-or-slug
 /// descriptor that must resolve to an existing workspace.
+#[derive(Debug)]
 pub struct LoginParams {
     pub email: String,
     pub password: String,
@@ -50,7 +51,11 @@ impl ValidateParams for LoginParams {
         if self.password.is_empty() {
             return Err(CoreError::InvalidParams("password required".to_string()));
         }
-        Ok(Self { email, ..self })
+        Ok(Self {
+            email,
+            password: self.password,
+            workspace: self.workspace,
+        })
     }
 }
 

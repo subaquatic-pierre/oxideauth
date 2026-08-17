@@ -1,12 +1,12 @@
 use axum::extract::rejection::{FormRejection, JsonRejection, QueryRejection};
 use axum::{
+    Json,
+    Router,
     // HTTP status codes and routing setup
     http::StatusCode,
     // Core response traits and JSON extractor
     response::{IntoResponse, Response},
     routing::get,
-    Json,
-    Router,
 };
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
@@ -141,16 +141,19 @@ impl From<CoreError> for WebError {
                 StoreError::CantCreateDataStore(msg) => {
                     error!("Internal server error (store): {msg}");
                     WebError::InternalServerError
-                },
+                }
                 StoreError::WithTxnFalse | StoreError::NoTxn => {
                     error!("Internal server error (store): {store_err}");
                     WebError::InternalServerError
-                },
+                }
                 StoreError::MockReturn => {
                     error!("Internal server error (store): {store_err}");
                     WebError::InternalServerError
-                },
-                _ => WebError::ValidationError(format!("{}", store_err)),
+                }
+                _ => {
+                    error!("Internal server error (store): {store_err}");
+                    WebError::InternalServerError
+                }
             },
 
             // 401 Unauthorized
@@ -161,7 +164,7 @@ impl From<CoreError> for WebError {
             err => {
                 error!("Internal server error: {err}");
                 WebError::InternalServerError
-            },
+            }
         }
     }
 }
@@ -209,4 +212,3 @@ impl From<QueryRejection> for WebError {
 }
 
 impl std::error::Error for WebError {}
-

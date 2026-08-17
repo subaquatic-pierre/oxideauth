@@ -17,7 +17,9 @@ use crate::{
             list::ListResponse,
             membership::MembershipFilter,
             permission::{PermissionCreateManyParams, PermissionCreateParams},
-            policy::{default_self_membership_policy, default_self_profile_policy, PolicyCreateParams},
+            policy::{
+                PolicyCreateParams, default_self_membership_policy, default_self_profile_policy,
+            },
             role::WorkspaceRoleCreateParams,
             workspace::{
                 Workspace, WorkspaceCreateParams, WorkspaceDeleteParams, WorkspaceDescribeParams,
@@ -25,11 +27,11 @@ use crate::{
             },
         },
         services::{
-            validator::AuthValidator,
             permission::{CANONICAL_PERMISSIONS, PermissionService},
             policy::PolicyService,
             project::ProjectService,
             role::RoleService,
+            validator::AuthValidator,
         },
         traits::{
             list::RequestListParams,
@@ -54,7 +56,7 @@ use crate::{
         },
         error::StoreError,
         manager::StoreManager,
-        stores::workspace::{WorkspaceStore, SYSTEM_CONST},
+        stores::workspace::{SYSTEM_CONST, WorkspaceStore},
         traits::{contains::FilterByContains, crud::*, dbx::DbExecutor},
         utils::{LIST_LIMIT_DEFAULT, ListOptionsValidator},
     },
@@ -462,7 +464,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Workspace
         let store = self.store();
 
         // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
-        let store_ctx = self.scope_and_validate(ctx, None, &[Self::CREATE_PERMISSION]).await?;
+        let store_ctx = self
+            .scope_and_validate(ctx, None, &[Self::CREATE_PERMISSION])
+            .await?;
 
         // 1. Check if slug already exists
         if store
@@ -522,12 +526,12 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Workspa
     ) -> CoreResult<Workspace> {
         let store = self.store();
 
-        let workspace = self
-            .get_workspace_by_slug_or_id(ctx, &params)
-            .await?;
+        let workspace = self.get_workspace_by_slug_or_id(ctx, &params).await?;
 
         // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
-        let store_ctx = self.scope_and_validate(ctx, None, &[Self::DESCRIBE_PERMISSION]).await?;
+        let store_ctx = self
+            .scope_and_validate(ctx, None, &[Self::DESCRIBE_PERMISSION])
+            .await?;
 
         let res = store.get(&store_ctx, &workspace.id.into()).await?;
 
@@ -546,8 +550,11 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for WorkspaceSe
         params: WorkspaceListParams,
     ) -> CoreResult<ListResponse<Workspace>> {
         let store = self.store();
+
         // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
-        let store_ctx = self.scope_and_validate(ctx, None, &[Self::LIST_PERMISSION]).await?;
+        let store_ctx = self
+            .scope_and_validate(ctx, None, &[Self::LIST_PERMISSION])
+            .await?;
 
         let options = params.list_options();
 
@@ -587,7 +594,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Workspace
         let store = self.store();
 
         // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
-        let store_ctx = self.scope_and_validate(ctx, None, &[Self::UPDATE_PERMISSION]).await?;
+        let store_ctx = self
+            .scope_and_validate(ctx, None, &[Self::UPDATE_PERMISSION])
+            .await?;
 
         let ws = self
             .get_workspace_by_slug_or_id(
@@ -626,7 +635,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Workspace
         let store = self.store();
 
         // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
-        let store_ctx = self.scope_and_validate(ctx, None, &[Self::DELETE_PERMISSION]).await?;
+        let store_ctx = self
+            .scope_and_validate(ctx, None, &[Self::DELETE_PERMISSION])
+            .await?;
 
         let ws = self
             .get_workspace_by_slug_or_id(
@@ -644,4 +655,3 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Workspace
         Ok(deleted.into())
     }
 }
-

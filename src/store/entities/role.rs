@@ -171,7 +171,7 @@ impl From<RoleMeta> for SeaValue {
 pub struct RoleFilter {
     #[modql(cast_as = "uuid")]
     pub id: Option<OpValsString>,
-    #[modql(cast_as = "uuid")]
+    #[modql(cast_as = "uuid", rel = "role")]
     pub workspace_id: Option<OpValsString>,
     #[modql(rel = "role")]
     pub name: Option<OpValsString>,

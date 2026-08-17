@@ -76,11 +76,6 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
             let dbx = Arc::new(PgDbx::new(db.clone()));
             let sm = Arc::new(StoreManager::new(dbx.clone()));
 
-            // debug!(
-            //     "{:<12} - new_app_data()",
-            //     "Application started in DEVELOPMENT mode",
-            // );
-
             let chx = Arc::new(RedisChx::new(&config.redis_url).await);
             let cm = Arc::new(CacheManager::new(chx.clone()));
 
@@ -135,13 +130,15 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
     };
 
     // TODO: Ensure this is never run in production
+    debug!("app.config: {:#?}", app.config);
     match app_env {
         AppEnv::Development => {
             if app.config.reset_db {
                 init_dev_db(&app).await;
-            }
 
-            debug!("Running init_dev_db, database is reset and seeded");
+                debug!("Running init_dev_db, database is reset and seeded");
+                debug!("DEVELOPMENT mode config: {:#?}", app.config);
+            }
         }
         _ => {
 

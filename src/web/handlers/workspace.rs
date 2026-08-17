@@ -59,7 +59,7 @@ pub async fn describe_workspace(
 // --- List Workspaces ---
 #[axum::debug_handler]
 pub async fn list_workspaces(
-    mut ctx: Extension<CoreCtx>,
+    // mut ctx: Extension<CoreCtx>,
     app: Extension<App>,
     body: JsonReqResult<WorkspaceListReq>,
 ) -> JsonResResult<WebResponse<WorkspaceListRes>> {
@@ -67,6 +67,8 @@ pub async fn list_workspaces(
     let svc = app.svc_reg.workspace.clone();
 
     let params: WorkspaceListParams = body.into();
+    // TODO: remove open permissions in production, this is used for dev
+    let mut ctx = CoreCtx::bootstrap()?;
     let res = svc.list(&mut ctx, params).await?;
 
     // Map the vector of Workspace entities to the vector of DTOs
@@ -150,11 +152,16 @@ pub async fn delete_workspace(
 pub struct WorkspaceRouter;
 
 impl WorkspaceRouter {
+    pub fn public_routes() -> Router {
+        // TODO: remove open permissions in production, this is used for dev
+
+        Router::new().route("/list", post(list_workspaces))
+    }
     pub fn routes() -> Router {
         Router::new()
+            // .route("/list", post(list_workspaces))
             .route("/describe", post(describe_workspace))
             .route("/create", post(create_workspace))
-            .route("/list", post(list_workspaces))
             .route("/update", post(update_workspace))
             .route("/delete", post(delete_workspace))
     }

@@ -110,7 +110,7 @@ impl From<ProjectMeta> for SeaValue {
 pub struct ProjectFilter {
     #[modql(cast_as = "uuid")]
     pub id: Option<OpValsString>,
-    #[modql(cast_as = "uuid")]
+    #[modql(cast_as = "uuid", rel = "project")]
     pub workspace_id: Option<OpValsString>,
     pub name: Option<OpValsString>,
     pub code: Option<OpValsString>,

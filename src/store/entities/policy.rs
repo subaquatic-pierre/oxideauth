@@ -137,7 +137,7 @@ impl From<PolicyMeta> for SeaValue {
 pub struct PolicyFilter {
     #[modql(cast_as = "uuid")]
     pub id: Option<OpValsString>,
-    #[modql(cast_as = "uuid")]
+    #[modql(cast_as = "uuid", rel = "policy")]
     pub workspace_id: Option<OpValsString>,
     #[modql(rel = "policy")]
     pub name: Option<OpValsString>,

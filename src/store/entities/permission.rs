@@ -82,7 +82,7 @@ impl From<PermissionMeta> for SeaValue {
 pub struct PermissionFilter {
     #[modql(cast_as = "uuid")]
     pub id: Option<OpValsString>,
-    #[modql(cast_as = "uuid")]
+    #[modql(cast_as = "uuid", rel = "permission")]
     pub workspace_id: Option<OpValsString>,
     #[modql(rel = "permission")]
     pub name: Option<OpValsString>,

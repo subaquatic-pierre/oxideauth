@@ -230,7 +230,7 @@ pub struct MembershipFilter {
     pub id: Option<OpValsString>,
     #[modql(cast_as = "uuid")]
     pub account_id: Option<OpValsString>,
-    #[modql(cast_as = "uuid")]
+    #[modql(cast_as = "uuid", rel = "membership")]
     pub workspace_id: Option<OpValsString>,
     #[modql(cast_as = "uuid")]
     pub profile_id: Option<OpValsString>,

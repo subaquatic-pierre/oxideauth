@@ -1,8 +1,6 @@
 use crate::store::utils::{apply_tags_to_query, pg_binder::PgBinder};
 use modql::filter::{FilterGroups, ListOptions};
-use sea_query::{
-    Asterisk, Condition, Expr, ExprTrait, Func, PostgresQueryBuilder, Query,
-};
+use sea_query::{Asterisk, Condition, Expr, ExprTrait, Func, PostgresQueryBuilder, Query};
 use serde_json::Value as JsonValue;
 use tracing::debug;
 
@@ -147,7 +145,7 @@ pub async fn list_with_contains<E: DbExecutor, T: StoreRow, I: TableIden>(
     let (sql, vals) = query.build(PostgresQueryBuilder);
     let vals = PgBinder(vals.0);
 
-    debug!("SQL: {:#?}, VALS: {:#?}", sql, vals);
+    // debug!("SQL: {:#?}, VALS: {:#?}", sql, vals);
 
     let query = sqlx::query_as_with(&sql, vals);
     let res = dbx.fetch_all(query).await?;

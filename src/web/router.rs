@@ -43,7 +43,8 @@ impl AppRouter {
         let public = Router::new()
             .nest("/", RootRouter::routes())
             .nest("/auth", AuthRouter::public_routes())
-            .nest("/credentials", CredentialRouter::public_routes());
+            .nest("/credentials", CredentialRouter::public_routes())
+            .nest("/workspace", WorkspaceRouter::public_routes());
 
         // ── Protected routes (auth required via CtxLayer) ──
         let protected = Router::new()

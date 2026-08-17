@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::Deserialize;
+use tracing::debug;
 
 use crate::{
     app::App,
@@ -54,9 +55,12 @@ pub async fn login(
     body: JsonReqResult<AuthLoginReq>,
 ) -> JsonResResult<WebResponse<AuthLoginRes>> {
     let Json(body) = body?;
+    debug!("BODY: {body:?}");
+
     let params: LoginParams = body.into();
     let mut ctx = app.system_context()?;
     let svc = app.svc_reg.auth.clone();
+
     let result = svc.login(&mut ctx, params).await?;
     WebResponse::json(AuthLoginRes {
         account: result.account,

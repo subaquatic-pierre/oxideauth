@@ -121,6 +121,8 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
                 name: SYSTEM_CONST.system_acc_name.to_string(),
                 description: Some("System account for internal operations".to_string()),
                 tags: Some(vec!["system".to_string()]),
+                enabled: true,
+                verified: true,
                 ..Default::default()
             },
         )
@@ -136,6 +138,8 @@ pub async fn seed_users<D: DbExecutor, C: CacheExecutor>(
                 name: config.owner_name.clone(),
                 description: Some("Workspace owner account".to_string()),
                 tags: Some(vec!["system".to_string()]),
+                enabled: true,
+                verified: true,
                 ..Default::default()
             },
         )
