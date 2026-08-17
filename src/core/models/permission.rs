@@ -95,7 +95,7 @@ impl Default for Permission {
 
 #[derive(Debug, Deserialize)]
 pub struct PermissionCreateParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: String,
     pub description: Option<String>,
     pub tags: Vec<String>,
@@ -105,7 +105,7 @@ pub struct PermissionCreateParams {
 impl PermissionCreateParams {
     pub fn new_system(ws_id: Uuid, name: &str, desc: Option<&str>) -> Self {
         Self {
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
             name: name.to_string(),
             description: desc.map(|s| s.to_string()),
             tags: vec!["system".to_string()],
@@ -129,14 +129,14 @@ impl From<PermissionCreateParams> for PermissionForCreate {
 /// Params for bulk-creating permissions in a workspace.
 #[derive(Debug)]
 pub struct PermissionCreateManyParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub permissions: Vec<PermissionCreateParams>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PermissionUpdateParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -157,7 +157,7 @@ impl From<PermissionUpdateParams> for PermissionForUpdate {
 #[derive(Debug, Deserialize)]
 pub struct PermissionDescribeParams {
     pub id: Option<Uuid>,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 impl ValidateParams for PermissionDescribeParams {
@@ -174,11 +174,11 @@ impl ValidateParams for PermissionDescribeParams {
 
 pub struct PermissionDeleteParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 pub struct PermissionListParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub filter: Option<RequestFilterParams<PermissionFilter>>,
     pub options: Option<RequestListOptions>,
 }

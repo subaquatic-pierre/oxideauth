@@ -37,8 +37,7 @@ pub async fn describe_membership(
     let Json(body) = body?;
     let svc = app.svc_reg.membership.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: MembershipDescribeParams = body.into_params(ws_id)?;
+    let params: MembershipDescribeParams = body.into_params()?;
     let m = svc.describe(&mut ctx, params).await?;
     let res: MembershipDescribeRes = m.into();
 
@@ -56,8 +55,7 @@ pub async fn list_memberships(
     let Json(body) = body?;
     let svc = app.svc_reg.membership.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: MembershipListParams = body.into_params(ws_id)?;
+    let params: MembershipListParams = body.into_params()?;
     let list_res = svc.list(&mut ctx, params).await?;
 
     let memberships: Vec<MembershipDescribeRes> = list_res
@@ -84,8 +82,7 @@ pub async fn create_membership(
     let Json(body) = body?;
     let svc = app.svc_reg.membership.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: MembershipCreateParams = body.into_params(ws_id)?;
+    let params: MembershipCreateParams = body.into_params()?;
     let m = svc.create(&mut ctx, params).await?;
     let res: MembershipDescribeRes = m.into();
 
@@ -103,8 +100,7 @@ pub async fn update_membership(
     let Json(body) = body?;
     let svc = app.svc_reg.membership.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: MembershipUpdateParams = body.into_params(ws_id)?;
+    let params: MembershipUpdateParams = body.into_params()?;
     let m = svc.update(&mut ctx, params).await?;
     let res: MembershipDescribeRes = m.into();
 
@@ -122,8 +118,7 @@ pub async fn delete_membership(
     let Json(body) = body?;
     let svc = app.svc_reg.membership.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: MembershipDeleteParams = body.into_params(ws_id)?;
+    let params: MembershipDeleteParams = body.into_params()?;
     let m = svc.delete(&mut ctx, params).await?;
 
     let res = MembershipDeleteRes { id: m.id };

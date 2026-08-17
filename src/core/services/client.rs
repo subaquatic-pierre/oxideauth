@@ -1,30 +1,18 @@
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    cache::{
-        CacheEntity,
-        entities::{auth::AuthCache, policy::PolicyCache},
-        manager::CacheManager,
-        traits::CacheExecutor,
-    },
-    config::Config,
+    cache::{manager::CacheManager, traits::CacheExecutor},
     core::{
         ctx::CoreCtx,
-        error::{CoreError, CoreResult},
+        error::CoreResult,
         models::{
             client::{
                 Client, ClientCreateParams, ClientDeleteParams, ClientDescribeParams,
-                ClientListParams, ClientRegenerateSecretParams, ClientUpdateParams,
-                ClientValidateParams,
+                ClientListParams, ClientUpdateParams,
             },
             list::ListResponse,
-            permission::{PermissionRule, PermissionSet},
-            token::{TokenClaims, TokenType},
         },
         services::{
             permission::CANONICAL_PERMISSIONS, validator::AuthValidator,
@@ -39,28 +27,13 @@ use crate::{
         },
     },
     store::{
-        ctx::StoreCtx,
-        entities::client::{ClientFilter, ClientForCreate, ClientForUpdate},
+        entities::client::{ClientForCreate, ClientForUpdate},
         manager::StoreManager,
         stores::client::ClientStore,
         traits::{contains::FilterByContains, crud::*, dbx::DbExecutor},
     },
     utils::time::{format_time, now_utc},
 };
-
-/// Return value for `ClientService::regenerate_secret()`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClientSecret {
-    pub client: Client,
-    pub plaintext_secret: String,
-}
-
-/// Return value for `ClientService::generate_secret()` (private helper).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SecretHash {
-    pub plaintext: String,
-    pub sha256_hash: String,
-}
 
 pub struct ClientService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
@@ -181,7 +154,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
     {
         // List all clients in the workspace
         let list_params = ClientListParams {
-            workspace_id,
+            workspace_id: Some(workspace_id),
             filter: None,
             options: None,
         };
@@ -205,218 +178,6 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
             self.push_to_client(client, &payload).await;
         }
     }
-
-    /// Generates a random client secret (48-char alphanumeric string) and returns
-    /// `(plaintext, sha256_hex_hash)`.
-    ///
-    /// The plaintext secret is only ever exposed at creation time; only the SHA-256
-    /// hash is persisted (in `client.secret_hash`).
-    fn generate_secret(&self) -> SecretHash {
-        use rand::Rng;
-        let plaintext: String = rand::thread_rng()
-            .sample_iter(&rand::distributions::Alphanumeric)
-            .take(48)
-            .map(char::from)
-            .collect();
-        // Use SHA-256 hash (simple, no extra deps needed)
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(plaintext.as_bytes());
-        let hash = format!("{:x}", hasher.finalize());
-        SecretHash {
-            plaintext,
-            sha256_hash: hash,
-        }
-    }
-
-    /// Validates a client credential + user token pair.
-    ///
-    /// Returns `Ok(true)` only when **all** of the following hold:
-    /// 1. The calling Client (micro service, authenticated via `ctx`) has
-    ///    `client:validate` permission in the target workspace.
-    /// 2. A client with a matching secret hash exists in the workspace.
-    /// 3. The user token is a valid, non-expired `Auth` token bound to the same
-    ///    workspace.
-    /// 4. The user's permissions (from the auth scope cache) satisfy every
-    ///    permission in `required_permissions`.
-    ///
-    /// This is a thin wrapper over [`validate_with_constraint`] with no policy
-    /// constraint requirement.
-    ///
-    /// # Simplifications
-    ///
-    /// - Client lookup filters by `workspace_id` and matches the secret hash in
-    ///   memory (`secret_hash` is not part of `ClientFilter`).
-    /// - Token validation decodes the user's JWT directly against the configured
-    ///   secret and checks expiry/type/workspace; the full auth-cache
-    ///   hydrate-on-miss pipeline is skipped.
-    pub async fn validate(
-        &self,
-        ctx: &mut CoreCtx,
-        params: ClientValidateParams,
-    ) -> CoreResult<bool> {
-        self.validate_with_constraint(ctx, params, None).await
-    }
-
-    /// Like [`validate`], with an additional policy-constraint requirement.
-    ///
-    /// When `required_constraint` is `Some(expr)`, the user's resolved
-    /// [`crate::core::models::policy::PolicySet`] (fetched from the
-    /// `oxauth:policy:{mem_id}` cache) must grant that constraint — i.e.
-    /// [`PolicySet::allows_constraint`] must return `true` (allow, deny
-    /// overrides). A cache miss or a non-granted constraint fails the
-    /// validation (`Ok(false)`).
-    ///
-    /// NOTE(perf): unlike [`crate::core::models::policy::PolicySet::get`], the
-    /// constraint check scans the compiled set. This client-validation path is
-    /// lower-frequency than the 1,000 req/s service hot path, which stays O(1)
-    /// via exact-key lookup.
-    pub async fn validate_with_constraint(
-        &self,
-        ctx: &mut CoreCtx,
-        params: ClientValidateParams,
-        required_constraint: Option<&str>,
-    ) -> CoreResult<bool> {
-        // TODO: change client authentication and authorization mechanism, client auth is resolved in context, but uses headers for api key and api secret, use client cache
-        let ClientValidateParams {
-            workspace_id,
-            client_secret,
-            user_token,
-            required_permissions,
-        } = params;
-
-        // --- 1. Hash the provided client secret ---
-        let secret_hash = {
-            use sha2::{Digest, Sha256};
-            let mut hasher = Sha256::new();
-            hasher.update(client_secret.as_bytes());
-            format!("{:x}", hasher.finalize())
-        };
-
-        // --- 2. Validate the calling Client has permission & scope the store ---
-        let store_ctx = self
-            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(
-                ctx,
-                Some(workspace_id),
-                &[CANONICAL_PERMISSIONS.client.validate],
-            )
-            .await?;
-
-        // --- 3. Look up the client by workspace_id + secret_hash ---
-        let filter: ClientFilter = json!({
-            "workspace_id": workspace_id.to_string(),
-        })
-        .try_into()?;
-        let clients = self.store().list(&store_ctx, Some(filter), None).await?;
-        let client_found = clients.into_iter().any(|c| c.secret_hash == secret_hash);
-
-        // Anti-enumeration: all authentication failures return Ok(false).
-        if !client_found {
-            return Ok(false);
-        }
-
-        // --- 4. Decode and validate the user token (end user, not the Client) ---
-        let claims = match decode::<TokenClaims>(
-            &user_token,
-            &DecodingKey::from_secret(Config::from_env().jwt_secret.as_bytes()),
-            &Validation::new(Algorithm::HS256),
-        ) {
-            Ok(data) => data.claims,
-            Err(_) => return Ok(false),
-        };
-
-        // --- 5. Check expiry, token type, and workspace binding ---
-        if claims.is_expired() || claims.token_type() != TokenType::Auth {
-            return Ok(false);
-        }
-        if claims.ws != workspace_id {
-            return Ok(false);
-        }
-
-        // --- 6. Build PermissionEngine from the user's cached auth scope ---
-
-        // TODO: use AuthValidator instead, create context from user claims, logic already exists to validate permissions and policies, do not duplicate
-        let mem_id = claims.mem;
-        let keyed = AuthCache::from_claims(&claims);
-        let Some(auth_cache) = self.cm.auth.fetch(&keyed.key()).await? else {
-            return Ok(false);
-        };
-        let checker = match PermissionSet::from_string_vec(auth_cache.auth_scope.permissions) {
-            Ok(checker) => checker,
-            Err(_) => return Ok(false),
-        };
-
-        // --- 7. Check required permissions against the user's grants ---
-        if !required_permissions.is_empty() {
-            let required = match PermissionRule::perms_from_string_slice(&required_permissions) {
-                Ok(perms) => perms,
-                Err(_) => return Ok(false),
-            };
-            if !checker.has_subset(&required) {
-                return Ok(false);
-            }
-        }
-
-        // --- 8. Optional policy-constraint check against the user's PolicySet ---
-        //
-        // Resolves the user's compiled policy set from the
-        // `oxauth:policy:{mem_id}` cache (the same wiring used by context
-        // resolution) and requires the constraint to be granted. A cache miss
-        // is treated as not-granted (default-deny); the caller is responsible
-        // for hydrating the policy cache before the request if a cache-miss
-        // fallback to the DB is desired.
-        if let Some(constraint) = required_constraint {
-            let Some(policy_cache) = self.cm.policy.fetch(&PolicyCache::new_key(mem_id)).await?
-            else {
-                return Ok(false);
-            };
-            if !policy_cache.policies.allows_constraint(constraint) {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
-    }
-
-    /// Regenerates the secret for an existing client and returns the client plus
-    /// the new plaintext secret (shown only once).
-    pub async fn regenerate_secret(
-        &self,
-        ctx: &mut CoreCtx,
-        params: ClientRegenerateSecretParams,
-    ) -> CoreResult<ClientSecret> {
-        let ClientRegenerateSecretParams { id, workspace_id } = params;
-
-        // Validate permissions
-        let store_ctx = self
-            // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(
-                ctx,
-                Some(workspace_id),
-                &[CANONICAL_PERMISSIONS.client.regenerate_secret],
-            )
-            .await?;
-
-        // Generate new secret
-        let sh = self.generate_secret();
-
-        // Update the secret_hash
-        let for_update = ClientForUpdate {
-            secret_hash: Some(sh.sha256_hash),
-            ..Default::default()
-        };
-        let row = self
-            .store()
-            .update(&store_ctx, &id.into(), for_update)
-            .await?;
-
-        let client = Client::from(row);
-        Ok(ClientSecret {
-            client,
-            plaintext_secret: sh.plaintext,
-        })
-    }
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ClientService<D, C> {
@@ -430,25 +191,14 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ClientSer
     ) -> CoreResult<Self::CoreModel> {
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
             .await?;
 
-        // Generate a random client secret (48-char alphanumeric string using rand)
-        // and store only its SHA-256 hash. The plaintext secret is returned to the
-        // caller exactly once, at creation time.
-        let sh = self.generate_secret();
-
-        // TODO: unify secret generation logic in CredentialService
-        // create a credential it API secret and expiry date
-        // this is used for api client auth
-
-        // Build store params from core params + secret_hash
-        let for_create = params.into_store_params(sh.sha256_hash);
+        // Build store params from core params.
+        let for_create = params.into_store_params();
 
         let row = self.store().create(&store_ctx, for_create).await?;
         let client = Client::from(row);
-
-        let _ = sh.plaintext;
 
         Ok(client)
     }
@@ -471,7 +221,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for ClientServi
 
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::LIST_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
             .await?;
 
         // Combined query: tags (@> containment) + field filter
@@ -509,7 +259,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for ClientS
     ) -> CoreResult<Self::CoreModel> {
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let row = self.store().get(&store_ctx, &params.id.into()).await?;
@@ -530,7 +280,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for ClientSer
     ) -> CoreResult<Self::CoreModel> {
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
 
         let id = params.id;
@@ -556,7 +306,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for ClientSer
     ) -> CoreResult<Self::CoreModel> {
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DELETE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
             .await?;
 
         // Capture the entity before deletion so we can return it in the response.
@@ -579,303 +329,3 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for ClientSer
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use super::*;
-    use crate::{
-        cache::{manager::CacheManager, mock::MockChx},
-        config::Config,
-        core::services::registry::ServiceRegistry,
-        store::{
-            dbx::MockDbx,
-            entities::{
-                audit::AuditFields,
-                client::{ClientMeta, ClientRow},
-                id::DbId,
-                workspace::WorkspaceRow,
-            },
-        },
-    };
-    use serial_test::serial;
-    use uuid::Uuid;
-
-    /// Builds a `ClientRow` for the in-memory mock.
-    fn client_row(id: Uuid, ws_id: Uuid) -> ClientRow {
-        ClientRow {
-            id: id.into(),
-            workspace_id: ws_id,
-            name: "test-client".to_string(),
-            secret_hash: "stored-hash".to_string(),
-            endpoint: None,
-            description: None,
-            tags: vec![],
-            meta: ClientMeta {
-                schema_version: "1".to_string(),
-            },
-            audit: AuditFields::default(),
-        }
-    }
-
-    /// Builds a `ClientService` backed by an in-memory `MockDbx` + `MockChx`.
-    fn mock_svc(dbx: MockDbx) -> Arc<ClientService<MockDbx, MockChx>> {
-        let config = Config::test_config();
-        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
-        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
-        let svc_reg = ServiceRegistry::new(&config, sm, cm);
-        svc_reg.client.clone()
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_client_create() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let ws: WorkspaceRow = WorkspaceRow {
-            id: ws_id.into(),
-            ..Default::default()
-        };
-        let client_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // scope_and_validate -> get_workspace -> get by id
-            // store.create
-            .with_one::<ClientRow>(client_row(client_id, ws_id));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.set_scoped_ws(ws.into());
-        ctx.escalate_perms(&["client:create"])?;
-
-        let params = ClientCreateParams {
-            workspace_id: ws_id,
-            name: "test-client".to_string(),
-            endpoint: None,
-            description: None,
-            tags: vec![],
-            meta: ClientMeta {
-                schema_version: "1".to_string(),
-            },
-        };
-
-        let client = svc.create(&mut ctx, params).await?;
-
-        assert_eq!(client.id, client_id);
-        assert_eq!(client.workspace_id, ws_id);
-        assert_eq!(client.name, "test-client");
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_client_describe() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let ws: WorkspaceRow = WorkspaceRow {
-            id: ws_id.into(),
-            ..Default::default()
-        };
-        let client_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // scope_and_validate -> get_workspace
-            // .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-            //     id: ws_id.into(),
-            //     ..Default::default()
-            // }))
-            // store.get
-            .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["client:describe"])?;
-        ctx.set_scoped_ws(ws.into());
-
-        let client = svc
-            .describe(
-                &mut ctx,
-                ClientDescribeParams {
-                    id: client_id,
-                    workspace_id: ws_id,
-                },
-            )
-            .await?;
-
-        assert_eq!(client.id, client_id);
-        assert_eq!(client.workspace_id, ws_id);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_client_list() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let ws: WorkspaceRow = WorkspaceRow {
-            id: ws_id.into(),
-            ..Default::default()
-        };
-        let client_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // list_with_tags_and_filter
-            .with_all::<ClientRow>(vec![client_row(client_id, ws_id)])
-            // count_with_tags_and_filter
-            .with_one::<(i64,)>((1,));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["client:list"])?;
-        ctx.set_scoped_ws(ws.into());
-
-        let res = svc
-            .list(
-                &mut ctx,
-                ClientListParams {
-                    workspace_id: ws_id,
-                    filter: None,
-                    options: None,
-                },
-            )
-            .await?;
-
-        assert_eq!(res.data.len(), 1);
-        assert_eq!(res.data[0].id, client_id);
-        assert_eq!(res.metadata.total, 1);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_client_update() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let ws: WorkspaceRow = WorkspaceRow {
-            id: ws_id.into(),
-            ..Default::default()
-        };
-        let client_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // store.update
-            .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["client:update"])?;
-        ctx.set_scoped_ws(ws.into());
-
-        let params = ClientUpdateParams {
-            id: client_id,
-            workspace_id: ws_id,
-            name: Some("renamed".to_string()),
-            endpoint: None,
-            description: None,
-            tags: None,
-            meta: None,
-        };
-
-        let updated = svc.update(&mut ctx, params).await?;
-
-        assert_eq!(updated.id, client_id);
-        assert_eq!(updated.workspace_id, ws_id);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_client_delete() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let ws: WorkspaceRow = WorkspaceRow {
-            id: ws_id.into(),
-            ..Default::default()
-        };
-        let client_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // delete -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // delete -> describe -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // delete -> describe -> store.get
-            .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)))
-            // delete -> store.delete
-            .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["client:delete", "client:describe"])?;
-        ctx.set_scoped_ws(ws.into());
-
-        let deleted = svc
-            .delete(
-                &mut ctx,
-                ClientDeleteParams {
-                    id: client_id,
-                    workspace_id: ws_id,
-                },
-            )
-            .await?;
-
-        assert_eq!(deleted.id, client_id);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_client_regenerate_secret() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let ws: WorkspaceRow = WorkspaceRow {
-            id: ws_id.into(),
-            ..Default::default()
-        };
-        let client_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // store.update (secret rotation)
-            .with_optional::<ClientRow>(Some(client_row(client_id, ws_id)));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["client:regenerateSecret"])?;
-        ctx.set_scoped_ws(ws.into());
-
-        let res = svc
-            .regenerate_secret(
-                &mut ctx,
-                ClientRegenerateSecretParams {
-                    id: client_id,
-                    workspace_id: ws_id,
-                },
-            )
-            .await?;
-
-        assert_eq!(res.client.id, client_id);
-        // Plaintext secret must be a 48-char alphanumeric string, shown once.
-        assert_eq!(res.plaintext_secret.len(), 48);
-        assert!(
-            res.plaintext_secret
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric())
-        );
-
-        Ok(())
-    }
-}

@@ -16,13 +16,15 @@ use crate::core::traits::params::IntoParams;
 #[derive(Deserialize)]
 pub struct PolicyDescribeReq {
     pub id: Uuid,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<PolicyDescribeParams> for PolicyDescribeReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<PolicyDescribeParams> {
+    fn into_params(self) -> CoreResult<PolicyDescribeParams> {
         Ok(PolicyDescribeParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -79,12 +81,14 @@ pub struct PolicyCreateReq {
     pub description: Option<String>,
     pub tags: Vec<String>,
     pub meta: PolicyMeta,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<PolicyCreateParams> for PolicyCreateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<PolicyCreateParams> {
+    fn into_params(self) -> CoreResult<PolicyCreateParams> {
         Ok(PolicyCreateParams {
-            workspace_id,
+            workspace_id: self.workspace_id,
             name: self.name,
             effect: self.effect,
             principal_id: self.principal_id,
@@ -111,13 +115,15 @@ pub struct PolicyUpdateReq {
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<PolicyMeta>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<PolicyUpdateParams> for PolicyUpdateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<PolicyUpdateParams> {
+    fn into_params(self) -> CoreResult<PolicyUpdateParams> {
         Ok(PolicyUpdateParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
             name: self.name,
             effect: self.effect,
             principal_id: self.principal_id,
@@ -136,12 +142,14 @@ impl IntoParams<PolicyUpdateParams> for PolicyUpdateReq {
 pub struct PolicyListReq {
     pub filter: Option<RequestFilterParams<PolicyFilter>>,
     pub options: Option<RequestListOptions>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<PolicyListParams> for PolicyListReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<PolicyListParams> {
+    fn into_params(self) -> CoreResult<PolicyListParams> {
         Ok(PolicyListParams {
-            workspace_id,
+            workspace_id: self.workspace_id,
             filter: self.filter,
             options: self.options,
         })
@@ -159,13 +167,15 @@ pub struct PolicyListRes {
 #[derive(Deserialize)]
 pub struct PolicyDeleteReq {
     pub id: Uuid,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<PolicyDeleteParams> for PolicyDeleteReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<PolicyDeleteParams> {
+    fn into_params(self) -> CoreResult<PolicyDeleteParams> {
         Ok(PolicyDeleteParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -184,9 +194,9 @@ mod tests {
     fn test_policy_describe_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = PolicyDescribeReq { id }.into_params(ws_id).unwrap();
+        let params = PolicyDescribeReq { id , workspace_id: Some(ws_id)}.into_params().unwrap();
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 
     #[test]
@@ -203,11 +213,12 @@ mod tests {
             description: Some("Members may update their own profile".to_string()),
             tags: vec!["system".to_string()],
             meta: PolicyMeta::default(),
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name.as_deref(), Some("self-update"));
         assert_eq!(params.effect, PolicyEffect::Allow);
         assert_eq!(params.principal_id, Some(principal_id));
@@ -236,12 +247,13 @@ mod tests {
             description: None,
             tags: Some(vec![]),
             meta: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name.as_deref(), Some("renamed"));
         assert_eq!(params.effect, Some(PolicyEffect::Deny));
         assert_eq!(params.actions, Some(vec!["membership:delete".to_string()]));
@@ -256,10 +268,11 @@ mod tests {
         let params = PolicyListReq {
             filter: None,
             options: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert!(params.filter.is_none());
         assert!(params.options.is_none());
     }
@@ -268,9 +281,9 @@ mod tests {
     fn test_policy_delete_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = PolicyDeleteReq { id }.into_params(ws_id).unwrap();
+        let params = PolicyDeleteReq { id , workspace_id: Some(ws_id)}.into_params().unwrap();
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 
     #[test]

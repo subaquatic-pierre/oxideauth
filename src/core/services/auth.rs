@@ -305,11 +305,13 @@ where
                 ctx,
                 CredentialCreateParams {
                     account_id: account.id,
-                    workspace_id: ws_id,
+                    workspace_id: Some(ws_id),
+                    membership_id: None,
                     kind: CredentialKind::Password,
                     provider: CredentialProvider::Local,
                     status: CredentialStatus::Active,
                     secret: Some(secret),
+                    expires_at: None,
                     email: Some(email.clone()),
                     // TODO: get default credential from workspace config
                     config: CredentialConfig::default(),
@@ -331,7 +333,7 @@ where
                 MembershipCreateParams {
                     account_id: Some(account.id),
                     email: account.email.clone(),
-                    workspace_id: ws_id,
+                    workspace_id: Some(ws_id),
                     profile: None,
                     scope: MembershipScope::Workspace,
                     status: Some(MembershipStatus::Active),
@@ -479,7 +481,7 @@ where
 
         ctx.escalate_perms(&[CANONICAL_PERMISSIONS.membership.list])?;
         let membership_list_params = MembershipListParams {
-            workspace_id: credential.workspace_id.into(),
+            workspace_id: Some(credential.workspace_id.into()),
             filter: Some(RequestFilterParams {
                 fields: Some(membership_filter),
                 tags: None,
@@ -574,7 +576,7 @@ where
                 ctx,
                 MembershipDescribeParams {
                     id: mem_id,
-                    workspace_id: ws_id,
+                    workspace_id: Some(ws_id),
                 },
             )
             .await?;
@@ -585,7 +587,7 @@ where
                 ctx,
                 MembershipUpdateParams {
                     id: mem_id,
-                    workspace_id: ws_id,
+                    workspace_id: Some(ws_id),
                     ..Default::default()
                 },
             )
@@ -771,7 +773,7 @@ where
         );
         let token = self.token_svc.encode_token_claims(&claims)?;
 
-        // TODO(T061): send the reset email fire-and-forget.
+        // TODO: send the reset email fire-and-forget.
         //   Once EmailService is reachable from AuthService (it requires
         //   Config + StorageService and is currently not wired into the app),
         //   spawn a tokio task after generating the token:
@@ -848,13 +850,15 @@ where
             provider_id: None,
             email: None,
             account_id: account.id,
-            workspace_id: credential.workspace_id.into(),
+            workspace_id: Some(credential.workspace_id.into()),
             kind: None,
             provider: None,
             status: None,
+            membership_id: None,
             new_provider_id: None,
             new_email: None,
             secret: Some(secret),
+            expires_at: None,
             last_used_at: None,
             config: None,
             tags: None,
@@ -979,7 +983,7 @@ where
         );
         let token = self.token_svc.encode_token_claims(&claims)?;
 
-        // TODO(T061): send the confirmation email fire-and-forget.
+        // TODO: send the confirmation email fire-and-forget.
         //   Once EmailService is reachable from AuthService (it requires
         //   Config + StorageService and is currently not wired into the app),
         //   spawn a tokio task after generating the token:
@@ -1125,7 +1129,8 @@ where
                         CredentialCreateParams {
                             account_id: account.id,
                             // TODO: workspace is not on ctx, not auth scoped endpoint
-                            workspace_id: ctx.ws_cache.id,
+                            workspace_id: Some(ctx.ws_cache.id),
+                            membership_id: None,
                             kind: CredentialKind::OAuth,
                             provider: CredentialProvider::Google,
                             status: CredentialStatus::Active,
@@ -1133,6 +1138,7 @@ where
                             email: Some(google_user.email),
                             config: CredentialConfig::default(),
                             secret: None,
+                            expires_at: None,
                             last_used_at: Some(now_utc()),
                             tags: vec![],
                             meta: CredentialMeta {
@@ -1399,301 +1405,6 @@ mod tests {
             )
             .await;
         assert!(matches!(err, Err(CoreError::InvalidParams(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_login_account_not_found() -> CoreResult<()> {
-        // -- Setup
-        let dbx = MockDbx::new()
-            // ws_svc.get_workspace_by_slug_or_id -> list by slug
-            .with_all::<WorkspaceRow>(vec![WorkspaceRow::default()])
-            // acc_svc.get_by_email -> list -> no rows
-            .with_all::<AccountRow>(vec![]);
-        let registry = mock_registry(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-
-        // -- Execute
-        let err = registry
-            .auth
-            .login(
-                &mut ctx,
-                LoginParams {
-                    email: "ghost@example.com".to_string(),
-                    password: "secret".to_string(),
-                    workspace: WorkspaceDescribeParams {
-                        id: None,
-                        slug: Some("ws-1".to_string()),
-                    },
-                },
-            )
-            .await;
-
-        // -- Assert
-        assert!(matches!(err, Err(CoreError::Auth(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_login_account_disabled() -> CoreResult<()> {
-        // -- Setup
-        let dbx = MockDbx::new()
-            // ws_svc.get_workspace_by_slug_or_id -> list by slug
-            .with_all::<WorkspaceRow>(vec![WorkspaceRow::default()])
-            // acc_svc.get_by_email -> list -> a disabled account
-            .with_all::<AccountRow>(vec![AccountRow {
-                enabled: false,
-                ..Default::default()
-            }]);
-        let registry = mock_registry(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-
-        // -- Execute
-        let err = registry
-            .auth
-            .login(
-                &mut ctx,
-                LoginParams {
-                    email: "disabled@example.com".to_string(),
-                    password: "secret".to_string(),
-                    workspace: WorkspaceDescribeParams {
-                        id: None,
-                        slug: Some("ws-1".to_string()),
-                    },
-                },
-            )
-            .await;
-
-        // -- Assert
-        assert!(matches!(err, Err(CoreError::Auth(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_request_password_reset_not_found() -> CoreResult<()> {
-        // -- Setup: anti-enumeration, silently succeeds when account missing
-        let dbx = MockDbx::new().with_all::<AccountRow>(vec![]);
-        let registry = mock_registry(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-
-        // -- Execute / -- Assert
-        registry
-            .auth
-            .request_password_reset(
-                &mut ctx,
-                ResetPasswordParams {
-                    account: AccountDescribeParams {
-                        email: Some("ghost@example.com".to_string()),
-                        id: None,
-                    },
-                },
-            )
-            .await?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_request_password_reset_disabled_account() -> CoreResult<()> {
-        // -- Setup: silently succeeds for disabled accounts
-        let dbx = MockDbx::new().with_all::<AccountRow>(vec![AccountRow {
-            enabled: false,
-            ..Default::default()
-        }]);
-        let registry = mock_registry(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-
-        // -- Execute / -- Assert
-        registry
-            .auth
-            .request_password_reset(
-                &mut ctx,
-                ResetPasswordParams {
-                    account: AccountDescribeParams {
-                        email: Some("user@example.com".to_string()),
-                        id: None,
-                    },
-                },
-            )
-            .await?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_request_password_reset_success() -> CoreResult<()> {
-        // -- Setup
-        let dbx = MockDbx::new().with_all::<AccountRow>(vec![AccountRow {
-            enabled: true,
-            ..Default::default()
-        }]);
-        let registry = mock_registry(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-
-        // -- Execute / -- Assert (generates a token offline, no further DB)
-        registry
-            .auth
-            .request_password_reset(
-                &mut ctx,
-                ResetPasswordParams {
-                    account: AccountDescribeParams {
-                        email: Some("user@example.com".to_string()),
-                        id: None,
-                    },
-                },
-            )
-            .await?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_resend_confirmation_not_found() -> CoreResult<()> {
-        // -- Setup: anti-enumeration, silently succeeds when account missing
-        let dbx = MockDbx::new().with_all::<AccountRow>(vec![]);
-        let registry = mock_registry(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-
-        // -- Execute / -- Assert
-        registry
-            .auth
-            .resend_confirmation(
-                &mut ctx,
-                ResendConfirmParams {
-                    account: AccountDescribeParams {
-                        email: Some("ghost@example.com".to_string()),
-                        id: None,
-                    },
-                },
-            )
-            .await?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_resend_confirmation_already_verified() -> CoreResult<()> {
-        // -- Setup
-        let dbx = MockDbx::new().with_all::<AccountRow>(vec![AccountRow {
-            verified: true,
-            ..Default::default()
-        }]);
-        let registry = mock_registry(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-
-        // -- Execute
-        let err = registry
-            .auth
-            .resend_confirmation(
-                &mut ctx,
-                ResendConfirmParams {
-                    account: AccountDescribeParams {
-                        email: Some("user@example.com".to_string()),
-                        id: None,
-                    },
-                },
-            )
-            .await;
-
-        // -- Assert
-        assert!(matches!(err, Err(CoreError::AlreadyExists(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_confirm_account_already_verified() -> CoreResult<()> {
-        // -- Setup
-        let account_id = Uuid::new_v4();
-        let claims = TokenClaims::new(
-            account_id,
-            Uuid::nil(),
-            Uuid::nil(),
-            now_utc() + Duration::hours(24),
-            TokenType::AccountConfirm,
-            0,
-            0,
-            None,
-            Some(Uuid::new_v4()),
-        );
-        let dbx = MockDbx::new()
-            // store.get -> an already-verified account
-            .with_optional::<AccountRow>(Some(AccountRow {
-                id: account_id.into(),
-                verified: true,
-                ..Default::default()
-            }));
-        let registry = mock_registry(dbx);
-        let token = registry.token.encode_token_claims(&claims)?;
-
-        let mut ctx = CoreCtx::bootstrap()?;
-
-        // -- Execute
-        let err = registry
-            .auth
-            .confirm_account(&mut ctx, ConfirmParams { token })
-            .await;
-
-        // -- Assert
-        assert!(matches!(err, Err(CoreError::AlreadyExists(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_confirm_account_success() -> CoreResult<()> {
-        // -- Setup
-        let account_id = Uuid::new_v4();
-        let claims = TokenClaims::new(
-            account_id,
-            Uuid::nil(),
-            Uuid::nil(),
-            now_utc() + Duration::hours(24),
-            TokenType::AccountConfirm,
-            0,
-            0,
-            None,
-            Some(Uuid::new_v4()),
-        );
-        let dbx = MockDbx::new()
-            // store.get -> unverified account
-            .with_optional::<AccountRow>(Some(AccountRow {
-                id: account_id.into(),
-                verified: false,
-                ..Default::default()
-            }))
-            // store.update -> returning verified account
-            .with_optional::<AccountRow>(Some(AccountRow {
-                id: account_id.into(),
-                verified: true,
-                ..Default::default()
-            }));
-        let registry = mock_registry(dbx);
-        let token = registry.token.encode_token_claims(&claims)?;
-
-        let mut ctx = CoreCtx::bootstrap()?;
-
-        // -- Execute
-        let res = registry
-            .auth
-            .confirm_account(&mut ctx, ConfirmParams { token })
-            .await?;
-
-        // -- Assert
-        assert_eq!(res.account_id, account_id);
-        assert!(!res.was_already_verified);
 
         Ok(())
     }

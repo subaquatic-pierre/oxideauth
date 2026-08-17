@@ -108,9 +108,9 @@ impl AuthValidator {
 
     /// Validates the requested workspace ID against the caller's scope.
     ///
-    /// Cross-namespace operation is gated by system-namespace admin membership
-    /// (FR-018): a caller whose authenticated scope is the system namespace and
-    /// holds the `*:*` admin permission may operate on any requested workspace.
+    /// Cross-namespace operation is gated by system-namespace admin membership:
+    /// a caller whose authenticated scope is the system namespace and holds the
+    /// `*:*` admin permission may operate on any requested workspace.
     /// All other callers must match (or derive from) their context workspace.
     pub fn validate_workspace(
         &self,
@@ -123,7 +123,9 @@ impl AuthValidator {
 
         if is_system_namespace_admin {
             // Case 1: system-namespace admin — may operate in any workspace.
-            return Ok(requested_workspace_id);
+            // When no workspace is requested, fall back to the workspace already
+            // scoped onto the context via the required X-Workspace-Id header.
+            return Ok(requested_workspace_id.or(Some(ctx.ws_cache.id)));
         }
 
         // Case 2: Scoped context — must have a concrete workspace.
@@ -181,7 +183,7 @@ mod tests {
         let validator = AuthValidator::new();
         let other = Uuid::new_v4();
 
-        // System-namespace admin (slug "system", *:*) may scope anywhere (FR-018).
+        // System-namespace admin (slug "system", *:*) may scope anywhere.
         let admin = ctx_with(SYSTEM_CONST.system_ws_slug, vec!["*:*".to_string()], Uuid::new_v4());
         assert_eq!(
             validator.validate_workspace(&admin, Some(other))?,

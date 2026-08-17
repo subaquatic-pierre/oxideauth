@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::cache::entities::client_auth::ClientAuthCache;
 use crate::core::error::CoreResult;
 use crate::core::models::credential::CredentialConfig;
 use crate::core::models::{
@@ -21,14 +22,16 @@ pub struct CredentialDescribeReq {
     pub account_id: Uuid,
     pub provider_id: Option<String>,
     pub email: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<CredentialDescribeParams> for CredentialDescribeReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<CredentialDescribeParams> {
+    fn into_params(self) -> CoreResult<CredentialDescribeParams> {
         Ok(CredentialDescribeParams {
             id: self.id,
             account_id: self.account_id,
-            workspace_id,
+            workspace_id: self.workspace_id,
             provider_id: self.provider_id,
             email: self.email,
         })
@@ -91,27 +94,35 @@ pub struct CredentialUpdateReq {
     pub new_email: Option<String>,
     pub secret: Option<String>,
     pub config: Option<CredentialConfig>,
+    #[serde(default)]
+    pub membership_id: Option<Uuid>,
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub expires_at: Option<OffsetDateTime>,
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub last_used_at: Option<OffsetDateTime>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<CredentialMeta>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<CredentialUpdateParams> for CredentialUpdateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<CredentialUpdateParams> {
+    fn into_params(self) -> CoreResult<CredentialUpdateParams> {
         Ok(CredentialUpdateParams {
             id: self.id,
             provider_id: self.provider_id,
             email: self.email,
             account_id: self.account_id,
-            workspace_id,
+            workspace_id: self.workspace_id,
             kind: self.kind,
             config: self.config,
             provider: self.provider,
             status: self.status,
+            membership_id: self.membership_id,
             new_provider_id: self.new_provider_id,
             new_email: self.new_email,
             secret: self.secret,
+            expires_at: self.expires_at,
             last_used_at: self.last_used_at,
             tags: self.tags,
             meta: self.meta,
@@ -124,12 +135,14 @@ impl IntoParams<CredentialUpdateParams> for CredentialUpdateReq {
 pub struct CredentialListReq {
     pub filter: Option<RequestFilterParams<CredentialFilter>>,
     pub options: Option<RequestListOptions>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<CredentialListParams> for CredentialListReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<CredentialListParams> {
+    fn into_params(self) -> CoreResult<CredentialListParams> {
         Ok(CredentialListParams {
-            workspace_id,
+            workspace_id: self.workspace_id,
             filter: self.filter,
             options: self.options,
         })
@@ -150,14 +163,16 @@ pub struct CredentialDeleteReq {
     pub account_id: Uuid,
     pub provider_id: Option<String>,
     pub email: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<CredentialDeleteParams> for CredentialDeleteReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<CredentialDeleteParams> {
+    fn into_params(self) -> CoreResult<CredentialDeleteParams> {
         Ok(CredentialDeleteParams {
             id: self.id,
             account_id: self.account_id,
-            workspace_id,
+            workspace_id: self.workspace_id,
             provider_id: self.provider_id,
             email: self.email,
         })
@@ -168,6 +183,41 @@ impl IntoParams<CredentialDeleteParams> for CredentialDeleteReq {
 #[derive(Serialize)]
 pub struct CredentialDeleteRes {
     pub id: Uuid,
+}
+
+// --- CredentialAuthenticateReq ---
+// Public (unauthenticated) request: a client presents its credential id + secret.
+#[derive(Deserialize)]
+pub struct CredentialAuthenticateReq {
+    pub credential_id: Uuid,
+    pub secret: String,
+}
+
+// --- CredentialAuthenticateRes ---
+#[derive(Serialize, Debug)]
+pub struct CredentialAuthenticateRes {
+    pub credential_id: Uuid,
+    pub membership_id: Uuid,
+    pub account_id: Uuid,
+    pub workspace_id: Uuid,
+    pub roles: Vec<Uuid>,
+    pub permissions: Vec<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub expires_at: Option<OffsetDateTime>,
+}
+
+impl From<ClientAuthCache> for CredentialAuthenticateRes {
+    fn from(c: ClientAuthCache) -> Self {
+        Self {
+            credential_id: c.credential_id,
+            membership_id: c.membership_id,
+            account_id: c.account_id,
+            workspace_id: c.workspace_id,
+            roles: c.roles,
+            permissions: c.permissions,
+            expires_at: c.expires_at,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -184,13 +234,14 @@ mod tests {
             account_id,
             provider_id: Some("google-1".to_string()),
             email: Some("ada@example.com".to_string()),
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
         assert_eq!(params.id, id);
         assert_eq!(params.account_id, account_id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.provider_id.as_deref(), Some("google-1"));
         assert_eq!(params.email.as_deref(), Some("ada@example.com"));
     }
@@ -203,8 +254,9 @@ mod tests {
             account_id: Uuid::new_v4(),
             provider_id: None,
             email: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
         assert!(params.provider_id.is_none());
         assert!(params.email.is_none());
@@ -230,13 +282,14 @@ mod tests {
             last_used_at: None,
             tags: Some(vec!["t".to_string()]),
             meta: Some(CredentialMeta::default()),
+        expires_at: None, membership_id: None, workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
         assert_eq!(params.id, id);
         assert_eq!(params.account_id, account_id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(
             params.kind.as_ref().map(|k| k.to_string()),
             Some("oauth".to_string())
@@ -259,10 +312,11 @@ mod tests {
         let params = CredentialListReq {
             filter: None,
             options: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert!(params.filter.is_none());
         assert!(params.options.is_none());
     }
@@ -277,12 +331,13 @@ mod tests {
             account_id,
             provider_id: None,
             email: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
         assert_eq!(params.id, id);
         assert_eq!(params.account_id, account_id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 
     #[test]

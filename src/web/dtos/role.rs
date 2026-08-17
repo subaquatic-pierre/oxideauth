@@ -18,13 +18,15 @@ use crate::core::traits::params::IntoParams;
 #[derive(Deserialize)]
 pub struct RoleDescribeReq {
     pub id: Uuid,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<RoleDescribeParams> for RoleDescribeReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<RoleDescribeParams> {
+    fn into_params(self) -> CoreResult<RoleDescribeParams> {
         Ok(RoleDescribeParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -72,12 +74,14 @@ pub struct RoleCreateReq {
     pub policy_ids: Vec<Uuid>,
     pub tags: Vec<String>,
     pub meta: RoleMeta,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<RoleCreateParams> for RoleCreateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<RoleCreateParams> {
+    fn into_params(self) -> CoreResult<RoleCreateParams> {
         Ok(RoleCreateParams {
-            workspace_id,
+            workspace_id: self.workspace_id,
             name: self.name,
             description: self.description,
             permission_ids: self.permission_ids,
@@ -98,13 +102,15 @@ pub struct RoleUpdateReq {
     pub policy_ids: Option<Vec<Uuid>>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<RoleMeta>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<RoleUpdateParams> for RoleUpdateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<RoleUpdateParams> {
+    fn into_params(self) -> CoreResult<RoleUpdateParams> {
         Ok(RoleUpdateParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
             name: self.name,
             description: self.description,
             permission_ids: self.permission_ids,
@@ -120,12 +126,14 @@ impl IntoParams<RoleUpdateParams> for RoleUpdateReq {
 pub struct RoleListReq {
     pub filter: Option<RequestFilterParams<RoleFilter>>,
     pub options: Option<RequestListOptions>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<RoleListParams> for RoleListReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<RoleListParams> {
+    fn into_params(self) -> CoreResult<RoleListParams> {
         Ok(RoleListParams {
-            workspace_id,
+            workspace_id: self.workspace_id,
             filter: self.filter,
             options: self.options,
         })
@@ -143,13 +151,15 @@ pub struct RoleListRes {
 #[derive(Deserialize)]
 pub struct RoleDeleteReq {
     pub id: Uuid,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<RoleDeleteParams> for RoleDeleteReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<RoleDeleteParams> {
+    fn into_params(self) -> CoreResult<RoleDeleteParams> {
         Ok(RoleDeleteParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -168,9 +178,9 @@ mod tests {
     fn test_role_describe_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = RoleDescribeReq { id }.into_params(ws_id).unwrap();
+        let params = RoleDescribeReq { id , workspace_id: Some(ws_id)}.into_params().unwrap();
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 
     #[test]
@@ -185,11 +195,12 @@ mod tests {
             policy_ids: vec![policy_id],
             tags: vec!["system".to_string()],
             meta: RoleMeta::default(),
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name, "admin");
         assert_eq!(params.description.as_deref(), Some("Full access"));
         assert_eq!(params.permission_ids, vec![perm_id]);
@@ -210,12 +221,13 @@ mod tests {
             policy_ids: Some(vec![Uuid::new_v4()]),
             tags: Some(vec![]),
             meta: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name.as_deref(), Some("editor"));
         assert!(params.description.is_none());
         assert!(params.permission_ids.is_none());
@@ -229,10 +241,11 @@ mod tests {
         let params = RoleListReq {
             filter: None,
             options: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert!(params.filter.is_none());
         assert!(params.options.is_none());
     }
@@ -241,9 +254,9 @@ mod tests {
     fn test_role_delete_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = RoleDeleteReq { id }.into_params(ws_id).unwrap();
+        let params = RoleDeleteReq { id , workspace_id: Some(ws_id)}.into_params().unwrap();
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 
     #[test]

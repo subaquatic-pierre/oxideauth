@@ -16,13 +16,15 @@ use crate::core::traits::params::IntoParams;
 #[derive(Deserialize)]
 pub struct PermissionDescribeReq {
     pub id: Option<Uuid>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<PermissionDescribeParams> for PermissionDescribeReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<PermissionDescribeParams> {
+    fn into_params(self) -> CoreResult<PermissionDescribeParams> {
         Ok(PermissionDescribeParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -64,12 +66,14 @@ pub struct PermissionCreateReq {
     pub description: Option<String>,
     pub tags: Vec<String>,
     pub meta: PermissionMeta,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<PermissionCreateParams> for PermissionCreateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<PermissionCreateParams> {
+    fn into_params(self) -> CoreResult<PermissionCreateParams> {
         Ok(PermissionCreateParams {
-            workspace_id,
+            workspace_id: self.workspace_id,
             name: self.name,
             description: self.description,
             tags: self.tags,
@@ -86,13 +90,15 @@ pub struct PermissionUpdateReq {
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<PermissionMeta>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<PermissionUpdateParams> for PermissionUpdateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<PermissionUpdateParams> {
+    fn into_params(self) -> CoreResult<PermissionUpdateParams> {
         Ok(PermissionUpdateParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
             name: self.name,
             description: self.description,
             tags: self.tags,
@@ -106,12 +112,14 @@ impl IntoParams<PermissionUpdateParams> for PermissionUpdateReq {
 pub struct PermissionListReq {
     pub filter: Option<RequestFilterParams<PermissionFilter>>,
     pub options: Option<RequestListOptions>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<PermissionListParams> for PermissionListReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<PermissionListParams> {
+    fn into_params(self) -> CoreResult<PermissionListParams> {
         Ok(PermissionListParams {
-            workspace_id,
+            workspace_id: self.workspace_id,
             filter: self.filter,
             options: self.options,
         })
@@ -129,13 +137,15 @@ pub struct PermissionListRes {
 #[derive(Deserialize)]
 pub struct PermissionDeleteReq {
     pub id: Uuid,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<PermissionDeleteParams> for PermissionDeleteReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<PermissionDeleteParams> {
+    fn into_params(self) -> CoreResult<PermissionDeleteParams> {
         Ok(PermissionDeleteParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -156,17 +166,17 @@ mod tests {
     fn test_permission_describe_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = PermissionDescribeReq { id: Some(id) }
-            .into_params(ws_id)
+        let params = PermissionDescribeReq { id: Some(id) , workspace_id: Some(ws_id)}
+            .into_params()
             .unwrap();
         assert_eq!(params.id, Some(id));
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 
     #[test]
     fn test_permission_describe_req_into_params_none_id() {
-        let params = PermissionDescribeReq { id: None }
-            .into_params(Uuid::new_v4())
+        let params = PermissionDescribeReq { id: None, workspace_id: Some(Uuid::new_v4()) }
+            .into_params()
             .unwrap();
         assert!(params.id.is_none());
     }
@@ -175,7 +185,7 @@ mod tests {
     fn test_permission_describe_params_validate_rejects_missing_id() {
         let params = PermissionDescribeParams {
             id: None,
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
         };
         let err = params.validate().unwrap_err();
         assert!(matches!(err, CoreError::InvalidParams(msg) if msg == "Permission describe must contain id"));
@@ -185,7 +195,7 @@ mod tests {
     fn test_permission_describe_params_validate_accepts_id() {
         let params = PermissionDescribeParams {
             id: Some(Uuid::new_v4()),
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
         };
         let validated = params.validate().unwrap();
         assert!(validated.id.is_some());
@@ -199,11 +209,12 @@ mod tests {
             description: Some("Read projects".to_string()),
             tags: vec!["system".to_string()],
             meta: PermissionMeta::default(),
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name, "projects:read");
         assert_eq!(params.description.as_deref(), Some("Read projects"));
         assert_eq!(params.tags, vec!["system".to_string()]);
@@ -220,12 +231,13 @@ mod tests {
             description: None,
             tags: None,
             meta: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name.as_deref(), Some("new-name"));
         assert!(params.description.is_none());
         assert!(params.meta.is_none());
@@ -237,10 +249,11 @@ mod tests {
         let params = PermissionListReq {
             filter: None,
             options: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert!(params.filter.is_none());
         assert!(params.options.is_none());
     }
@@ -249,8 +262,8 @@ mod tests {
     fn test_permission_delete_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = PermissionDeleteReq { id }.into_params(ws_id).unwrap();
+        let params = PermissionDeleteReq { id , workspace_id: Some(ws_id)}.into_params().unwrap();
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 }

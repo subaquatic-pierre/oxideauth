@@ -92,7 +92,7 @@ impl From<ProfileRow> for Profile {
 #[derive(Debug, Deserialize)]
 pub struct ProfileCreateParams {
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub email: String,
     pub name: String,
     pub description: Option<String>,
@@ -108,7 +108,7 @@ pub struct ProfileCreateParams {
 pub struct ProfileDescribeParams {
     pub id: Option<Uuid>,
     pub email: Option<String>,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 impl ProfileDescribeParams {
@@ -132,13 +132,13 @@ impl ValidateParams for ProfileDescribeParams {
 #[derive(Debug, Deserialize)]
 pub struct ProfileDeleteParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ProfileUpdateParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: Option<String>,
     pub email: Option<String>,
     pub description: Option<String>,
@@ -169,7 +169,7 @@ impl ProfileUpdateParams {
 
 #[derive(Default)]
 pub struct ProfileListParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub filter: Option<RequestFilterParams<ProfileFilter>>,
     pub options: Option<RequestListOptions>,
 }
@@ -270,7 +270,7 @@ mod tests {
         let workspace_id = Uuid::new_v4();
         let params = ProfileCreateParams {
             account_id,
-            workspace_id,
+            workspace_id: Some(workspace_id),
             email: "alice@example.com".to_string(),
             name: "P".to_string(),
             description: Some("d".to_string()),
@@ -286,7 +286,7 @@ mod tests {
 
         let store: ProfileForCreate = params.into();
         assert_eq!(store.account_id, account_id);
-        assert_eq!(store.workspace_id, workspace_id);
+        assert_eq!(store.workspace_id, Some(workspace_id));
         assert_eq!(store.email, "alice@example.com");
         assert_eq!(store.name, "P");
         assert_eq!(store.description.as_deref(), Some("d"));
@@ -302,7 +302,7 @@ mod tests {
     fn test_profile_update_params_into_store() {
         let params = ProfileUpdateParams {
             id: Uuid::new_v4(),
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             name: Some("New".to_string()),
             email: Some("alice@example.com".to_string()),
             description: Some("d".to_string()),
@@ -335,7 +335,7 @@ mod tests {
         let params = ProfileDescribeParams {
             id: Some(Uuid::new_v4()),
             email: None,
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
         };
         assert!(params.validate().is_ok());
 
@@ -343,7 +343,7 @@ mod tests {
         let params = ProfileDescribeParams {
             id: None,
             email: Some("alice@example.com".to_string()),
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
         };
         assert!(params.validate().is_ok());
 
@@ -351,7 +351,7 @@ mod tests {
         let params = ProfileDescribeParams {
             id: None,
             email: None,
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
         };
         assert!(matches!(
             params.validate(),
@@ -367,21 +367,21 @@ mod tests {
         let params = ProfileDescribeParams {
             id: Some(id),
             email: Some("alice@example.com".to_string()),
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
         };
         assert_eq!(params.id_or_email().unwrap(), id.to_string());
 
         let params = ProfileDescribeParams {
             id: None,
             email: Some("alice@example.com".to_string()),
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
         };
         assert_eq!(params.id_or_email().unwrap(), "alice@example.com");
 
         let params = ProfileDescribeParams {
             id: None,
             email: None,
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
         };
         assert!(params.id_or_email().is_err());
     }
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn test_profile_list_params_accessors() {
         let params = ProfileListParams {
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             filter: None,
             options: None,
         };

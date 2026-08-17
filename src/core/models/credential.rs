@@ -33,6 +33,7 @@ pub struct Credential {
 
     pub account_id: Uuid,
     pub workspace_id: Uuid,
+    pub membership_id: Option<Uuid>,
 
     pub kind: CredentialKind,
     pub provider: CredentialProvider,
@@ -43,6 +44,7 @@ pub struct Credential {
     #[serde(skip_serializing)]
     pub secret: Option<String>,
 
+    pub expires_at: Option<OffsetDateTime>,
     pub last_used_at: Option<OffsetDateTime>,
     pub tags: Vec<String>,
     pub meta: CredentialMeta,
@@ -57,12 +59,14 @@ impl Default for Credential {
             id: Default::default(),
             account_id: Default::default(),
             workspace_id: Default::default(),
+            membership_id: Default::default(),
             kind: CredentialKind::Password,
             provider: CredentialProvider::Local,
             status: CredentialStatus::Pending,
             provider_id: Default::default(),
             email: Default::default(),
             secret: Default::default(),
+            expires_at: Default::default(),
             last_used_at: Default::default(),
             tags: Default::default(),
             config: CredentialConfig::default(),
@@ -78,12 +82,14 @@ impl From<CredentialRow> for Credential {
             id: value.id.into(),
             account_id: value.account_id.into(),
             workspace_id: value.workspace_id.into(),
+            membership_id: value.membership_id.map(Into::into),
             kind: value.kind,
             provider: value.provider,
             status: value.status,
             provider_id: value.provider_id,
             email: value.email,
             secret: value.secret,
+            expires_at: value.expires_at,
             last_used_at: value.last_used_at,
             tags: value.tags,
             meta: value.meta,
@@ -96,13 +102,15 @@ impl From<CredentialRow> for Credential {
 #[derive(Debug, Deserialize, Clone)]
 pub struct CredentialCreateParams {
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
+    pub membership_id: Option<Uuid>,
     pub kind: CredentialKind,
     pub provider: CredentialProvider,
     pub status: CredentialStatus,
     pub provider_id: Option<String>,
     pub email: Option<String>,
     pub secret: Option<String>,
+    pub expires_at: Option<OffsetDateTime>,
     pub config: CredentialConfig,
     pub last_used_at: Option<OffsetDateTime>,
     pub tags: Vec<String>,
@@ -117,9 +125,11 @@ impl From<CredentialCreateParams> for CredentialForCreate {
             status: params.status,
             account_id: params.account_id,
             workspace_id: params.workspace_id,
+            membership_id: params.membership_id,
             provider_id: params.provider_id,
             email: params.email,
             secret: params.secret,
+            expires_at: params.expires_at,
             config: params.config,
             last_used_at: params.last_used_at,
             tags: params.tags,
@@ -132,7 +142,7 @@ impl From<CredentialCreateParams> for CredentialForCreate {
 pub struct CredentialDescribeParams {
     pub id: Uuid,
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub provider_id: Option<String>,
     pub email: Option<String>,
 }
@@ -150,14 +160,16 @@ pub struct CredentialUpdateParams {
     pub email: Option<String>,
 
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 
     pub kind: Option<CredentialKind>,
     pub provider: Option<CredentialProvider>,
     pub status: Option<CredentialStatus>,
+    pub membership_id: Option<Uuid>,
     pub new_provider_id: Option<String>,
     pub new_email: Option<String>,
     pub secret: Option<String>,
+    pub expires_at: Option<OffsetDateTime>,
     pub last_used_at: Option<OffsetDateTime>,
     pub config: Option<CredentialConfig>,
     pub tags: Option<Vec<String>>,
@@ -170,10 +182,12 @@ impl From<CredentialUpdateParams> for CredentialForUpdate {
             kind: params.kind,
             provider: params.provider,
             status: params.status,
+            membership_id: params.membership_id,
             provider_id: params.new_provider_id,
             email: params.new_email,
             config: params.config,
             secret: params.secret,
+            expires_at: params.expires_at,
             last_used_at: params.last_used_at,
             tags: params.tags,
             meta: params.meta,
@@ -187,13 +201,13 @@ pub type CredentialConfig = StoreCredentialConfig;
 pub struct CredentialDeleteParams {
     pub id: Uuid,
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub provider_id: Option<String>,
     pub email: Option<String>,
 }
 
 pub struct CredentialListParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub filter: Option<RequestFilterParams<CredentialFilter>>,
     pub options: Option<RequestListOptions>,
 }
@@ -235,12 +249,14 @@ mod tests {
             id: id.into(),
             account_id: account_id.into(),
             workspace_id: workspace_id.into(),
+            membership_id: None,
             kind: CredentialKind::ApiKey,
             provider: CredentialProvider::Github,
             status: CredentialStatus::Active,
             provider_id: Some("gh-1".to_string()),
             email: Some("u@x.com".to_string()),
             secret: Some("secret".to_string()),
+            expires_at: None,
             last_used_at: Some(OffsetDateTime::UNIX_EPOCH),
             config: CredentialConfig::default(),
             tags: vec!["t1".to_string()],
@@ -300,7 +316,8 @@ mod tests {
         let workspace_id = Uuid::new_v4();
         let params = CredentialCreateParams {
             account_id,
-            workspace_id,
+            workspace_id: Some(workspace_id),
+            membership_id: None,
             kind: CredentialKind::OAuth,
             provider: CredentialProvider::Google,
             status: CredentialStatus::Pending,
@@ -308,6 +325,7 @@ mod tests {
             email: Some("u@x.com".to_string()),
             secret: Some("s".to_string()),
             config: CredentialConfig::default(),
+            expires_at: None,
             last_used_at: None,
             tags: vec!["t".to_string()],
             meta: CredentialMeta {
@@ -317,7 +335,7 @@ mod tests {
 
         let store: CredentialForCreate = params.into();
         assert_eq!(store.account_id, account_id);
-        assert_eq!(store.workspace_id, workspace_id);
+        assert_eq!(store.workspace_id, Some(workspace_id));
         assert_eq!(store.kind.to_string(), "oauth");
         assert_eq!(store.provider, CredentialProvider::Google);
         assert_eq!(store.status, CredentialStatus::Pending);
@@ -336,13 +354,15 @@ mod tests {
             provider_id: Some("old".to_string()),
             email: Some("old@x.com".to_string()),
             account_id: Uuid::new_v4(),
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
+            membership_id: None,
             kind: Some(CredentialKind::SSO),
             provider: None,
             status: Some(CredentialStatus::Revoked),
             new_provider_id: Some("new-provider".to_string()),
             new_email: Some("new@x.com".to_string()),
             secret: Some("s".to_string()),
+            expires_at: None,
             last_used_at: Some(OffsetDateTime::UNIX_EPOCH),
             config: None,
             tags: Some(vec!["t".to_string()]),
@@ -368,7 +388,7 @@ mod tests {
         let params = CredentialDescribeParams {
             id: Uuid::new_v4(),
             account_id: Uuid::new_v4(),
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             provider_id: None,
             email: None,
         };

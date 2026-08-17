@@ -30,7 +30,7 @@ pub enum RoleIden {
     #[iden = "id"]
     PermissionPk,
     Permission,
-    // role_policy many-to-many join (T019)
+    // role_policy many-to-many join
     Policies,
     RolePolicy,
     PolicyId,
@@ -131,7 +131,7 @@ pub struct JoinedPolicyOnRole {
 /// Input for creating a new `role`.
 #[derive(Debug, Fields)]
 pub struct RoleForCreate {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: String,
     pub description: Option<String>,
     pub tags: Vec<String>,
@@ -202,7 +202,7 @@ impl TryFrom<JsonValue> for RoleFilter {
 impl Default for RoleForCreate {
     fn default() -> Self {
         Self {
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             name: format!("role-{}", gen_rand_str(8)),
             description: Some("A default role for testing.".to_string()),
             tags: vec![],

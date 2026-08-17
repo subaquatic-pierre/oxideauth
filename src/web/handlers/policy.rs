@@ -37,8 +37,7 @@ pub async fn describe_policy(
     let Json(body) = body?;
     let svc = app.svc_reg.policy.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: PolicyDescribeParams = body.into_params(ws_id)?;
+    let params: PolicyDescribeParams = body.into_params()?;
     let policy = svc.describe(&mut ctx, params).await?;
     let res: PolicyDescribeRes = policy.into();
 
@@ -56,8 +55,7 @@ pub async fn list_policies(
     let Json(body) = body?;
     let svc = app.svc_reg.policy.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: PolicyListParams = body.into_params(ws_id)?;
+    let params: PolicyListParams = body.into_params()?;
     let list_res = svc.list(&mut ctx, params).await?;
 
     let policies: Vec<PolicyDescribeRes> = list_res
@@ -84,8 +82,7 @@ pub async fn create_policy(
     let Json(body) = body?;
     let svc = app.svc_reg.policy.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: PolicyCreateParams = body.into_params(ws_id)?;
+    let params: PolicyCreateParams = body.into_params()?;
     let policy = svc.create(&mut ctx, params).await?;
     let res: PolicyDescribeRes = policy.into();
 
@@ -103,8 +100,7 @@ pub async fn update_policy(
     let Json(body) = body?;
     let svc = app.svc_reg.policy.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: PolicyUpdateParams = body.into_params(ws_id)?;
+    let params: PolicyUpdateParams = body.into_params()?;
     let policy = svc.update(&mut ctx, params).await?;
     let res: PolicyDescribeRes = policy.into();
 
@@ -122,8 +118,7 @@ pub async fn delete_policy(
     let Json(body) = body?;
     let svc = app.svc_reg.policy.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: PolicyDeleteParams = body.into_params(ws_id)?;
+    let params: PolicyDeleteParams = body.into_params()?;
     let policy = svc.delete(&mut ctx, params).await?;
 
     let res = PolicyDeleteRes { id: policy.id };

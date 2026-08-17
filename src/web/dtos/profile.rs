@@ -17,15 +17,17 @@ use crate::core::traits::params::IntoParams;
 pub struct ProfileDescribeReq {
     pub id: Option<Uuid>,
     pub email: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 // Implement IntoParams to convert Web Req to Core Param
 impl IntoParams<ProfileDescribeParams> for ProfileDescribeReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProfileDescribeParams> {
+    fn into_params(self) -> CoreResult<ProfileDescribeParams> {
         Ok(ProfileDescribeParams {
             id: self.id,
             email: self.email,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -96,14 +98,16 @@ pub struct ProfileUpdateReq {
     pub avatar_url: Option<String>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<ProfileMeta>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 // Implement IntoParams to convert Web Req to Core Param
 impl IntoParams<ProfileUpdateParams> for ProfileUpdateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProfileUpdateParams> {
+    fn into_params(self) -> CoreResult<ProfileUpdateParams> {
         Ok(ProfileUpdateParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
             name: self.name,
             email: self.email,
             description: self.description,
@@ -121,13 +125,15 @@ impl IntoParams<ProfileUpdateParams> for ProfileUpdateReq {
 #[derive(Deserialize)]
 pub struct ProfileDeleteReq {
     pub id: Uuid,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<ProfileDeleteParams> for ProfileDeleteReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProfileDeleteParams> {
+    fn into_params(self) -> CoreResult<ProfileDeleteParams> {
         Ok(ProfileDeleteParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -144,14 +150,16 @@ pub struct ProfileListReq {
     // The filter and options are unchanged in structure but are mapped to ProfileFilter
     pub filter: Option<RequestFilterParams<ProfileFilter>>,
     pub options: Option<RequestListOptions>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<ProfileListParams> for ProfileListReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProfileListParams> {
+    fn into_params(self) -> CoreResult<ProfileListParams> {
         Ok(ProfileListParams {
             filter: self.filter,
             options: self.options,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -176,30 +184,33 @@ mod tests {
         let params = ProfileDescribeReq {
             id: Some(id),
             email: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
         assert_eq!(params.id, Some(id));
         assert_eq!(params.email, None);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
 
         // email-only
         let params = ProfileDescribeReq {
             id: None,
             email: Some("alice@example.com".to_string()),
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
         assert_eq!(params.id, None);
         assert_eq!(params.email.as_deref(), Some("alice@example.com"));
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
 
         // both supplied (id precedence resolved in the service)
         let params = ProfileDescribeReq {
             id: Some(id),
             email: Some("alice@example.com".to_string()),
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
         assert_eq!(params.id, Some(id));
         assert_eq!(params.email.as_deref(), Some("alice@example.com"));
@@ -220,12 +231,13 @@ mod tests {
             avatar_url: None,
             tags: None,
             meta: Some(ProfileMeta::default()),
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name.as_deref(), Some("renamed"));
         assert_eq!(params.email.as_deref(), Some("alice@example.com"));
         assert_eq!(params.display_name.as_deref(), Some("display"));
@@ -239,10 +251,11 @@ mod tests {
         let params = ProfileListReq {
             filter: None,
             options: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert!(params.filter.is_none());
         assert!(params.options.is_none());
     }
@@ -260,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_profile_describe_res_exposes_email_and_omits_account_id() {
-        // T010: the profile surface exposes the workspace-facing `email` but
+        // The profile surface exposes the workspace-facing `email` but
         // must never leak account identity — no `account_id` or `accountId`
         // keys may appear in the JSON.
         let res = ProfileDescribeRes::from(Profile::default());
@@ -280,8 +293,8 @@ mod tests {
     fn test_profile_delete_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = ProfileDeleteReq { id }.into_params(ws_id).unwrap();
+        let params = ProfileDeleteReq { id , workspace_id: Some(ws_id)}.into_params().unwrap();
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 }

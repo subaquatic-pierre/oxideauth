@@ -94,7 +94,7 @@ impl From<ProjectRow> for Project {
 
 #[derive(Debug, Deserialize)]
 pub struct ProjectCreateParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: String,
     pub code: Option<String>,
     pub description: Option<String>,
@@ -109,7 +109,7 @@ pub struct ProjectCreateParams {
 pub struct ProjectDescribeParams {
     pub id: Option<Uuid>,
     pub code: Option<String>,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 impl ValidateParams for ProjectDescribeParams {
@@ -143,7 +143,7 @@ pub struct ProjectUpdateParams {
     pub id: Option<Uuid>,
     pub code: Option<String>,
 
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: Option<String>,
     pub new_code: Option<String>,
     pub description: Option<String>,
@@ -155,12 +155,12 @@ pub struct ProjectUpdateParams {
 #[derive(Debug, Deserialize)]
 pub struct ProjectDeleteParams {
     pub id: Option<Uuid>,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub code: Option<String>,
 }
 
 pub struct ProjectListParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub filter: Option<RequestFilterParams<ProjectFilter>>,
     pub options: Option<RequestListOptions>,
 }
@@ -240,7 +240,7 @@ mod tests {
         let ws_id = Uuid::new_v4();
         let owner = Uuid::new_v4();
         let params = ProjectCreateParams {
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
             name: "P".to_string(),
             code: Some("p1".to_string()),
             description: Some("d".to_string()),
@@ -253,7 +253,7 @@ mod tests {
         };
 
         let store: ProjectForCreate = params.into();
-        assert_eq!(store.workspace_id, ws_id);
+        assert_eq!(store.workspace_id, Some(ws_id));
         assert_eq!(store.name, "P");
         assert_eq!(store.code.as_deref(), Some("p1"));
         assert_eq!(store.description.as_deref(), Some("d"));
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn test_project_create_params_defaults_owner() {
         let params = ProjectCreateParams {
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             name: "P".to_string(),
             code: None,
             description: None,
@@ -284,7 +284,7 @@ mod tests {
         let params = ProjectUpdateParams {
             id: Some(Uuid::new_v4()),
             code: Some("old-code".to_string()),
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             name: Some("New".to_string()),
             new_code: Some("new-code".to_string()),
             description: Some("d".to_string()),
@@ -309,7 +309,7 @@ mod tests {
         let params = ProjectDescribeParams {
             id: Some(Uuid::new_v4()),
             code: Some("c".to_string()),
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
         };
         assert!(params.validate().is_ok());
     }
@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn test_project_list_params_accessors() {
         let params = ProjectListParams {
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             filter: None,
             options: None,
         };

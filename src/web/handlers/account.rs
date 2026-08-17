@@ -51,8 +51,7 @@ pub async fn describe_account(
     let Json(body) = body?;
     let svc = app.svc_reg.account.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: AccountDescribeParams = body.into_params(ws_id)?;
+    let params: AccountDescribeParams = body.into_params()?;
 
     let acc = svc.describe(&mut ctx, params).await?;
 
@@ -70,8 +69,7 @@ pub async fn list_accounts(
     let Json(body) = body?;
     let svc = app.svc_reg.account.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: AccountListParams = body.into_params(ws_id)?;
+    let params: AccountListParams = body.into_params()?;
     let res = svc.list(&mut ctx, params).await?;
 
     let res = AccountListRes {
@@ -91,8 +89,7 @@ pub async fn create_account(
     let Json(body) = body?;
     let svc = app.svc_reg.account.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: AccountCreateParams = body.into_params(ws_id)?;
+    let params: AccountCreateParams = body.into_params()?;
 
     let acc = svc.create(&mut ctx, params).await?;
 
@@ -112,8 +109,7 @@ pub async fn delete_account(
     let Json(body) = body?;
     let svc = app.svc_reg.account.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: AccountDeleteParams = body.into_params(ws_id)?;
+    let params: AccountDeleteParams = body.into_params()?;
 
     let acc = svc.delete(&mut ctx, params).await?;
 
@@ -132,8 +128,7 @@ pub async fn update_account(
     let Json(body) = body?;
     let svc = app.svc_reg.account.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: AccountUpdateParams = body.into_params(ws_id)?;
+    let params: AccountUpdateParams = body.into_params()?;
 
     let acc = svc.update(&mut ctx, params).await?;
 

@@ -82,7 +82,7 @@ impl Default for PolicyDocument {
 
 /// Default "self" policy document: a member may update their own membership
 /// (e.g. leave the workspace). Attached to the default `WorkspaceViewer` role
-/// at workspace creation (US3).
+/// at workspace creation.
 pub fn default_self_membership_policy() -> PolicyDocument {
     PolicyDocument {
         name: Some("self-membership-update".to_string()),
@@ -332,10 +332,10 @@ pub fn policy_lookup_key(action: &str, resource: &str, constraint: Option<&str>)
 ///
 /// Built from the effective policies of a membership (roles + direct
 /// attachments). Lookup is O(1) per `action|resource|constraint` triple; the
-/// `Deny` effect wins on collision (US4).
+/// `Deny` effect wins on collision.
 ///
-/// `Serialize`/`Deserialize` support the `oxauth:policy:{mem_id}` cache entity
-/// (US6): the compiled set is persisted as-is and hydrated back on a cache hit.
+/// `Serialize`/`Deserialize` support the `oxauth:policy:{mem_id}` cache entity:
+/// the compiled set is persisted as-is and hydrated back on a cache hit.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PolicySet(HashMap<String, PolicyEffect>);
 
@@ -500,7 +500,7 @@ impl Default for Policy {
 /// Params for creating a new `policy`.
 #[derive(Debug, Deserialize)]
 pub struct PolicyCreateParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: Option<String>,
     pub effect: PolicyEffect,
     pub principal_id: Option<Uuid>,
@@ -519,7 +519,7 @@ impl PolicyCreateParams {
     /// service layer (`PolicyService::create`).
     pub fn from_document(workspace_id: Uuid, document: PolicyDocument) -> Self {
         Self {
-            workspace_id,
+            workspace_id: Some(workspace_id),
             name: document.name,
             effect: document.effect,
             principal_id: document.principal_id,
@@ -561,7 +561,7 @@ impl From<PolicyCreateParams> for PolicyForCreate {
 #[derive(Debug, Deserialize)]
 pub struct PolicyUpdateParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: Option<String>,
     pub effect: Option<PolicyEffect>,
     pub principal_id: Option<Uuid>,
@@ -593,16 +593,16 @@ impl From<PolicyUpdateParams> for PolicyForUpdate {
 #[derive(Debug, Deserialize)]
 pub struct PolicyDescribeParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 pub struct PolicyDeleteParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 pub struct PolicyListParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub filter: Option<RequestFilterParams<PolicyFilter>>,
     pub options: Option<RequestListOptions>,
 }
@@ -867,7 +867,7 @@ mod tests {
     fn test_policy_create_params_into_store() {
         let ws_id = Uuid::new_v4();
         let params = PolicyCreateParams {
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
             name: Some("self-update".to_string()),
             effect: PolicyEffect::Deny,
             principal_id: None,
@@ -882,7 +882,7 @@ mod tests {
         };
 
         let store: PolicyForCreate = params.into();
-        assert_eq!(store.workspace_id, ws_id);
+        assert_eq!(store.workspace_id, Some(ws_id));
         assert_eq!(store.name.as_deref(), Some("self-update"));
         assert_eq!(store.effect, PolicyEffect::Deny);
         assert_eq!(store.actions, vec!["membership:delete".to_string()]);
@@ -907,7 +907,7 @@ mod tests {
         };
 
         let params = PolicyCreateParams::from_document(ws_id, document);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name.as_deref(), Some("self-update"));
         assert_eq!(params.actions, vec!["membership:update".to_string()]);
         assert_eq!(params.resource, "self");
@@ -918,7 +918,7 @@ mod tests {
     fn test_policy_update_params_into_store() {
         let params = PolicyUpdateParams {
             id: Uuid::new_v4(),
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             name: Some("N".to_string()),
             effect: Some(PolicyEffect::Deny),
             principal_id: Some(Uuid::new_v4()),
@@ -943,7 +943,7 @@ mod tests {
     #[test]
     fn test_policy_list_params_accessors() {
         let params = PolicyListParams {
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             filter: None,
             options: None,
         };
@@ -968,7 +968,7 @@ mod tests {
         assert_eq!(opval.as_eq_string(), Some(ws_id.to_string().as_str()));
     }
 
-    // --- default "self" policy documents (US3) ---
+    // --- default "self" policy documents ---
 
     #[test]
     fn test_default_self_membership_policy() {
@@ -1005,14 +1005,14 @@ mod tests {
         for doc in [default_self_membership_policy(), default_self_profile_policy()] {
             let ws_id = Uuid::new_v4();
             let params = PolicyCreateParams::from_document(ws_id, doc);
-            assert_eq!(params.workspace_id, ws_id);
+            assert_eq!(params.workspace_id, Some(ws_id));
             assert!(!params.actions.is_empty());
             assert_eq!(params.resource, "self");
             assert!(params.constraint.is_some());
         }
     }
 
-    // --- PolicySet (US4) ---
+    // --- PolicySet ---
 
     fn policy(
         id: Uuid,
@@ -1140,7 +1140,7 @@ mod tests {
         );
     }
 
-    // --- allows_constraint (US5/T038) ---
+    // --- allows_constraint ---
 
     const SELF_CONSTRAINT: &str = "membership.account.id === user.id";
 

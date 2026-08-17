@@ -60,7 +60,7 @@ pub struct ProfileRow {
 #[derive(Debug, Fields)]
 pub struct ProfileForCreate {
     pub account_id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub email: String,
     pub name: String,
     pub description: Option<String>,
@@ -150,7 +150,7 @@ impl Default for ProfileForCreate {
     fn default() -> Self {
         Self {
             account_id: Uuid::new_v4(),
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             email: format!("profile-{}@example.com", gen_rand_str(8)),
             name: format!("profile-{}", gen_rand_str(8)),
             description: Some("A default profile for testing.".into()),

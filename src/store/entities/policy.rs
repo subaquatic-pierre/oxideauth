@@ -87,7 +87,7 @@ pub struct PolicyRow {
 /// Input for creating a new `policy`.
 #[derive(Debug, Fields)]
 pub struct PolicyForCreate {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: Option<String>,
     pub effect: PolicyEffect,
     pub principal_id: Option<Uuid>,
@@ -169,7 +169,7 @@ impl TryFrom<JsonValue> for PolicyFilter {
 impl Default for PolicyForCreate {
     fn default() -> Self {
         Self {
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             name: Some(format!("policy-{}", gen_rand_str(8))),
             effect: PolicyEffect::Allow,
             principal_id: None,

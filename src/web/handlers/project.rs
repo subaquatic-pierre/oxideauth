@@ -37,8 +37,7 @@ pub async fn describe_project(
     let Json(body) = body?;
     let svc = app.svc_reg.project.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: ProjectDescribeParams = body.into_params(ws_id)?;
+    let params: ProjectDescribeParams = body.into_params()?;
 
     let project = svc.describe(&mut ctx, params).await?;
 
@@ -58,8 +57,7 @@ pub async fn list_projects(
     let Json(body) = body?;
     let svc = app.svc_reg.project.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: ProjectListParams = body.into_params(ws_id)?;
+    let params: ProjectListParams = body.into_params()?;
     let res = svc.list(&mut ctx, params).await?;
 
     let projects: Vec<ProjectDescribeRes> =
@@ -83,8 +81,7 @@ pub async fn create_project(
     let Json(body) = body?;
     let svc = app.svc_reg.project.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: ProjectCreateParams = body.into_params(ws_id)?;
+    let params: ProjectCreateParams = body.into_params()?;
 
     let project = svc.create(&mut ctx, params).await?;
 
@@ -104,8 +101,7 @@ pub async fn update_project(
     let Json(body) = body?;
     let svc = app.svc_reg.project.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: ProjectUpdateParams = body.into_params(ws_id)?;
+    let params: ProjectUpdateParams = body.into_params()?;
 
     let project = svc.update(&mut ctx, params).await?;
 
@@ -125,8 +121,7 @@ pub async fn delete_project(
     let Json(body) = body?;
     let svc = app.svc_reg.project.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: ProjectDeleteParams = body.into_params(ws_id)?;
+    let params: ProjectDeleteParams = body.into_params()?;
 
     let project = svc.delete(&mut ctx, params).await?;
 

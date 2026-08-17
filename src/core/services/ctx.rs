@@ -211,7 +211,7 @@ where
     }
 
     pub async fn resolve_policy_cache(&self, mem_id: Uuid) -> CoreResult<Option<PolicySet>> {
-        // Hydrate the membership's resolved PolicySet (US6): cache-first, DB on
+        // Hydrate the membership's resolved PolicySet: cache-first, DB on
         // miss — mirrors `fetch_auth_cache` below. System/global contexts carry
         // no membership id and keep the empty (default-deny) PolicySet.
         // TODO: move to method

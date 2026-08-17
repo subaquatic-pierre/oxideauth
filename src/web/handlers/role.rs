@@ -37,8 +37,7 @@ pub async fn describe_role(
     let Json(body) = body?;
     let svc = app.svc_reg.role.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: RoleDescribeParams = body.into_params(ws_id)?;
+    let params: RoleDescribeParams = body.into_params()?;
     let role = svc.describe(&mut ctx, params).await?;
     let res: RoleDescribeRes = role.into();
 
@@ -56,8 +55,7 @@ pub async fn list_roles(
     let Json(body) = body?;
     let svc = app.svc_reg.role.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: RoleListParams = body.into_params(ws_id)?;
+    let params: RoleListParams = body.into_params()?;
     let list_res = svc.list(&mut ctx, params).await?;
 
     let roles: Vec<RoleDescribeRes> = list_res
@@ -84,8 +82,7 @@ pub async fn create_role(
     let Json(body) = body?;
     let svc = app.svc_reg.role.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: RoleCreateParams = body.into_params(ws_id)?;
+    let params: RoleCreateParams = body.into_params()?;
     let role = svc.create(&mut ctx, params).await?;
     let res: RoleDescribeRes = role.into();
 
@@ -103,8 +100,7 @@ pub async fn update_role(
     let Json(body) = body?;
     let svc = app.svc_reg.role.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: RoleUpdateParams = body.into_params(ws_id)?;
+    let params: RoleUpdateParams = body.into_params()?;
     let role = svc.update(&mut ctx, params).await?;
     let res: RoleDescribeRes = role.into();
 
@@ -122,8 +118,7 @@ pub async fn delete_role(
     let Json(body) = body?;
     let svc = app.svc_reg.role.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: RoleDeleteParams = body.into_params(ws_id)?;
+    let params: RoleDeleteParams = body.into_params()?;
     let role = svc.delete(&mut ctx, params).await?;
 
     let res = RoleDeleteRes { id: role.id };

@@ -44,7 +44,7 @@ pub struct PermissionRow {
 
 #[derive(Debug, Fields)]
 pub struct PermissionForCreate {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: String,
     pub description: Option<String>,
     pub tags: Vec<String>,
@@ -115,7 +115,7 @@ impl Default for PermissionForCreate {
         use crate::store::utils::gen_rand_str;
 
         Self {
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             name: gen_rand_str(10),
             description: Some("A default permission for testing.".to_string()),
             tags: vec![],

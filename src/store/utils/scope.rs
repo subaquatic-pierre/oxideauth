@@ -53,7 +53,7 @@ mod tests {
         assert_ne!(enforced_ws_id, dto_ws_id);
 
         let mut data = PermissionForCreate::default();
-        data.workspace_id = dto_ws_id;
+        data.workspace_id = Some(dto_ws_id);
 
         let initial_fields = data.not_none_sea_fields();
         let initial_len = initial_fields.clone().into_vec().len();
@@ -151,7 +151,7 @@ mod tests {
         // Arrange
         let dto_ws_id = Uuid::new_v4();
         let mut data = PermissionForCreate::default();
-        data.workspace_id = dto_ws_id;
+        data.workspace_id = Some(dto_ws_id);
         let initial_fields = data.not_none_sea_fields();
 
         let initial_vec = initial_fields.into_vec();

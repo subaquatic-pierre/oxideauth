@@ -33,8 +33,7 @@ pub async fn describe_profile(
     let Json(body) = body?;
     let svc = app.svc_reg.profile.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: ProfileDescribeParams = body.into_params(ws_id)?;
+    let params: ProfileDescribeParams = body.into_params()?;
 
     let profile = svc.describe(&mut ctx, params).await?;
 
@@ -53,8 +52,7 @@ pub async fn list_profiles(
     let Json(body) = body?;
     let svc = app.svc_reg.profile.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: ProfileListParams = body.into_params(ws_id)?;
+    let params: ProfileListParams = body.into_params()?;
     let res = svc.list(&mut ctx, params).await?;
 
     let profiles: Vec<ProfileDescribeRes> =
@@ -78,8 +76,7 @@ pub async fn update_profile(
     let Json(body) = body?;
     let svc = app.svc_reg.profile.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: ProfileUpdateParams = body.into_params(ws_id)?;
+    let params: ProfileUpdateParams = body.into_params()?;
 
     let profile = svc.update(&mut ctx, params).await?;
 
@@ -98,8 +95,7 @@ pub async fn delete_profile(
     let Json(body) = body?;
     let svc = app.svc_reg.profile.clone();
 
-    let ws_id = ctx.scoped_ws_id();
-    let params: ProfileDeleteParams = body.into_params(ws_id)?;
+    let params: ProfileDeleteParams = body.into_params()?;
 
     let profile = svc.delete(&mut ctx, params).await?;
 

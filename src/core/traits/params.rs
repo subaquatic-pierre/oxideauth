@@ -1,15 +1,13 @@
-use uuid::Uuid;
-
-use crate::core::error::{CoreError, CoreResult};
+use crate::core::error::CoreResult;
 
 /// Conversion from a web request DTO into a core service parameter struct.
 ///
-/// Unlike `From`, this trait explicitly injects the resolved workspace ID
-/// so that the DTO does not need to carry a `workspace_id` field. The
-/// workspace is resolved by the middleware (from the token or header) and
-/// passed downstream.
+/// The workspace is no longer injected here: workspace-scoped DTOs carry an
+/// optional `workspace_id` field that is mapped straight through. Resolution
+/// and match-validation of that (optional) workspace happen later in
+/// [`crate::core::services::validator::AuthValidator::validate_workspace`].
 pub trait IntoParams<P> {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<P>;
+    fn into_params(self) -> CoreResult<P>;
 }
 
 /// Validate a core parameter struct before it is handed to the service layer.

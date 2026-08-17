@@ -51,12 +51,12 @@ All 62 endpoints use JSON POST with a standard `{ success, status, data }` respo
 | Accounts    | 5         | CRUD + List — user identity management                        |
 | Projects    | 5         | CRUD + List — scoped work areas                               |
 | Profiles    | 4         | CRUD + List — workspace-scoped identities                     |
-| Clients     | 7         | CRUD + List + Validate + regenerate-secret                    |
+| Clients     | 5         | CRUD + List — registered microservice consumers               |
 | Roles       | 5         | CRUD + List — permission bundles                              |
 | Permissions | 5         | CRUD + List — fine-grained access control                     |
 | Policies    | 5         | CRUD + List — allow/deny authorization rules (constraint DSL) |
 | Memberships | 5         | CRUD + List — account-to-workspace links                      |
-| Credentials | 4         | Describe, List, Update, Delete                                |
+| Credentials | 5         | Describe, List, Update, Delete + Authenticate (client API key) |
 
 ## Documentation
 
@@ -88,6 +88,31 @@ when both are provided.
 
 Details and the full before/after contract are in
 [`specs/011-login-service-struct-params/contracts/auth.md`](specs/011-login-service-struct-params/contracts/auth.md).
+
+## Workspace scoping
+
+Every workspace-scoped CRUD request (client, credential, membership, permission, project,
+role, policy, profile) accepts an optional `workspaceId` field. When omitted, the workspace
+is implied from the caller's authenticated context (the token's workspace in the common
+case, or the `X-Workspace-Id` header for system administrators). When supplied, it must
+match the caller's scoped workspace; system administrators may target any workspace.
+
+## Client authentication
+
+Clients authenticate with a **credential** (raw credential id + secret) acting as an API
+key, rather than the removed client-secret mechanism:
+
+- `POST /credentials/authenticate` — public (no user bearer token). Body:
+  `{ "credentialId": "<uuid>", "secret": "..." }`. Returns the resolved membership, roles,
+  permissions, and expiry.
+- The resolved authorization is cached in a dedicated client auth cache
+  (`oxauth:client_id:{credential_id}`), distinct from the user auth cache.
+- A credential can be `active`, `revoked`, `pending`, or `disabled`, and carries an optional
+  expiry. Revoking, disabling, deleting, or expiring a credential denies subsequent
+  authentication immediately.
+
+Details in
+[`specs/017-cleanup-scoping-client-auth/contracts/client-auth.md`](specs/017-cleanup-scoping-client-auth/contracts/client-auth.md).
 
 ## Deployment
 

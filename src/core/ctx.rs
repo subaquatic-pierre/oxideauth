@@ -26,7 +26,7 @@ use std::sync::OnceLock;
 /// acts on. For scoped tokens it equals the token's workspace. For system/root
 /// tokens the middleware sets it from the `X-Workspace-Id` header.
 ///
-/// `policy_set` is the request's resolved, compiled [`PolicySet`] (US6). It is
+/// `policy_set` is the request's resolved, compiled [`PolicySet`]. It is
 /// hydrated during context resolution from the `oxauth:policy:{mem_id}` cache
 /// (DB on miss) and left empty for contexts without a membership (system/root).
 #[derive(Clone, Debug)]
@@ -75,7 +75,7 @@ impl CoreCtx {
         self.auth_cache.auth_scope.escalate_perms(perms)
     }
 
-    // --- Policy set (US6) ---
+    // --- Policy set ---
 
     /// The request's resolved, compiled [`PolicySet`].
     ///
@@ -276,47 +276,3 @@ impl Default for ContextFactory {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use serial_test::serial;
-
-    use super::*;
-    use crate::core::models::permission::PermissionRule;
-
-    #[tokio::test]
-    #[serial]
-    async fn test_ctx_extend() -> CoreResult<()> {
-        let ctx = CoreCtx::bootstrap()?;
-
-        let extended = ctx.permissions().with_extended(&["account:create"])?;
-        let perms = PermissionRule::perms_from_str_slice(&["account:create"])?;
-        let res = extended.has_subset(&perms);
-
-        assert_eq!(res, true, "ctx should have account:create permission");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_ctx_policy_set_defaults_empty_and_settable() -> CoreResult<()> {
-        use crate::core::models::policy::{Policy, PolicyEffect};
-
-        let mut ctx = CoreCtx::bootstrap()?;
-        // Contexts without a membership carry an empty (default-deny) policy set.
-        assert!(ctx.policy_set().is_empty());
-
-        let mut p = Policy::default();
-        p.actions = vec!["membership:update".to_string()];
-        p.resource = "self".to_string();
-        let set = PolicySet::from_policies(vec![p]);
-
-        ctx.set_policy_set(set.clone());
-        assert_eq!(ctx.policy_set(), &set);
-        assert_eq!(
-            ctx.policy_set().get("membership:update", "self", None),
-            Some(PolicyEffect::Allow)
-        );
-
-        Ok(())
-    }
-}

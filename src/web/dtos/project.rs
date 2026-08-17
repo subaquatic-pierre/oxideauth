@@ -18,16 +18,18 @@ pub struct ProjectDescribeReq {
     pub id: Option<Uuid>,
     // Use 'code' instead of 'slug'
     pub code: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 // Implement IntoParams to convert Web Req to Core Param
 impl IntoParams<ProjectDescribeParams> for ProjectDescribeReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProjectDescribeParams> {
+    fn into_params(self) -> CoreResult<ProjectDescribeParams> {
         Ok(ProjectDescribeParams {
             id: self.id,
             // Map 'code'
             code: self.code,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -87,13 +89,15 @@ pub struct ProjectCreateReq {
     pub config: ProjectConfig,
     pub tags: Vec<String>,
     pub meta: ProjectMeta,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 // Implement IntoParams to convert Web Req to Core Param
 impl IntoParams<ProjectCreateParams> for ProjectCreateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProjectCreateParams> {
+    fn into_params(self) -> CoreResult<ProjectCreateParams> {
         Ok(ProjectCreateParams {
-            workspace_id,
+            workspace_id: self.workspace_id,
             name: self.name,
             owner: self.owner,
             code: self.code,
@@ -121,15 +125,17 @@ pub struct ProjectUpdateReq {
     pub config: Option<ProjectConfig>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<ProjectMeta>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 // Implement IntoParams to convert Web Req to Core Param
 impl IntoParams<ProjectUpdateParams> for ProjectUpdateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProjectUpdateParams> {
+    fn into_params(self) -> CoreResult<ProjectUpdateParams> {
         Ok(ProjectUpdateParams {
             id: self.id,
             code: self.code,
-            workspace_id,
+            workspace_id: self.workspace_id,
             name: self.name,
             new_code: self.new_code, // Map to new_code
             description: self.description,
@@ -146,14 +152,16 @@ pub struct ProjectDeleteReq {
     pub id: Option<Uuid>,
     // Use 'code' instead of 'slug'
     pub code: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 // Implement IntoParams<ProjectDeleteReq> for ProjectDeleteParams
 impl IntoParams<ProjectDeleteParams> for ProjectDeleteReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProjectDeleteParams> {
+    fn into_params(self) -> CoreResult<ProjectDeleteParams> {
         Ok(ProjectDeleteParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
             code: self.code,
         })
     }
@@ -186,14 +194,16 @@ pub struct ProjectListReq {
     // The filter and options are unchanged in structure but are mapped to ProjectFilter
     pub filter: Option<RequestFilterParams<ProjectFilter>>,
     pub options: Option<RequestListOptions>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<ProjectListParams> for ProjectListReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ProjectListParams> {
+    fn into_params(self) -> CoreResult<ProjectListParams> {
         Ok(ProjectListParams {
             filter: self.filter,
             options: self.options,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -217,12 +227,13 @@ mod tests {
         let params = ProjectDescribeReq {
             id: Some(id),
             code: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
         assert_eq!(params.id, Some(id));
         assert_eq!(params.code, None);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 
     #[test]
@@ -231,12 +242,13 @@ mod tests {
         let params = ProjectDescribeReq {
             id: None,
             code: Some("p-1".to_string()),
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
         assert_eq!(params.id, None);
         assert_eq!(params.code.as_deref(), Some("p-1"));
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 
     #[test]
@@ -251,11 +263,12 @@ mod tests {
             config: ProjectConfig::default(),
             tags: vec!["svc".to_string()],
             meta: ProjectMeta::default(),
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name, "payments");
         assert_eq!(params.owner, Some(owner));
         assert_eq!(params.code.as_deref(), Some("pay"));
@@ -277,13 +290,14 @@ mod tests {
             config: None,
             tags: None,
             meta: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
         assert_eq!(params.id, Some(id));
         assert_eq!(params.code.as_deref(), Some("pay"));
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name.as_deref(), Some("renamed"));
         assert_eq!(params.new_code.as_deref(), Some("pay-v2"));
         assert!(params.config.is_none());
@@ -296,12 +310,13 @@ mod tests {
         let params = ProjectDeleteReq {
             id: None,
             code: Some("pay".to_string()),
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
         assert!(params.id.is_none());
         assert_eq!(params.code.as_deref(), Some("pay"));
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 
     #[test]
@@ -310,10 +325,11 @@ mod tests {
         let params = ProjectListReq {
             filter: None,
             options: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert!(params.filter.is_none());
         assert!(params.options.is_none());
     }

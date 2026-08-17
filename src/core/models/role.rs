@@ -144,7 +144,7 @@ impl Default for Role {
 
 #[derive(Debug, Deserialize)]
 pub struct RoleCreateParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: String,
     pub description: Option<String>,
     pub permission_ids: Vec<Uuid>,
@@ -173,7 +173,7 @@ impl RoleCreateParams {
         perm_ids: Vec<Uuid>,
     ) -> Self {
         Self {
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
             name: name.to_string(),
             description: desc.map(|d| d.to_string()),
             permission_ids: perm_ids,
@@ -187,7 +187,7 @@ impl RoleCreateParams {
 #[derive(Debug, Deserialize)]
 pub struct RoleUpdateParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub permission_ids: Option<Vec<Uuid>>, // To sync the join table
@@ -210,7 +210,7 @@ impl From<RoleUpdateParams> for RoleForUpdate {
 #[derive(Debug, Deserialize)]
 pub struct RoleDescribeParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 /// Id-or-string descriptor for identifying a role, either by its `id` or by
@@ -237,11 +237,11 @@ pub struct WorkspaceRoleCreateParams {
 
 pub struct RoleDeleteParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 pub struct RoleListParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub filter: Option<RequestFilterParams<RoleFilter>>,
     pub options: Option<RequestListOptions>,
 }
@@ -428,7 +428,7 @@ mod tests {
     fn test_role_create_params_into_store() {
         let ws_id = Uuid::new_v4();
         let params = RoleCreateParams {
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
             name: "Editor".to_string(),
             description: Some("d".to_string()),
             permission_ids: vec![Uuid::new_v4()],
@@ -440,7 +440,7 @@ mod tests {
         };
 
         let store: RoleForCreate = params.into();
-        assert_eq!(store.workspace_id, ws_id);
+        assert_eq!(store.workspace_id, Some(ws_id));
         assert_eq!(store.name, "Editor");
         assert_eq!(store.description.as_deref(), Some("d"));
         assert_eq!(store.tags, vec!["t".to_string()]);
@@ -458,7 +458,7 @@ mod tests {
             perm_ids.clone(),
         );
 
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name, "system-owner");
         assert_eq!(params.description.as_deref(), Some("system role"));
         assert_eq!(params.permission_ids, perm_ids);
@@ -475,7 +475,7 @@ mod tests {
     fn test_role_update_params_into_store() {
         let params = RoleUpdateParams {
             id: Uuid::new_v4(),
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             name: Some("N".to_string()),
             description: Some("d".to_string()),
             permission_ids: Some(vec![Uuid::new_v4()]),
@@ -585,7 +585,7 @@ mod tests {
     #[test]
     fn test_role_list_params_accessors() {
         let params = RoleListParams {
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             filter: None,
             options: None,
         };

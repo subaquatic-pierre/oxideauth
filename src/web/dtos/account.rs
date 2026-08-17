@@ -34,7 +34,7 @@ impl From<AccountDescribeReq> for AccountDescribeParams {
 // Implement IntoParams to convert Web Req to Core Param
 // This simplifies the handler, especially for structs where fields change names/types.
 impl IntoParams<AccountDescribeParams> for AccountDescribeReq {
-    fn into_params(self, _workspace_id: Uuid) -> CoreResult<AccountDescribeParams> {
+    fn into_params(self) -> CoreResult<AccountDescribeParams> {
         Ok(AccountDescribeParams {
             email: self.email,
             id: self.id,
@@ -101,7 +101,7 @@ pub struct AccountCreateReq {
 
 // Implement IntoParams to convert Web Req to Core Param
 impl IntoParams<AccountCreateParams> for AccountCreateReq {
-    fn into_params(self, _workspace_id: Uuid) -> CoreResult<AccountCreateParams> {
+    fn into_params(self) -> CoreResult<AccountCreateParams> {
         Ok(AccountCreateParams {
             email: self.email,
             kind: self.kind.unwrap_or(AccountKind::User),
@@ -135,7 +135,7 @@ pub struct AccountUpdateReq {
 
 // Implement IntoParams to convert Web Req to Core Param
 impl IntoParams<AccountUpdateParams> for AccountUpdateReq {
-    fn into_params(self, _workspace_id: Uuid) -> CoreResult<AccountUpdateParams> {
+    fn into_params(self) -> CoreResult<AccountUpdateParams> {
         Ok(AccountUpdateParams {
             email: self.email,
             id: self.id,
@@ -162,7 +162,7 @@ pub struct AccountListReq {
 // use crate::core::models::account::AccountListParams;
 
 impl IntoParams<AccountListParams> for AccountListReq {
-    fn into_params(self, _workspace_id: Uuid) -> CoreResult<AccountListParams> {
+    fn into_params(self) -> CoreResult<AccountListParams> {
         Ok(AccountListParams {
             filter: self.filter,
             options: self.options,
@@ -186,7 +186,7 @@ pub struct AccountDeleteReq {
 
 // Implement IntoParams<AccountDeleteParams> for AccountDeleteReq
 impl IntoParams<AccountDeleteParams> for AccountDeleteReq {
-    fn into_params(self, _workspace_id: Uuid) -> CoreResult<AccountDeleteParams> {
+    fn into_params(self) -> CoreResult<AccountDeleteParams> {
         Ok(AccountDeleteParams {
             email: self.email,
             id: self.id,
@@ -211,7 +211,7 @@ mod tests {
             email: Some("ada@example.com".to_string()),
             id: Some(id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
         assert_eq!(params.id, Some(id));
@@ -224,7 +224,7 @@ mod tests {
             email: None,
             id: None,
         }
-        .into_params(Uuid::new_v4())
+        .into_params()
         .unwrap();
         assert!(params.id.is_none());
         assert!(params.email.is_none());
@@ -244,7 +244,7 @@ mod tests {
             tags: None,
             meta: None,
         }
-        .into_params(Uuid::new_v4())
+        .into_params()
         .unwrap();
 
         assert_eq!(params.email, "ada@example.com");
@@ -273,7 +273,7 @@ mod tests {
                 schema_version: "2".to_string(),
             }),
         }
-        .into_params(Uuid::new_v4())
+        .into_params()
         .unwrap();
 
         assert_eq!(params.kind.to_string(), "service");
@@ -299,7 +299,7 @@ mod tests {
             tags: Some(vec![]),
             meta: None,
         }
-        .into_params(Uuid::new_v4())
+        .into_params()
         .unwrap();
 
         assert_eq!(params.email.as_deref(), Some("new@example.com"));
@@ -316,7 +316,7 @@ mod tests {
             filter: None,
             options: None,
         }
-        .into_params(Uuid::new_v4())
+        .into_params()
         .unwrap();
         assert!(params.filter.is_none());
         assert!(params.options.is_none());
@@ -329,7 +329,7 @@ mod tests {
             email: None,
             id: Some(id),
         }
-        .into_params(Uuid::new_v4())
+        .into_params()
         .unwrap();
         assert_eq!(params.id, Some(id));
         assert!(params.email.is_none());

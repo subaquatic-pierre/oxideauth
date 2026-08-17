@@ -124,7 +124,7 @@ impl From<JoinedPolicyOnMembership> for Policy {
 pub struct MembershipCreateParams {
     pub account_id: Option<Uuid>,
     pub email: String,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub profile: Option<MembershipProfileDetails>,
     pub scope: MembershipScope,
     pub status: Option<MembershipStatus>,
@@ -153,13 +153,13 @@ pub struct MembershipProfileDetails {
 #[derive(Debug, Deserialize)]
 pub struct MembershipDescribeParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct MembershipUpdateParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub status: Option<MembershipStatus>,
     pub scope: Option<MembershipScope>,
     // TODO: ensure service method links or unlinks roles if Some
@@ -187,14 +187,14 @@ impl MembershipUpdateParams {
 
 #[derive(Default)]
 pub struct MembershipListParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub filter: Option<RequestFilterParams<MembershipFilter>>,
     pub options: Option<RequestListOptions>,
 }
 
 pub struct MembershipDeleteParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 impl RequestListParams<MembershipFilter> for MembershipListParams {
@@ -299,7 +299,7 @@ mod tests {
         let params = MembershipCreateParams {
             account_id: Some(account_id),
             email: "member@example.com".to_string(),
-            workspace_id,
+            workspace_id: Some(workspace_id),
             profile: None,
             scope: MembershipScope::Project,
             status: Some(MembershipStatus::Invited),
@@ -315,7 +315,7 @@ mod tests {
         // account_id is resolved by the service; email is the required identity.
         assert_eq!(params.account_id, Some(account_id));
         assert_eq!(params.email, "member@example.com");
-        assert_eq!(params.workspace_id, workspace_id);
+        assert_eq!(params.workspace_id, Some(workspace_id));
         assert!(params.profile.is_none());
         assert_eq!(params.scope, MembershipScope::Project);
         assert_eq!(params.status, Some(MembershipStatus::Invited));
@@ -328,7 +328,7 @@ mod tests {
     fn test_membership_update_params_into_store() {
         let params = MembershipUpdateParams {
             id: Uuid::new_v4(),
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             status: Some(MembershipStatus::Active),
             scope: Some(MembershipScope::Workspace),
             role_ids: Some(vec![Uuid::new_v4()]),

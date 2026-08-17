@@ -48,7 +48,7 @@ pub struct ProjectRow {
 
 #[derive(Debug, Fields)]
 pub struct ProjectForCreate {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: String,
     pub code: Option<String>,
     pub description: Option<String>,
@@ -141,7 +141,7 @@ impl TryFrom<JsonValue> for ProjectFilter {
 impl Default for ProjectForCreate {
     fn default() -> Self {
         Self {
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             name: format!("project-{}", gen_rand_str(8)),
             code: Some(format!("project-{}", gen_rand_str(8))),
             description: Some("A default project for testing.".into()),

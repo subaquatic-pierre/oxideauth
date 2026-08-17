@@ -6,8 +6,7 @@ use crate::core::error::CoreResult;
 use crate::core::models::{
     client::{
         Client, ClientCreateParams, ClientDeleteParams, ClientDescribeParams, ClientFilter,
-        ClientListParams, ClientMeta, ClientRegenerateSecretParams, ClientUpdateParams,
-        ClientValidateParams,
+        ClientListParams, ClientMeta, ClientUpdateParams,
     },
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
     workspace::Workspace,
@@ -18,13 +17,15 @@ use crate::core::traits::params::IntoParams;
 #[derive(Deserialize)]
 pub struct ClientDescribeReq {
     pub id: Uuid,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<ClientDescribeParams> for ClientDescribeReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientDescribeParams> {
+    fn into_params(self) -> CoreResult<ClientDescribeParams> {
         Ok(ClientDescribeParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -67,12 +68,14 @@ pub struct ClientCreateReq {
     pub description: Option<String>,
     pub tags: Vec<String>,
     pub meta: ClientMeta,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<ClientCreateParams> for ClientCreateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientCreateParams> {
+    fn into_params(self) -> CoreResult<ClientCreateParams> {
         Ok(ClientCreateParams {
-            workspace_id,
+            workspace_id: self.workspace_id,
             name: self.name,
             endpoint: self.endpoint,
             description: self.description,
@@ -147,13 +150,15 @@ pub struct ClientUpdateReq {
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<ClientMeta>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<ClientUpdateParams> for ClientUpdateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientUpdateParams> {
+    fn into_params(self) -> CoreResult<ClientUpdateParams> {
         Ok(ClientUpdateParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
             name: self.name,
             endpoint: self.endpoint,
             description: self.description,
@@ -167,13 +172,15 @@ impl IntoParams<ClientUpdateParams> for ClientUpdateReq {
 #[derive(Deserialize)]
 pub struct ClientDeleteReq {
     pub id: Uuid,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<ClientDeleteParams> for ClientDeleteReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientDeleteParams> {
+    fn into_params(self) -> CoreResult<ClientDeleteParams> {
         Ok(ClientDeleteParams {
             id: self.id,
-            workspace_id,
+            workspace_id: self.workspace_id,
         })
     }
 }
@@ -184,39 +191,19 @@ pub struct ClientDeleteRes {
     pub id: Uuid,
 }
 
-// --- ClientRegenerateSecretReq ---
-#[derive(Deserialize)]
-pub struct ClientRegenerateSecretReq {
-    pub id: Uuid,
-}
-
-impl IntoParams<ClientRegenerateSecretParams> for ClientRegenerateSecretReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientRegenerateSecretParams> {
-        Ok(ClientRegenerateSecretParams {
-            id: self.id,
-            workspace_id,
-        })
-    }
-}
-
-// --- ClientRegenerateSecretRes ---
-#[derive(Serialize)]
-pub struct ClientRegenerateSecretRes {
-    pub id: Uuid,
-    pub secret: String,
-}
-
 // --- ClientListReq ---
 #[derive(Deserialize, Debug)]
 pub struct ClientListReq {
     pub filter: Option<RequestFilterParams<ClientFilter>>,
     pub options: Option<RequestListOptions>,
+    #[serde(default)]
+    pub workspace_id: Option<Uuid>,
 }
 
 impl IntoParams<ClientListParams> for ClientListReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientListParams> {
+    fn into_params(self) -> CoreResult<ClientListParams> {
         Ok(ClientListParams {
-            workspace_id,
+            workspace_id: self.workspace_id,
             filter: self.filter,
             options: self.options,
         })
@@ -228,31 +215,6 @@ impl IntoParams<ClientListParams> for ClientListReq {
 pub struct ClientListRes {
     pub clients: Vec<ClientDescribeRes>,
     pub metadata: ListResponseMeta,
-}
-
-// --- ClientValidateReq ---
-#[derive(Deserialize)]
-pub struct ClientValidateReq {
-    pub client_secret: String,
-    pub user_token: String,
-    pub required_permissions: Vec<String>,
-}
-
-impl IntoParams<ClientValidateParams> for ClientValidateReq {
-    fn into_params(self, workspace_id: Uuid) -> CoreResult<ClientValidateParams> {
-        Ok(ClientValidateParams {
-            workspace_id,
-            client_secret: self.client_secret,
-            user_token: self.user_token,
-            required_permissions: self.required_permissions,
-        })
-    }
-}
-
-// --- ClientValidateRes ---
-#[derive(Serialize)]
-pub struct ClientValidateRes {
-    pub authorized: bool,
 }
 
 #[cfg(test)]
@@ -269,9 +231,9 @@ mod tests {
     fn test_client_describe_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = ClientDescribeReq { id }.into_params(ws_id).unwrap();
+        let params = ClientDescribeReq { id , workspace_id: Some(ws_id)}.into_params().unwrap();
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 
     #[test]
@@ -283,11 +245,12 @@ mod tests {
             description: Some("desc".to_string()),
             tags: vec!["tag".to_string()],
             meta: sample_meta(),
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name, "my-app");
         assert_eq!(params.endpoint.as_deref(), Some("https://cb.example.com"));
         assert_eq!(params.description.as_deref(), Some("desc"));
@@ -306,12 +269,13 @@ mod tests {
             description: Some("new desc".to_string()),
             tags: None,
             meta: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
 
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.name.as_deref(), Some("renamed"));
         assert!(params.endpoint.is_none());
         assert_eq!(params.description.as_deref(), Some("new desc"));
@@ -322,9 +286,9 @@ mod tests {
     fn test_client_delete_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = ClientDeleteReq { id }.into_params(ws_id).unwrap();
+        let params = ClientDeleteReq { id , workspace_id: Some(ws_id)}.into_params().unwrap();
         assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
     }
 
     #[test]
@@ -333,37 +297,13 @@ mod tests {
         let params = ClientListReq {
             filter: None,
             options: None,
+        workspace_id: Some(ws_id),
         }
-        .into_params(ws_id)
+        .into_params()
         .unwrap();
-        assert_eq!(params.workspace_id, ws_id);
+        assert_eq!(params.workspace_id, Some(ws_id));
         assert!(params.filter.is_none());
         assert!(params.options.is_none());
-    }
-
-    #[test]
-    fn test_client_validate_req_into_params() {
-        let ws_id = Uuid::new_v4();
-        let params = ClientValidateReq {
-            client_secret: "secret".to_string(),
-            user_token: "jwt".to_string(),
-            required_permissions: vec!["a:b".to_string()],
-        }
-        .into_params(ws_id)
-        .unwrap();
-        assert_eq!(params.workspace_id, ws_id);
-        assert_eq!(params.client_secret, "secret");
-        assert_eq!(params.user_token, "jwt");
-        assert_eq!(params.required_permissions, vec!["a:b".to_string()]);
-    }
-
-    #[test]
-    fn test_client_regenerate_secret_req_into_params() {
-        let ws_id = Uuid::new_v4();
-        let id = Uuid::new_v4();
-        let params = ClientRegenerateSecretReq { id }.into_params(ws_id).unwrap();
-        assert_eq!(params.id, id);
-        assert_eq!(params.workspace_id, ws_id);
     }
 
     #[test]

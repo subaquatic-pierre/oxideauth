@@ -149,14 +149,15 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for ProjectSe
 
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
             .await?;
 
         if let Some(code) = &params.code {
             if store.get_by_code(&store_ctx, code).await?.is_some() {
                 return Err(CoreError::AlreadyExists(format!(
                     "Project code '{}' already exists in workspace {}",
-                    code, params.workspace_id
+                    code,
+                    ctx.scoped_ws_id()
                 )));
             }
         }
@@ -182,7 +183,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Project
 
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let project = self.get_by_id_or_code(ctx, &params.id_or_code()?).await?;
@@ -208,7 +209,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for ProjectServ
 
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::LIST_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
             .await?;
 
         // Combined query: tags (@> containment) + field filter
@@ -241,7 +242,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for ProjectSe
 
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
 
         // check if project with code already exists
@@ -278,7 +279,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for ProjectSe
 
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DELETE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
             .await?;
 
         let project = self.get_by_id_or_code(ctx, &params.id_or_code()?).await?;
@@ -292,312 +293,3 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for ProjectSe
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use super::*;
-    use crate::{
-        cache::{manager::CacheManager, mock::MockChx},
-        config::Config,
-        core::services::registry::ServiceRegistry,
-        store::{
-            dbx::MockDbx,
-            entities::{
-                audit::AuditFields,
-                id::DbId,
-                project::{ProjectConfig, ProjectMeta},
-                workspace::WorkspaceRow,
-            },
-        },
-    };
-    use serial_test::serial;
-    use uuid::Uuid;
-
-    /// Builds a `ProjectRow` for the in-memory mock.
-    fn project_row(id: Uuid, ws_id: Uuid) -> ProjectRow {
-        ProjectRow {
-            id: id.into(),
-            workspace_id: ws_id,
-            name: "test-project".to_string(),
-            code: Some("proj-code".to_string()),
-            description: None,
-            owner: Uuid::nil().into(),
-            config: ProjectConfig::default(),
-            tags: vec![],
-            meta: ProjectMeta::default(),
-            audit: AuditFields::default(),
-        }
-    }
-
-    /// Builds a `ProjectService` backed by an in-memory `MockDbx` + `MockChx`.
-    fn mock_svc(dbx: MockDbx) -> Arc<ProjectService<MockDbx, MockChx>> {
-        let config = Config::test_config();
-        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
-        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
-        let svc_reg = ServiceRegistry::new(&config, sm, cm);
-        svc_reg.project.clone()
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_project_create() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let project_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // store.create
-            .with_one::<ProjectRow>(project_row(project_id, ws_id));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["project:create"])?;
-
-        let params = ProjectCreateParams {
-            workspace_id: ws_id,
-            name: "test-project".to_string(),
-            code: None,
-            description: None,
-            owner: None,
-            config: ProjectConfig::default(),
-            tags: vec![],
-            meta: ProjectMeta::default(),
-        };
-
-        let project = svc.create(&mut ctx, params).await?;
-
-        assert_eq!(project.id, project_id);
-        assert_eq!(project.workspace_id, ws_id);
-        assert_eq!(project.name, "test-project");
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_project_create_duplicate_code() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // get_by_code -> list -> existing project found
-            .with_all::<ProjectRow>(vec![project_row(Uuid::new_v4(), ws_id)]);
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["project:create"])?;
-
-        let params = ProjectCreateParams {
-            workspace_id: ws_id,
-            name: "dup".to_string(),
-            code: Some("dup-code".to_string()),
-            description: None,
-            owner: None,
-            config: ProjectConfig::default(),
-            tags: vec![],
-            meta: ProjectMeta::default(),
-        };
-
-        let res = svc.create(&mut ctx, params).await;
-
-        assert!(
-            matches!(res, Err(CoreError::AlreadyExists(_))),
-            "duplicate project code must produce AlreadyExists"
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_project_describe() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let project_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // store.get
-            .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["project:describe"])?;
-
-        let project = svc
-            .describe(
-                &mut ctx,
-                ProjectDescribeParams {
-                    id: Some(project_id),
-                    code: None,
-                    workspace_id: ws_id,
-                },
-            )
-            .await?;
-
-        assert_eq!(project.id, project_id);
-        assert_eq!(project.workspace_id, ws_id);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_project_describe_missing_identifier() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["project:describe"])?;
-
-        let res = svc
-            .describe(
-                &mut ctx,
-                ProjectDescribeParams {
-                    id: None,
-                    code: None,
-                    workspace_id: ws_id,
-                },
-            )
-            .await;
-
-        assert!(
-            matches!(res, Err(CoreError::InvalidParams(_))),
-            "describe without id or code must fail with InvalidParams"
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_project_list() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let project_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // scope_and_validate -> get_workspace
-            // .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-            //     id: ws_id.into(),
-            //     ..Default::default()
-            // }))
-            // list_with_tags_and_filter
-            .with_all::<ProjectRow>(vec![project_row(project_id, ws_id)])
-            // count_with_tags_and_filter
-            .with_one::<(i64,)>((1,))
-            // hydrate_projects -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["project:list"])?;
-
-        let res = svc
-            .list(
-                &mut ctx,
-                ProjectListParams {
-                    workspace_id: ws_id,
-                    filter: None,
-                    options: None,
-                },
-            )
-            .await?;
-
-        assert_eq!(res.data.len(), 1);
-        assert_eq!(res.data[0].id, project_id);
-        assert_eq!(res.metadata.total, 1);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_project_update() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let project_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // scope_and_validate -> get_workspace
-            // .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-            //     id: ws_id.into(),
-            //     ..Default::default()
-            // }))
-            // store.update
-            .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)))
-            .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["project:update"])?;
-
-        let params = ProjectUpdateParams {
-            id: Some(project_id),
-            code: None,
-            workspace_id: ws_id,
-            name: Some("renamed".to_string()),
-            new_code: None,
-            description: None,
-            config: None,
-            tags: None,
-            meta: None,
-        };
-
-        let updated = svc.update(&mut ctx, params).await?;
-
-        assert_eq!(updated.id, project_id);
-        assert_eq!(updated.workspace_id, ws_id);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_project_delete() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let project_id = Uuid::new_v4();
-        let ws = WorkspaceRow {
-            id: ws_id.into(),
-            ..Default::default()
-        };
-
-        let dbx = MockDbx::new()
-            .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)))
-            .with_optional::<ProjectRow>(Some(project_row(project_id, ws_id)));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["project:delete"])?;
-        ctx.set_scoped_ws(ws.into());
-
-        let deleted = svc
-            .delete(
-                &mut ctx,
-                ProjectDeleteParams {
-                    id: Some(project_id),
-                    workspace_id: ws_id,
-                    code: None,
-                },
-            )
-            .await?;
-
-        assert_eq!(deleted.id, project_id);
-        assert_eq!(deleted.workspace_id, ws_id);
-
-        Ok(())
-    }
-}

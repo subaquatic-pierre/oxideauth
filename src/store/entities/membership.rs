@@ -36,7 +36,7 @@ pub enum MembershipIden {
     Role,
     #[iden = "id"]
     RolePk,
-    // membership_policy many-to-many join (T020)
+    // membership_policy many-to-many join
     Policies,
     MembershipPolicy,
     PolicyId,

@@ -5,9 +5,7 @@ use crate::{
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
-        models::{
-            list::ListResponse, workspace::WorkspaceDescribeParams,
-        },
+        models::{list::ListResponse, workspace::WorkspaceDescribeParams},
         services::{validator::AuthValidator, workspace::WorkspaceService},
     },
     store::{ctx::StoreCtx, traits::dbx::DbExecutor},
@@ -26,21 +24,6 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
     /// A scoped service MUST receive a concrete `workspace_id` when calling
     /// [`scope_and_validate`]; this is enforced as a safe guard there.
     fn is_scoped(&self) -> bool;
-
-    /// Optional policy required by every operation of the service.
-    ///
-    /// When set to `Some((action, resource, constraint))`,
-    /// [`scope_and_validate`] additionally enforces that the caller's resolved
-    /// [`crate::core::models::policy::PolicySet`] grants `action` on `resource`
-    /// under `constraint` (allow, default-deny) **after** the permission check
-    /// succeeds. This is the declarative enforcement point for protected
-    /// operations (US5); concrete v1 checks that depend on the *target* of the
-    /// operation (e.g. the membership self-mutation gate) are applied
-    /// explicitly at the call site.
-    ///
-    /// Defaults to `None` — no service currently sets this; it is safe
-    /// infrastructure for future services.
-    const REQUIRED_POLICY: Option<(&'static str, &'static str, &'static str)> = None;
 
     async fn get_workspace(
         &self,
@@ -64,7 +47,8 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
     /// Validates `required_perms` and builds a store context.
     ///
     /// For a workspace-scoped service ([`is_scoped`] == `true`), `workspace_id`
-    /// MUST be `Some` (a `None` is rejected here). For a global-table service
+    /// is optional: `Some` is validated against the caller's scope, `None` is
+    /// derived from the context (`ctx.ws_cache.id`). For a global-table service
     /// ([`is_scoped`] == `false`), pass `None` to query unscoped; a `Some` value
     /// may still be supplied to scope by a specific workspace (e.g. a
     /// namespace-scoped listing on a global table).
@@ -82,31 +66,22 @@ pub trait CoreModelService<D: DbExecutor, C: CacheExecutor> {
         // validate permissions
         auth_validator.validate_ctx_perms(ctx, required_perms)?;
 
-        // Optional service-level policy gate (US5/T036): when the service
-        // declares a required policy triple, the caller's resolved policy set
-        // must grant the action on the resource under the constraint. Defaults
-        // to `None` for every service today — no-op enforcement point.
-        if let Some((action, resource, constraint)) = Self::REQUIRED_POLICY {
-            auth_validator.validate_policy(ctx.policy_set(), action, resource, Some(constraint))?;
-        }
-
-        // Safe guard: a workspace-scoped service must receive a concrete workspace.
-        if self.is_scoped() && workspace_id.is_none() {
-            return Err(CoreError::InvalidParams(
-                "workspace_id is required for workspace-scoped services".to_string(),
-            ));
-        }
-
         let store_ctx = match workspace_id {
             Some(ws_id) => {
                 // NOTE(workspace-scope): scoped — scoped to the requested workspace.
                 auth_validator.scope_store_workspace(ctx, Some(ws_id))?
             }
             None => {
-                // NOTE(workspace-scope): unscoped — global table (no workspace_id column).
-                let mut store_ctx: StoreCtx = ctx.into();
-                store_ctx.set_workspace_scope(None);
-                store_ctx
+                if self.is_scoped() {
+                    // NOTE(workspace-scope): scoped — no workspace supplied, derive it
+                    // from the caller's context (validate_workspace resolves it).
+                    auth_validator.scope_store_workspace(ctx, None)?
+                } else {
+                    // NOTE(workspace-scope): unscoped — global table (no workspace_id column).
+                    let mut store_ctx: StoreCtx = ctx.into();
+                    store_ctx.set_workspace_scope(None);
+                    store_ctx
+                }
             }
         };
 

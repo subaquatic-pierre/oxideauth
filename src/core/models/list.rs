@@ -154,7 +154,7 @@ mod tests {
         .unwrap();
 
         let params = ProjectListParams {
-            workspace_id: filter_id,
+            workspace_id: Some(filter_id),
             filter: Some(filter),
             options: None,
         };
@@ -190,7 +190,7 @@ mod tests {
                 .unwrap();
 
         let params = ProjectListParams {
-            workspace_id: filter_id,
+            workspace_id: Some(filter_id),
             filter: Some(filter),
             options: Some(options_input.clone()),
         };

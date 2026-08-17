@@ -31,7 +31,6 @@ pub struct ClientRow {
 
     // Client identity
     pub name: String,
-    pub secret_hash: String,
     pub endpoint: Option<String>,
     pub description: Option<String>,
 
@@ -47,9 +46,8 @@ pub struct ClientRow {
 /// Input for creating a new `client`.
 #[derive(Debug, Fields)]
 pub struct ClientForCreate {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: String,
-    pub secret_hash: String,
     pub endpoint: Option<String>,
     pub description: Option<String>,
     pub tags: Vec<String>,
@@ -61,7 +59,6 @@ pub struct ClientForCreate {
 #[derive(Debug, Default, Fields, Clone)]
 pub struct ClientForUpdate {
     pub name: Option<String>,
-    pub secret_hash: Option<String>,
     pub endpoint: Option<String>,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -124,9 +121,8 @@ impl Default for ClientForCreate {
         use crate::store::utils::gen_rand_str;
 
         Self {
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             name: gen_rand_str(10),
-            secret_hash: "test-secret-hash".to_string(),
             endpoint: Some("https://client.example.com".to_string()),
             description: Some("A default client for testing.".to_string()),
             tags: vec![],

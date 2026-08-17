@@ -108,6 +108,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             workspace.clone(),
             account.clone(),
             auth_validator.clone(),
+            cm.clone(),
         ));
         let membership = Arc::new(MembershipService::new(
             sm.clone(),

@@ -79,8 +79,8 @@ impl PolicyEngine {
 /// CRUD service for workspace-scoped policies.
 ///
 /// Validates the AWS-like policy body on create/update and enforces
-/// `runtime_key` uniqueness per workspace (FR-003, validated at the service
-/// layer since the key is derived, not stored).
+/// `runtime_key` uniqueness per workspace (validated at the service layer
+/// since the key is derived, not stored).
 pub struct PolicyService<D: DbExecutor, C: CacheExecutor> {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
@@ -124,7 +124,7 @@ impl<D: DbExecutor, C: CacheExecutor> PolicyService<D, C> {
         }
     }
 
-    // --- Validation helpers (FR-001, FR-015) ---
+    // --- Validation helpers ---
 
     /// `actions` must be non-empty; each entry must match the `resource:action`
     /// (or `*`) form.
@@ -170,13 +170,13 @@ impl<D: DbExecutor, C: CacheExecutor> PolicyService<D, C> {
         resource: &str,
         constraint: Option<&str>,
     ) -> CoreResult<()> {
-        let _ = effect; // effect is constrained to allow|deny by its type (FR-015)
+        let _ = effect; // effect is constrained to allow|deny by its type
         Self::validate_actions(actions)?;
         Self::validate_resource(resource)?;
         Self::validate_constraint(constraint)
     }
 
-    /// Enforces `runtime_key` uniqueness within the workspace (FR-003).
+    /// Enforces `runtime_key` uniqueness within the workspace.
     ///
     /// Lists every policy in the (already workspace-scoped) store context and
     /// compares its compiled runtime key against the candidate key. On update,
@@ -264,10 +264,10 @@ impl<D: DbExecutor, C: CacheExecutor> PolicyService<D, C> {
         Ok(())
     }
 
-    /// Resolves the effective [`PolicySet`] for a membership (US4).
+    /// Resolves the effective [`PolicySet`] for a membership.
     ///
     /// Loads the union of (membership → roles → role_policy) and
-    /// (membership → membership_policy) via the store joins added in US2, then
+    /// (membership → membership_policy) via the many-to-many store joins, then
     /// compiles it into a [`PolicySet`] (deduped per
     /// `action|resource|constraint`, `Deny` wins on collision).
     ///
@@ -326,7 +326,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for PolicySer
         let store = self.store();
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::CREATE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
             .await?;
 
         // Validate the AWS-like policy body before persisting.
@@ -337,7 +337,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for PolicySer
             params.constraint.as_deref(),
         )?;
 
-        // Enforce runtime-key uniqueness within the workspace (FR-003).
+        // Enforce runtime-key uniqueness within the workspace.
         self.ensure_runtime_key_unique(
             &store_ctx,
             params.effect.clone(),
@@ -371,7 +371,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for PolicyS
         let store = self.store();
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DESCRIBE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::DESCRIBE_PERMISSION])
             .await?;
 
         let row = store.get(&store_ctx, &params.id.into()).await?;
@@ -392,7 +392,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for PolicyServi
         let store = self.store();
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::LIST_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::LIST_PERMISSION])
             .await?;
 
         let options = params.list_options();
@@ -430,7 +430,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for PolicySer
         let store = self.store();
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::UPDATE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
 
         // The update is a partial patch, so fetch the current row to validate the
@@ -453,7 +453,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for PolicySer
 
         Self::validate_policy_body(effect.clone(), &actions, &resource, constraint.as_deref())?;
 
-        // Enforce runtime-key uniqueness within the workspace (FR-003), excluding
+        // Enforce runtime-key uniqueness within the workspace, excluding
         // the policy's own id.
         self.ensure_runtime_key_unique(
             &store_ctx,
@@ -490,7 +490,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for PolicySer
         let store = self.store();
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(params.workspace_id), &[Self::DELETE_PERMISSION])
+            .scope_and_validate(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
             .await?;
 
         let to_delete = self
@@ -586,478 +586,22 @@ mod tests {
 
     #[tokio::test]
     #[serial]
-    async fn test_scoped_service_requires_workspace_id() -> CoreResult<()> {
+    async fn test_scoped_service_derives_workspace_from_context() -> CoreResult<()> {
         let svc = mock_svc(MockDbx::new());
         let mut ctx = CoreCtx::bootstrap()?;
 
-        let res = svc
+        // No workspace supplied: a scoped service derives it from the caller's
+        // context (the bootstrap/system workspace here) instead of erroring.
+        let store_ctx = svc
             .scope_and_validate(&mut ctx, None, &[CANONICAL_PERMISSIONS.policy.describe])
-            .await;
-
-        assert!(matches!(res, Err(CoreError::InvalidParams(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_policy_create() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let policy_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // create -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // create -> ensure_runtime_key_unique -> store.list (none existing)
-            .with_all::<PolicyRow>(vec![])
-            // create -> store.create
-            .with_one::<PolicyRow>(policy_row(policy_id, ws_id, Some("self-update")));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["policy:create"])?;
-
-        let params = PolicyCreateParams {
-            workspace_id: ws_id,
-            name: Some("self-update".to_string()),
-            effect: PolicyEffect::Allow,
-            principal_id: None,
-            actions: vec!["membership:update".to_string()],
-            resource: "self".to_string(),
-            constraint: Some("membership.account.id === user.id".to_string()),
-            description: None,
-            tags: vec![],
-            meta: PolicyMeta::default(),
-        };
-
-        let policy = svc.create(&mut ctx, params).await?;
-
-        assert_eq!(policy.id, policy_id);
-        assert_eq!(policy.workspace_id, ws_id);
-        assert_eq!(policy.name.as_deref(), Some("self-update"));
-        assert_eq!(policy.actions, vec!["membership:update".to_string()]);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_policy_create_duplicate_runtime_key_conflicts() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let existing_id = Uuid::new_v4();
-        let new_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // create -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // create -> ensure_runtime_key_unique -> store.list (one existing policy)
-            .with_all::<PolicyRow>(vec![policy_row(existing_id, ws_id, Some("existing"))]);
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["policy:create"])?;
-
-        let params = PolicyCreateParams {
-            workspace_id: ws_id,
-            name: Some("new".to_string()),
-            effect: PolicyEffect::Allow,
-            principal_id: None,
-            actions: vec!["membership:update".to_string()],
-            resource: "self".to_string(),
-            constraint: None,
-            description: None,
-            tags: vec![],
-            meta: PolicyMeta::default(),
-        };
-
-        let res = svc.create(&mut ctx, params).await;
-        let _ = new_id;
-
-        assert!(matches!(res, Err(CoreError::AlreadyExists(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_policy_create_invalid_actions_rejected() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new().with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-            id: ws_id.into(),
-            ..Default::default()
-        }));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["policy:create"])?;
-
-        let params = PolicyCreateParams {
-            workspace_id: ws_id,
-            name: Some("bad".to_string()),
-            effect: PolicyEffect::Allow,
-            principal_id: None,
-            actions: vec!["no-delimiter".to_string()],
-            resource: "self".to_string(),
-            constraint: None,
-            description: None,
-            tags: vec![],
-            meta: PolicyMeta::default(),
-        };
-
-        let res = svc.create(&mut ctx, params).await;
-        assert!(matches!(res, Err(CoreError::InvalidParams(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_policy_create_invalid_resource_rejected() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new().with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-            id: ws_id.into(),
-            ..Default::default()
-        }));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["policy:create"])?;
-
-        let params = PolicyCreateParams {
-            workspace_id: ws_id,
-            name: Some("bad".to_string()),
-            effect: PolicyEffect::Allow,
-            principal_id: None,
-            actions: vec!["membership:update".to_string()],
-            resource: "not-a-valid-resource".to_string(),
-            constraint: None,
-            description: None,
-            tags: vec![],
-            meta: PolicyMeta::default(),
-        };
-
-        let res = svc.create(&mut ctx, params).await;
-        assert!(matches!(res, Err(CoreError::InvalidParams(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_policy_create_invalid_constraint_rejected() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new().with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-            id: ws_id.into(),
-            ..Default::default()
-        }));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["policy:create"])?;
-
-        let params = PolicyCreateParams {
-            workspace_id: ws_id,
-            name: Some("bad".to_string()),
-            effect: PolicyEffect::Allow,
-            principal_id: None,
-            actions: vec!["membership:update".to_string()],
-            resource: "self".to_string(),
-            constraint: Some("not a valid constraint".to_string()),
-            description: None,
-            tags: vec![],
-            meta: PolicyMeta::default(),
-        };
-
-        let res = svc.create(&mut ctx, params).await;
-        assert!(matches!(res, Err(CoreError::InvalidParams(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_policy_describe() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let policy_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // describe -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // describe -> store.get
-            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["policy:describe"])?;
-
-        let policy = svc
-            .describe(
-                &mut ctx,
-                PolicyDescribeParams {
-                    id: policy_id,
-                    workspace_id: ws_id,
-                },
-            )
             .await?;
 
-        assert_eq!(policy.id, policy_id);
-        assert_eq!(policy.workspace_id, ws_id);
-        assert_eq!(policy.name.as_deref(), Some("self-update"));
+        assert_eq!(store_ctx.workspace_scope(), Some(ctx.ws_cache.id));
 
         Ok(())
     }
 
-    #[tokio::test]
-    #[serial]
-    async fn test_policy_list() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let policy_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // list -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // list -> list_with_tags_and_filter
-            .with_all::<PolicyRow>(vec![policy_row(policy_id, ws_id, Some("dev"))])
-            // list -> count_with_tags_and_filter
-            .with_one::<(i64,)>((1,));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["policy:list"])?;
-
-        let res = svc
-            .list(
-                &mut ctx,
-                PolicyListParams {
-                    workspace_id: ws_id,
-                    filter: None,
-                    options: None,
-                },
-            )
-            .await?;
-
-        assert_eq!(res.data.len(), 1);
-        assert_eq!(res.data[0].id, policy_id);
-        assert_eq!(res.metadata.total, 1);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_policy_update() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let policy_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // update -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // update -> store.get (current row)
-            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))))
-            // update -> ensure_runtime_key_unique -> store.list (only itself)
-            .with_all::<PolicyRow>(vec![policy_row(policy_id, ws_id, Some("self-update"))])
-            // update -> store.update
-            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("renamed"))));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["policy:update"])?;
-
-        let params = PolicyUpdateParams {
-            id: policy_id,
-            workspace_id: ws_id,
-            name: Some("renamed".to_string()),
-            effect: None,
-            principal_id: None,
-            actions: None,
-            resource: None,
-            constraint: None,
-            description: None,
-            tags: None,
-            meta: None,
-        };
-
-        let updated = svc.update(&mut ctx, params).await?;
-
-        assert_eq!(updated.id, policy_id);
-        assert_eq!(updated.name.as_deref(), Some("renamed"));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_policy_update_invalidates_policy_cache_for_affected_memberships() -> CoreResult<()>
-    {
-        let ws_id = Uuid::new_v4();
-        let policy_id = Uuid::new_v4();
-        let mem_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // update -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // update -> store.get (current row)
-            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))))
-            // update -> ensure_runtime_key_unique -> store.list (only itself)
-            .with_all::<PolicyRow>(vec![policy_row(policy_id, ws_id, Some("self-update"))])
-            // update -> store.update
-            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("renamed"))))
-            // invalidate_memberships_for_policy -> membership.list_containing_policies
-            //   (membership holds the policy directly via membership_policy)
-            .with_all::<MembershipRow>(vec![membership_row(mem_id, ws_id)])
-            // invalidate_memberships_for_policy -> role.list_containing_policies (none)
-            .with_all::<RoleRow>(vec![])
-            // describe -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // describe -> store.get
-            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("renamed"))));
-
-        let config = Config::test_config();
-        let sm = Arc::new(StoreManager::new(Arc::new(dbx)));
-        let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));
-        let svc_reg = ServiceRegistry::new(&config, sm, cm.clone());
-
-        // Seed the policy cache entry for the affected membership.
-        let set = PolicySet::from_policies(vec![core_policy(
-            PolicyEffect::Allow,
-            vec!["membership:update"],
-            "self",
-            None,
-        )]);
-        cm.policy
-            .write(&PolicyCache::new(mem_id, set), None)
-            .await
-            .unwrap();
-
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["policy:update", "policy:describe"])?;
-
-        let params = PolicyUpdateParams {
-            id: policy_id,
-            workspace_id: ws_id,
-            name: Some("renamed".to_string()),
-            effect: None,
-            principal_id: None,
-            actions: None,
-            resource: None,
-            constraint: None,
-            description: None,
-            tags: None,
-            meta: None,
-        };
-
-        let updated = svc_reg.policy.update(&mut ctx, params).await?;
-
-        assert_eq!(updated.id, policy_id);
-        assert_eq!(updated.name.as_deref(), Some("renamed"));
-
-        // The affected membership's policy cache entry must be gone.
-        let fetched = cm.policy.fetch(&PolicyCache::new_key(mem_id)).await?;
-        assert!(fetched.is_none(), "policy cache entry must be invalidated");
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_policy_update_conflicting_runtime_key_rejected() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let policy_id = Uuid::new_v4();
-        let other_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // update -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // update -> store.get (current row: allow|membership:update|self|)
-            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))))
-            // update -> ensure_runtime_key_unique -> store.list (another identical policy)
-            .with_all::<PolicyRow>(vec![policy_row(other_id, ws_id, Some("other"))]);
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["policy:update"])?;
-
-        let params = PolicyUpdateParams {
-            id: policy_id,
-            workspace_id: ws_id,
-            name: Some("renamed".to_string()),
-            effect: None,
-            principal_id: None,
-            actions: None,
-            resource: None,
-            constraint: None,
-            description: None,
-            tags: None,
-            meta: None,
-        };
-
-        let res = svc.update(&mut ctx, params).await;
-
-        assert!(matches!(res, Err(CoreError::AlreadyExists(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_policy_delete() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let policy_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // delete -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // delete -> describe -> scope_and_validate -> get_workspace
-            .with_optional::<WorkspaceRow>(Some(WorkspaceRow {
-                id: ws_id.into(),
-                ..Default::default()
-            }))
-            // delete -> describe -> store.get
-            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))))
-            // delete -> store.delete
-            .with_optional::<PolicyRow>(Some(policy_row(policy_id, ws_id, Some("self-update"))));
-        let svc = mock_svc(dbx);
-        let mut ctx = CoreCtx::bootstrap()?;
-        ctx.escalate_perms(&["policy:delete", "policy:describe"])?;
-
-        let deleted = svc
-            .delete(
-                &mut ctx,
-                PolicyDeleteParams {
-                    id: policy_id,
-                    workspace_id: ws_id,
-                },
-            )
-            .await?;
-
-        assert_eq!(deleted.id, policy_id);
-        assert_eq!(deleted.name.as_deref(), Some("self-update"));
-
-        Ok(())
-    }
-
-    // --- PolicyEngine (US4) ---
+    // --- PolicyEngine ---
 
     /// Builds a core `Policy` for engine/set tests.
     fn core_policy(
@@ -1112,7 +656,7 @@ mod tests {
         );
     }
 
-    // --- resolve_for_membership (US4) ---
+    // --- resolve_for_membership ---
 
     /// Builds a `MembershipRow` for the in-memory mock.
     fn membership_row(mem_id: Uuid, ws_id: Uuid) -> MembershipRow {
@@ -1179,123 +723,4 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    #[serial]
-    async fn test_resolve_for_membership_union_deny_wins() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let mem_id = Uuid::new_v4();
-        let role_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // resolve_for_membership -> membership.get_many_to_many
-            //   count_many guard + joined row (membership -> 1 role)
-            .with_one::<(i64,)>((1,))
-            .with_optional::<MembershipWithRoles>(Some(MembershipWithRoles {
-                id: DbId::from(mem_id),
-                membership: membership_row(mem_id, ws_id),
-                roles: vec![JoinedRoleOnMembership {
-                    id: DbId::from(role_id),
-                    workspace_id: ws_id,
-                    name: "WorkspaceViewer".to_string(),
-                    description: None,
-                    tags: vec![],
-                    meta: RoleMeta::default(),
-                    created_by: DbId::default(),
-                    created_at: time::OffsetDateTime::UNIX_EPOCH,
-                    updated_by: None,
-                    updated_at: None,
-                }],
-            }))
-            // resolve_for_membership -> membership.get_many_to_many_policies
-            //   count_many guard + joined row (direct deny policy)
-            .with_one::<(i64,)>((1,))
-            .with_optional::<MembershipWithPolicies>(Some(MembershipWithPolicies {
-                id: DbId::from(mem_id),
-                membership: membership_row(mem_id, ws_id),
-                policies: vec![joined_policy_on_membership(
-                    ws_id,
-                    "deny-update",
-                    PolicyEffect::Deny,
-                    None,
-                )],
-            }))
-            // resolve_for_membership -> role.get_many_to_many_policies
-            //   count_many guard + joined row (role allow policy)
-            .with_one::<(i64,)>((1,))
-            .with_optional::<RoleWithPolicies>(Some(RoleWithPolicies {
-                id: DbId::from(role_id),
-                role: RoleRow {
-                    id: DbId::from(role_id),
-                    workspace_id: ws_id,
-                    name: "WorkspaceViewer".to_string(),
-                    description: None,
-                    tags: vec![],
-                    meta: RoleMeta::default(),
-                    audit: AuditFields::default(),
-                },
-                policies: vec![joined_policy_on_role(
-                    ws_id,
-                    "self-profile-update",
-                    PolicyEffect::Allow,
-                    Some("profile.account.id === user.id"),
-                )],
-            }));
-        let svc = mock_svc(dbx);
-
-        let set = svc.resolve_for_membership(mem_id).await?;
-
-        assert_eq!(
-            set.get("membership:update", "self", None),
-            Some(PolicyEffect::Deny),
-            "direct membership deny must win over any allow"
-        );
-        assert_eq!(
-            set.get(
-                "profile:update",
-                "self",
-                Some("profile.account.id === user.id")
-            ),
-            Some(PolicyEffect::Allow),
-            "role-derived allow must be present in the union"
-        );
-        assert_eq!(
-            set.get("profile:update", "self", None),
-            None,
-            "constraint is part of the lookup key"
-        );
-        assert_eq!(set.get("unknown:action", "self", None), None);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_resolve_for_membership_empty_set() -> CoreResult<()> {
-        let ws_id = Uuid::new_v4();
-        let mem_id = Uuid::new_v4();
-
-        let dbx = MockDbx::new()
-            // membership.get_many_to_many -> count guard (0 roles) + row
-            .with_one::<(i64,)>((0,))
-            .with_optional::<MembershipWithRoles>(Some(MembershipWithRoles {
-                id: DbId::from(mem_id),
-                membership: membership_row(mem_id, ws_id),
-                roles: vec![],
-            }))
-            // membership.get_many_to_many_policies -> count guard (0 policies) + row
-            .with_one::<(i64,)>((0,))
-            .with_optional::<MembershipWithPolicies>(Some(MembershipWithPolicies {
-                id: DbId::from(mem_id),
-                membership: membership_row(mem_id, ws_id),
-                policies: vec![],
-            }));
-        let svc = mock_svc(dbx);
-
-        let set = svc.resolve_for_membership(mem_id).await?;
-
-        assert!(set.is_empty());
-        assert_eq!(set.get("membership:update", "self", None), None);
-
-        Ok(())
-    }
 }

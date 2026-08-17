@@ -68,7 +68,7 @@ impl Default for Client {
 
 #[derive(Debug, Deserialize)]
 pub struct ClientCreateParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: String,
     pub endpoint: Option<String>,
     pub description: Option<String>,
@@ -77,13 +77,11 @@ pub struct ClientCreateParams {
 }
 
 impl ClientCreateParams {
-    /// Converts to store params. The `secret_hash` is generated
-    /// by the service layer and never accepted from the client.
-    pub fn into_store_params(self, secret_hash: String) -> ClientForCreate {
+    /// Converts to store params.
+    pub fn into_store_params(self) -> ClientForCreate {
         ClientForCreate {
             workspace_id: self.workspace_id,
             name: self.name,
-            secret_hash,
             endpoint: self.endpoint,
             description: self.description,
             tags: self.tags,
@@ -95,7 +93,7 @@ impl ClientCreateParams {
 #[derive(Debug, Deserialize)]
 pub struct ClientUpdateParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub name: Option<String>,
     pub endpoint: Option<String>,
     pub description: Option<String>,
@@ -107,7 +105,6 @@ impl From<ClientUpdateParams> for ClientForUpdate {
     fn from(params: ClientUpdateParams) -> Self {
         Self {
             name: params.name,
-            secret_hash: None, // secret rotation is handled via a dedicated endpoint
             endpoint: params.endpoint,
             description: params.description,
             tags: params.tags,
@@ -119,28 +116,16 @@ impl From<ClientUpdateParams> for ClientForUpdate {
 #[derive(Debug, Deserialize)]
 pub struct ClientDescribeParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 pub struct ClientDeleteParams {
     pub id: Uuid,
-    pub workspace_id: Uuid,
-}
-
-pub struct ClientValidateParams {
-    pub workspace_id: Uuid,
-    pub client_secret: String,
-    pub user_token: String,
-    pub required_permissions: Vec<String>,
-}
-
-pub struct ClientRegenerateSecretParams {
-    pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
 }
 
 pub struct ClientListParams {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub filter: Option<RequestFilterParams<ClientFilter>>,
     pub options: Option<RequestListOptions>,
 }
@@ -178,7 +163,6 @@ mod tests {
             id: id.into(),
             workspace_id,
             name: "My Client".to_string(),
-            secret_hash: "hash".to_string(),
             endpoint: Some("https://client.example.com".to_string()),
             description: Some("desc".to_string()),
             tags: vec!["t1".to_string()],
@@ -228,7 +212,7 @@ mod tests {
     fn test_client_create_params_into_store() {
         let ws_id = Uuid::new_v4();
         let params = ClientCreateParams {
-            workspace_id: ws_id,
+            workspace_id: Some(ws_id),
             name: "C".to_string(),
             endpoint: None,
             description: Some("d".to_string()),
@@ -238,10 +222,9 @@ mod tests {
             },
         };
 
-        let store = params.into_store_params("secret-hash".to_string());
-        assert_eq!(store.workspace_id, ws_id);
+        let store = params.into_store_params();
+        assert_eq!(store.workspace_id, Some(ws_id));
         assert_eq!(store.name, "C");
-        assert_eq!(store.secret_hash, "secret-hash");
         assert!(store.endpoint.is_none());
         assert_eq!(store.description.as_deref(), Some("d"));
         assert_eq!(store.tags, vec!["x".to_string()]);
@@ -252,7 +235,7 @@ mod tests {
     fn test_client_update_params_into_store() {
         let params = ClientUpdateParams {
             id: Uuid::new_v4(),
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             name: Some("N".to_string()),
             endpoint: Some("e".to_string()),
             description: None,
@@ -264,7 +247,6 @@ mod tests {
 
         let store: ClientForUpdate = params.into();
         assert_eq!(store.name.as_deref(), Some("N"));
-        assert!(store.secret_hash.is_none(), "secret rotation is not part of update params");
         assert_eq!(store.endpoint.as_deref(), Some("e"));
         assert!(store.description.is_none());
         assert_eq!(store.tags, Some(vec!["t".to_string()]));
@@ -274,7 +256,7 @@ mod tests {
     #[test]
     fn test_client_list_params_accessors() {
         let params = ClientListParams {
-            workspace_id: Uuid::new_v4(),
+            workspace_id: Some(Uuid::new_v4()),
             filter: None,
             options: None,
         };
