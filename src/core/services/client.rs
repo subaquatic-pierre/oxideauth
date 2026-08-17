@@ -23,7 +23,7 @@ use crate::{
                 ClientValidateParams,
             },
             list::ListResponse,
-            permission::{PermissionSet, PermissionRule},
+            permission::{PermissionRule, PermissionSet},
             token::{TokenClaims, TokenType},
         },
         services::{
@@ -277,6 +277,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         params: ClientValidateParams,
         required_constraint: Option<&str>,
     ) -> CoreResult<bool> {
+        // TODO: change client authentication and authorization mechanism, client auth is resolved in context, but uses headers for api key and api secret, use client cache
         let ClientValidateParams {
             workspace_id,
             client_secret,
@@ -295,7 +296,11 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         // --- 2. Validate the calling Client has permission & scope the store ---
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
-            .scope_and_validate(ctx, Some(workspace_id), &[CANONICAL_PERMISSIONS.client.validate])
+            .scope_and_validate(
+                ctx,
+                Some(workspace_id),
+                &[CANONICAL_PERMISSIONS.client.validate],
+            )
             .await?;
 
         // --- 3. Look up the client by workspace_id + secret_hash ---
@@ -330,6 +335,8 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         }
 
         // --- 6. Build PermissionEngine from the user's cached auth scope ---
+
+        // TODO: use AuthValidator instead, create context from user claims, logic already exists to validate permissions and policies, do not duplicate
         let mem_id = claims.mem;
         let keyed = AuthCache::from_claims(&claims);
         let Some(auth_cache) = self.cm.auth.fetch(&keyed.key()).await? else {
@@ -360,11 +367,7 @@ impl<D: DbExecutor, C: CacheExecutor> ClientService<D, C> {
         // for hydrating the policy cache before the request if a cache-miss
         // fallback to the DB is desired.
         if let Some(constraint) = required_constraint {
-            let Some(policy_cache) = self
-                .cm
-                .policy
-                .fetch(&PolicyCache::new_key(mem_id))
-                .await?
+            let Some(policy_cache) = self.cm.policy.fetch(&PolicyCache::new_key(mem_id)).await?
             else {
                 return Ok(false);
             };
@@ -489,10 +492,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for ClientServi
             .count_with_tags_and_filter(&store_ctx, tags, filter)
             .await?;
 
-        let clients: Vec<Client> = rows
-            .into_iter()
-            .map(|row| Client::from(row))
-            .collect();
+        let clients: Vec<Client> = rows.into_iter().map(|row| Client::from(row)).collect();
 
         Ok(ListResponse::new(clients, total, list_options))
     }

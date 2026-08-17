@@ -19,7 +19,8 @@ use crate::{
             workspace::{Workspace, WorkspaceDescribeParams},
         },
         services::{
-            validator::AuthValidator, permission::CANONICAL_PERMISSIONS, workspace::WorkspaceService,
+            permission::CANONICAL_PERMISSIONS, validator::AuthValidator,
+            workspace::WorkspaceService,
         },
         traits::{
             list::RequestListParams,
@@ -250,7 +251,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for AccountSe
         let store = self.store();
 
         // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
-        let store_ctx = self.scope_and_validate(ctx, None, &[Self::CREATE_PERMISSION]).await?;
+        let store_ctx = self
+            .scope_and_validate(ctx, None, &[Self::CREATE_PERMISSION])
+            .await?;
         if store
             .get_by_email(&store_ctx, &params.email)
             .await?
@@ -279,7 +282,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Account
         let store = self.store();
 
         // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
-        let store_ctx = self.scope_and_validate(ctx, None, &[Self::DESCRIBE_PERMISSION]).await?;
+        let store_ctx = self
+            .scope_and_validate(ctx, None, &[Self::DESCRIBE_PERMISSION])
+            .await?;
 
         let identifier =
             params
@@ -356,13 +361,16 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
     async fn update(&self, ctx: &mut CoreCtx, params: AccountUpdateParams) -> CoreResult<Account> {
         let store = self.store();
         // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
-        let store_ctx = self.scope_and_validate(ctx, None, &[Self::UPDATE_PERMISSION]).await?;
+        let store_ctx = self
+            .scope_and_validate(ctx, None, &[Self::UPDATE_PERMISSION])
+            .await?;
 
         // NOTE: email is immutable here — `AccountForUpdate` deliberately omits
         // it (`into_store_params` never maps it). Email changes are reserved to
         // system admins (FR-012/FR-013), who operate on the account store
         // directly, so a non-system caller can never rewrite an email through
         // this path.
+        // TODO: make email immutable
         let identifier = params.id_or_email()?;
 
         let current = self.get_account_by_id_or_email(ctx, &identifier).await?;
@@ -403,7 +411,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
         let store = self.store();
 
         // NOTE(workspace-scope): unscoped - global table (no workspace_id column).
-        let store_ctx = self.scope_and_validate(ctx, None, &[Self::DELETE_PERMISSION]).await?;
+        let store_ctx = self
+            .scope_and_validate(ctx, None, &[Self::DELETE_PERMISSION])
+            .await?;
 
         let identifier = params.id_or_email()?;
         let acc = self.get_account_by_id_or_email(ctx, &identifier).await?;
@@ -624,11 +634,7 @@ mod tests {
                 // get_account_by_id_or_email -> account.get
                 .with_optional::<AccountRow>(Some(account_row(account_id)))
                 // check_account_mutation_allowed -> account_workspace_ids -> membership.list
-                .with_all::<MembershipRow>(vec![membership_row(
-                    Uuid::new_v4(),
-                    account_id,
-                    ws_id,
-                )])
+                .with_all::<MembershipRow>(vec![membership_row(Uuid::new_v4(), account_id, ws_id)])
                 // store.update
                 .with_optional::<AccountRow>(Some(AccountRow {
                     id: account_id.into(),
@@ -871,11 +877,7 @@ mod tests {
                 // get_account_by_id_or_email -> account.get
                 .with_optional::<AccountRow>(Some(account_row(account_id)))
                 // account holds a membership in the caller's scoped workspace
-                .with_all::<MembershipRow>(vec![membership_row(
-                    Uuid::new_v4(),
-                    account_id,
-                    ws_id,
-                )]),
+                .with_all::<MembershipRow>(vec![membership_row(Uuid::new_v4(), account_id, ws_id)]),
         );
         let sm = Arc::new(StoreManager::new(dbx));
         let cm = Arc::new(CacheManager::new(Arc::new(MockChx::default())));

@@ -20,7 +20,7 @@ use crate::{
     core::{
         ctx::{ContextFactory, CoreCtx},
         error::{CoreError, CoreResult},
-        models::token::TokenClaims,
+        models::{policy::PolicySet, token::TokenClaims},
         services::{registry::ServiceRegistry, token::TokenService},
     },
     store::{
@@ -87,10 +87,16 @@ where
         let token_svc = self.svc_reg.token.clone();
         let claims = token_svc.decode_token_str(token_str)?;
 
-        let resolver =
-            ContextResolver::new(self.sm.clone(), self.cm.clone(), &self.config, &claims);
+        let resolver = ContextResolver::new(
+            self.sm.clone(),
+            self.cm.clone(),
+            self.svc_reg.clone(),
+            &self.config,
+            &claims,
+        );
         let ws_cache = resolver.resolve_ws_cache().await?;
         let auth_cache = resolver.resolve_auth_cache(&ws_cache).await?;
+        let policy_cache = resolver.resolve_policy_cache(auth_cache.mem_id).await?;
 
         let acc_id = auth_cache.acc_id;
         let mem_id = auth_cache.mem_id;
@@ -98,21 +104,7 @@ where
 
         let mut core_ctx = CoreCtx::new(auth_cache, ws_cache)?;
 
-        // Hydrate the membership's resolved PolicySet (US6): cache-first, DB on
-        // miss — mirrors `fetch_auth_cache` below. System/global contexts carry
-        // no membership id and keep the empty (default-deny) PolicySet.
-        if mem_id != Uuid::nil() {
-            let policy_set = match self.cm.policy.fetch(&PolicyCache::new_key(mem_id)).await? {
-                Some(entity) => entity.policies,
-                None => {
-                    let resolved = self.svc_reg.policy.resolve_for_membership(mem_id).await?;
-                    self.cm
-                        .policy
-                        .write(&PolicyCache::new(mem_id, resolved.clone()), None)
-                        .await?;
-                    resolved
-                }
-            };
+        if let Some(policy_set) = policy_cache {
             core_ctx.set_policy_set(policy_set);
         }
 
@@ -192,6 +184,7 @@ where
 {
     sm: Arc<StoreManager<D>>,
     cm: Arc<CacheManager<C>>,
+    svc_reg: Arc<ServiceRegistry<D, C>>,
     config: &'a Config,
     claims: &'a TokenClaims,
 }
@@ -204,17 +197,42 @@ where
     fn new(
         sm: Arc<StoreManager<D>>,
         cm: Arc<CacheManager<C>>,
+        svc_reg: Arc<ServiceRegistry<D, C>>,
         config: &'a Config,
         claims: &'a TokenClaims,
     ) -> Self {
         Self {
             sm,
             cm,
+            svc_reg,
             config,
             claims,
         }
     }
 
+    pub async fn resolve_policy_cache(&self, mem_id: Uuid) -> CoreResult<Option<PolicySet>> {
+        // Hydrate the membership's resolved PolicySet (US6): cache-first, DB on
+        // miss — mirrors `fetch_auth_cache` below. System/global contexts carry
+        // no membership id and keep the empty (default-deny) PolicySet.
+        // TODO: move to method
+        if mem_id != Uuid::nil() {
+            let policy_set = match self.cm.policy.fetch(&PolicyCache::new_key(mem_id)).await? {
+                Some(entity) => entity.policies,
+                None => {
+                    let resolved = self.svc_reg.policy.resolve_for_membership(mem_id).await?;
+                    self.cm
+                        .policy
+                        .write(&PolicyCache::new(mem_id, resolved.clone()), None)
+                        .await?;
+                    resolved
+                }
+            };
+
+            return Ok(Some(policy_set));
+        }
+
+        Ok(None)
+    }
     pub async fn resolve_auth_cache(&self, ws_cache: &WorkspaceCache) -> CoreResult<AuthCache> {
         let mem_id = self.claims.mem;
         let acc_id = self.claims.sub;
@@ -437,7 +455,10 @@ mod tests {
         let auth = AuthValidator::new();
 
         // -- Execute / -- Assert: matching workspace is allowed
-        assert_eq!(auth.validate_workspace(&scoped_ctx, Some(ws_id))?, Some(ws_id));
+        assert_eq!(
+            auth.validate_workspace(&scoped_ctx, Some(ws_id))?,
+            Some(ws_id)
+        );
         // Deriving from the context works when no workspace is requested
         assert_eq!(auth.validate_workspace(&scoped_ctx, None)?, Some(ws_id));
         // -- Execute: mismatched workspace is rejected
@@ -473,7 +494,8 @@ mod tests {
             Some(sid),
             None,
         );
-        let resolver = ContextResolver::new(sm, cm, &config, &claims);
+        let svc_reg = Arc::new(ServiceRegistry::new(&config, sm.clone(), cm.clone()));
+        let resolver = ContextResolver::new(sm, cm, svc_reg, &config, &claims);
 
         let auth = AuthCache {
             mem_id,
