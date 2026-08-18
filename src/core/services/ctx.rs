@@ -294,6 +294,8 @@ where
             }
         };
 
+        debug!("WORKSPACE fetch_workspace_cache: {hydrated:?}");
+
         Ok(hydrated)
     }
 
@@ -315,9 +317,9 @@ where
 
         // If the cached entity carries a session, the token's session must
         // match (session revocation bumps the cached session id to `None`).
-        if auth.sid.is_some() && claims.sid != auth.sid {
-            return Err(CoreError::Auth("session revoked".into()));
-        }
+        // if auth.sid.is_some() && claims.sid != auth.sid {
+        //     return Err(CoreError::Auth("session revoked".into()));
+        // }
         Ok(())
     }
 

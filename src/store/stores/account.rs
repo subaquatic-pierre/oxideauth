@@ -16,7 +16,7 @@ use crate::store::{
     },
     error::{StoreError, StoreResult},
     queries::{
-        list::list_in_namespace_by_join_table,
+        list::{count_in_namespace_by_join_table, list_in_namespace_by_join_table},
         meta::{
             ContainsFilterQueryMeta, ListInNamespaceQueryMeta, MutateQueryMeta, OneToManyQueryMeta,
             ReadQueryMeta,
@@ -86,6 +86,28 @@ impl<D: DbExecutor> AccountStore<D> {
         };
 
         list_in_namespace_by_join_table(ctx, &self.dbx, tags, filter, opts, &meta).await
+    }
+
+    /// Counts accounts that belong to the current namespace (workspace) by
+    /// joining on their memberships.
+    ///
+    /// Mirrors [`Self::list_in_namespace_by_join_table`] — the namespace
+    /// boundary is enforced through the `membership` join table's `workspace_id`.
+    pub async fn count_in_namespace_by_join_table(
+        &self,
+        ctx: &StoreCtx,
+        tags: Option<Vec<String>>,
+        filter: Option<AccountFilter>,
+    ) -> StoreResult<i64> {
+        let meta = ListInNamespaceQueryMeta {
+            table: AccountIden::Table,
+            pk: AccountIden::Id,
+            join_table: AccountIden::Membership,
+            join_fk: AccountIden::AccountId,
+            has_audit: true,
+        };
+
+        count_in_namespace_by_join_table(ctx, &self.dbx, tags, filter, &meta).await
     }
 }
 

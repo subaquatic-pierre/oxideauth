@@ -31,7 +31,6 @@ use crate::{
         },
     },
     store::{
-        contains::FilterByContains,
         ctx::StoreCtx,
         dbx::PgDbx,
         entities::{
@@ -346,7 +345,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelListService<D, C> for AccountServ
             )
             .await?;
         let total = store
-            .count_with_tags_and_filter(&store_ctx, tags, filter)
+            .count_in_namespace_by_join_table(&store_ctx, tags, filter)
             .await?;
 
         let accounts: Vec<Account> = data.into_iter().map(|el| el.into()).collect();
@@ -429,4 +428,3 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
         Ok(deleted)
     }
 }
-

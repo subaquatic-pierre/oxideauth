@@ -103,6 +103,84 @@ where
     Ok(ret)
 }
 
+/// Counts entities (e.g., accounts) that belong to the current namespace by
+/// joining on a membership/join table.
+///
+/// This is the count counterpart of [`list_in_namespace_by_join_table`] and MUST
+/// mirror its WHERE clauses (namespace join, tags containment, and listed-table
+/// filters) so the count always describes the same set the list draws from. It
+/// omits ordering/limit/offset and returns `COUNT(DISTINCT {table}.{pk})` to
+/// dedupe entities linked to the namespace through multiple join-table rows.
+///
+/// # Type Parameters
+///
+/// * `E`: The database executor (`DbExecutor`).
+/// * `F`: A type convertible into `FilterGroups` for filtering the listed table.
+/// * `I`: The table identifier of the listed table (`TableIden`).
+///
+/// # Arguments
+///
+/// * `ctx`: The store context. The namespace is resolved from `ctx.workspace_scope()`.
+/// * `dbx`: The database executor.
+/// * `tags`: Optional tags for `@>` array containment on the listed table.
+/// * `filter`: An optional filter applied to the listed table.
+/// * `meta`: Metadata describing the listed table, join table, and their key columns.
+///
+/// # Returns
+///
+/// A `StoreResult<i64>` with the number of distinct entities in the namespace.
+pub async fn count_in_namespace_by_join_table<E, F, I>(
+    ctx: &StoreCtx,
+    dbx: &E,
+    tags: Option<Vec<String>>,
+    filter: Option<F>,
+    meta: &ListInNamespaceQueryMeta<I>,
+) -> StoreResult<i64>
+where
+    E: DbExecutor,
+    F: Into<FilterGroups>,
+    I: TableIden,
+{
+    let namespace = ctx.workspace_scope().ok_or(StoreError::InvalidContext(
+        "workspace needs to be defined in `count_in_namespace_by_join_table` query".to_string(),
+    ))?;
+
+    let mut query = Query::select();
+    query
+        .expr_as(
+            Func::count_distinct(Expr::col((meta.table, meta.pk))),
+            "count",
+        )
+        .from(meta.table)
+        .join(
+            JoinType::InnerJoin,
+            meta.join_table,
+            Expr::col((meta.table, meta.pk)).equals((meta.join_table, meta.join_fk)),
+        )
+        .and_where(
+            Expr::col((meta.join_table, WorkspaceIden::WorkspaceId)).eq(Expr::val(namespace)),
+        );
+
+    // --- Tags containment (@>) ---
+    if let Some(tags) = tags {
+        apply_tags_to_query(&mut query, meta.table, tags);
+    }
+
+    // Apply user filters against the listed table.
+    if let Some(filter) = filter {
+        let filters: FilterGroups = filter.into();
+        let cond: Condition = filters.try_into()?;
+        query.cond_where(cond);
+    }
+
+    let (sql, vals) = query.build(PostgresQueryBuilder);
+    let vals = PgBinder(vals.0);
+    let sqlx_query = sqlx::query_as_with::<_, (i64,), _>(&sql, vals);
+
+    let (count,) = dbx.fetch_one(sqlx_query).await?;
+    Ok(count)
+}
+
 /// Lists entities (e.g., roles, memberships) whose set of linked records
 /// (via a join table) **contains all** of the provided IDs.
 ///

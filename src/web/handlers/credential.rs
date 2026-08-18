@@ -42,7 +42,7 @@ pub async fn describe_credential(
     let c = svc.describe(&mut ctx, params).await?;
     let res: CredentialDescribeRes = c.into();
 
-    info!("describe_credential - CTX: {ctx:#?}");
+    // info!("describe_credential - CTX: {ctx:#?}");
     WebResponse::json(res)
 }
 

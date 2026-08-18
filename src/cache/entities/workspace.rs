@@ -1,6 +1,7 @@
 use std::{fmt::Display, sync::Arc};
 
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
@@ -80,6 +81,8 @@ impl WorkspaceCache {
         let store_ctx = StoreCtx::bootstrap();
         let workspace_row = sm.workspace.get(&store_ctx, &ws_id.into()).await?;
 
+        // debug!("WORKSPACE build_from_db: {workspace_row:?}");
+
         Ok(WorkspaceCache::from(workspace_row))
     }
 }
@@ -155,9 +158,15 @@ mod tests {
         assert_eq!(ws.slug, "");
         assert_eq!(ws.description, None);
         assert_eq!(ws.owner, Uuid::nil());
-        assert_eq!(ws.config.jwt_max_age, WorkspaceConfig::default().jwt_max_age);
+        assert_eq!(
+            ws.config.jwt_max_age,
+            WorkspaceConfig::default().jwt_max_age
+        );
         assert!(ws.tags.is_empty());
-        assert_eq!(ws.meta.schema_version, WorkspaceMeta::default().schema_version);
+        assert_eq!(
+            ws.meta.schema_version,
+            WorkspaceMeta::default().schema_version
+        );
     }
 
     #[test]
@@ -195,7 +204,10 @@ mod tests {
         assert_eq!(ws.slug, "acme");
         assert_eq!(ws.description.as_deref(), Some("desc"));
         assert_eq!(ws.owner, owner);
-        assert_eq!(ws.config.jwt_max_age, WorkspaceConfig::default().jwt_max_age);
+        assert_eq!(
+            ws.config.jwt_max_age,
+            WorkspaceConfig::default().jwt_max_age
+        );
         assert_eq!(ws.tags, vec!["tag-a".to_string()]);
     }
 
@@ -228,7 +240,10 @@ mod tests {
         let ws = WorkspaceCache::new_keyed(id);
 
         assert_eq!(ws.key().as_ref(), format!("oxauth:ws:{}", id));
-        assert_eq!(WorkspaceCache::new_key(id).as_ref(), format!("oxauth:ws:{}", id));
+        assert_eq!(
+            WorkspaceCache::new_key(id).as_ref(),
+            format!("oxauth:ws:{}", id)
+        );
         assert_eq!(WorkspaceCache::_key(), ("oxauth", "ws"));
     }
 

@@ -78,11 +78,11 @@ impl CacheExecutor for RedisChx {
     }
 
     async fn set(&self, key: &str, val: &str, ttl_seconds: Option<u64>) -> CacheResult<()> {
-        let str_val = serde_json::to_string(val)?;
+        // let str_val = serde_json::to_string(val)?;
 
         let mut cmd = redis::cmd("SET");
 
-        cmd.arg(key).arg(&str_val);
+        cmd.arg(key).arg(&val);
 
         if let Some(ttl) = ttl_seconds {
             cmd.arg("EX").arg(ttl);
