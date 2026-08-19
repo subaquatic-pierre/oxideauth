@@ -1,10 +1,17 @@
--- migrations/04_credential.sql
+-- migrations/10_credential.sql
 -- Purpose: Store authentication credentials tied to accounts within a workspace.
 -- Notes:
 --   - A credential represents one login method (password, OAuth, SSO, API key).
+--   - A credential is anchored to exactly one membership (`membership_id NOT NULL`);
+--     the composite FK `cred_membership_fk` on (membership_id, account_id, workspace_id)
+--     guarantees account/workspace consistency between credential and membership.
 --   - Scoped by `workspace_id` to allow multi-tenant isolation.
---   - Only one active password credential per (workspace, email).
---   - OAuth/SSO credentials use `provider` + `provider_id` for uniqueness.
+--   - Per-kind cardinality:
+--       * password: 1 active per account per workspace (cred_unique_active_password)
+--       * oauth/sso: 1 active per provider per account per workspace
+--         (cred_unique_active_provider_per_account); also 1 active per
+--         provider + provider_id per workspace (cred_unique_active_provider)
+--       * api_key: unbounded
 --   - `created_by` / `updated_by` are audit fields
 CREATE TABLE IF NOT EXISTS
   credential (
@@ -14,6 +21,8 @@ CREATE TABLE IF NOT EXISTS
     account_id UUID NOT NULL,
     -- Where (workspace/tenant scope for the credential)
     workspace_id UUID NOT NULL,
+    -- Membership anchor: the credential authenticates as exactly one membership
+    membership_id UUID NOT NULL,
     -- How (authentication kind: password, oauth, sso, api_key)
     kind TEXT NOT NULL, -- 'password','oauth','sso','api_key'
     -- External identity provider metadata
@@ -42,6 +51,10 @@ CREATE TABLE IF NOT EXISTS
     -- ---------- Constraints ----------
     CONSTRAINT cred_account_fk FOREIGN KEY (account_id) REFERENCES account (id) ON UPDATE CASCADE ON DELETE CASCADE,
     CONSTRAINT cred_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspace (id) ON UPDATE CASCADE ON DELETE CASCADE,
+    -- Anchor to exactly one membership; composite key keeps account/workspace consistent
+    CONSTRAINT cred_membership_fk FOREIGN KEY (membership_id, account_id, workspace_id) REFERENCES membership (id, account_id, workspace_id) ON UPDATE CASCADE ON DELETE CASCADE,
+    -- Restrict to known credential kinds
+    CONSTRAINT cred_kind_chk CHECK (kind IN ('password', 'oauth', 'sso', 'api_key')),
     -- Ensure audit JSON is always an object
     CONSTRAINT cred_audit_is_object CHECK (jsonb_typeof(audit) = 'object'),
     CONSTRAINT cred_config_is_object CHECK (jsonb_typeof(config) = 'object')
@@ -66,4 +79,12 @@ WHERE
   AND status = 'active'
   AND provider_id IS NOT NULL;
 
+-- Per-account provider cardinality:
+-- Enforce uniqueness: one active OAuth/SSO credential per provider per account per workspace.
+CREATE UNIQUE INDEX IF NOT EXISTS cred_unique_active_provider_per_account ON credential (workspace_id, account_id, provider)
+WHERE
+  kind IN ('oauth', 'sso')
+  AND status = 'active';
+
+-- Membership-scoped credential listing/invalidation
 CREATE INDEX IF NOT EXISTS credential_membership_id_idx ON credential (membership_id);

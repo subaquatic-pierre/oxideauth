@@ -184,7 +184,7 @@ async fn create_password_credential<D: DbExecutor, C: CacheExecutor>(
             CredentialCreateParams {
                 account_id,
                 workspace_id: Some(ws_id),
-                membership_id: Some(membership_id),
+                membership_id,
                 kind: CredentialKind::Password,
                 provider: CredentialProvider::Local,
                 status: CredentialStatus::Active,

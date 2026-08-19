@@ -121,10 +121,7 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
         }
 
         // 5. Resolve the membership -> roles -> permissions graph.
-        let mem_id: Uuid = cred
-            .membership_id
-            .ok_or_else(|| CoreError::Auth("invalid credentials".to_string()))?
-            .into();
+        let mem_id: Uuid = cred.membership_id.into();
         let auth = AuthCache::build_from_db(self.sm.clone(), mem_id, cred.account_id.into(), None)
             .await?;
 

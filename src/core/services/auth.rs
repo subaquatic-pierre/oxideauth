@@ -33,10 +33,9 @@ use crate::{
             credential::{
                 CredentialConfig, CredentialCreateParams, CredentialFilter, CredentialUpdateParams,
             },
-            list::RequestFilterParams,
             membership::{
-                MembershipCreateParams, MembershipDescribeParams, MembershipFilter,
-                MembershipListParams, MembershipMeta, MembershipUpdateParams,
+                MembershipCreateParams, MembershipDescribeParams, MembershipMeta,
+                MembershipUpdateParams,
             },
             permission::{PermissionRule, PermissionSet},
             role::{RoleDescribeIdentifier, RoleListParams},
@@ -63,6 +62,7 @@ use crate::{
             credential::{CredentialKind, CredentialMeta, CredentialProvider, CredentialStatus},
             membership::{MembershipScope, MembershipStatus},
         },
+        error::StoreError,
         manager::StoreManager,
         stores::workspace::SYSTEM_CONST,
         traits::{crud::*, dbx::DbExecutor},
@@ -299,32 +299,6 @@ where
         let acc_ver = account_row.version;
         let account: Account = account_row.into();
 
-        // --- Create credential (via service) ---
-        self.credential_svc
-            .create(
-                ctx,
-                CredentialCreateParams {
-                    account_id: account.id,
-                    workspace_id: Some(ws_id),
-                    membership_id: None,
-                    kind: CredentialKind::Password,
-                    provider: CredentialProvider::Local,
-                    status: CredentialStatus::Active,
-                    secret: Some(secret),
-                    expires_at: None,
-                    email: Some(email.clone()),
-                    // TODO: get default credential from workspace config
-                    config: CredentialConfig::default(),
-                    provider_id: None,
-                    last_used_at: None,
-                    tags: vec![],
-                    meta: CredentialMeta {
-                        schema_version: "1".to_string(),
-                    },
-                },
-            )
-            .await?;
-
         // --- Create membership with Viewer role (via service) ---
         let membership = self
             .membership_svc
@@ -342,6 +316,32 @@ where
                     policy_ids: vec![],
                     tags: vec![],
                     meta: MembershipMeta {
+                        schema_version: "1".to_string(),
+                    },
+                },
+            )
+            .await?;
+
+        // --- Create credential anchored to the membership (via service) ---
+        self.credential_svc
+            .create(
+                ctx,
+                CredentialCreateParams {
+                    account_id: account.id,
+                    workspace_id: Some(ws_id),
+                    membership_id: membership.id,
+                    kind: CredentialKind::Password,
+                    provider: CredentialProvider::Local,
+                    status: CredentialStatus::Active,
+                    secret: Some(secret),
+                    expires_at: None,
+                    email: Some(email.clone()),
+                    // TODO: get default credential from workspace config
+                    config: CredentialConfig::default(),
+                    provider_id: None,
+                    last_used_at: None,
+                    tags: vec![],
+                    meta: CredentialMeta {
                         schema_version: "1".to_string(),
                     },
                 },
@@ -479,34 +479,31 @@ where
             return Err(CoreError::Auth("invalid credentials".to_string()));
         }
 
-        // --- Resolve the account's membership (for its token version) ---
-        let membership_filter: MembershipFilter = json!({
-            "account_id": account.id.to_string(),
-            "workspace_id": credential.workspace_id.to_string()
-        })
-        .try_into()?;
-
-        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.membership.list])?;
-        let membership_list_params = MembershipListParams {
-            workspace_id: Some(credential.workspace_id.into()),
-            filter: Some(RequestFilterParams {
-                fields: Some(membership_filter),
-                tags: None,
-            }),
-            options: None,
-        };
-        let membership_response = self
+        // --- Resolve the membership the credential is anchored to ---
+        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.membership.describe])?;
+        let membership = self
             .membership_svc
-            .list(ctx, membership_list_params)
-            .await?;
-        let membership = membership_response.data.into_iter().next().ok_or_else(|| {
-            info!(
-                email = %email,
-                reason = "invalid credentials",
-                "AUTH_LOGIN_FAILED"
-            );
-            CoreError::Auth("invalid credentials".to_string())
-        })?;
+            .describe(
+                ctx,
+                MembershipDescribeParams {
+                    id: credential.membership_id.into(),
+                    workspace_id: Some(credential.workspace_id.into()),
+                },
+            )
+            .await
+            .map_err(|e| {
+                info!(
+                    email = %email,
+                    reason = "invalid credentials",
+                    "AUTH_LOGIN_FAILED"
+                );
+                match e {
+                    CoreError::StoreError(StoreError::EntityNotFound { .. }) => {
+                        CoreError::Auth("invalid credentials".to_string())
+                    }
+                    e => e,
+                }
+            })?;
 
         // check if membership active
         if (membership.status != MembershipStatus::Active) {
@@ -883,7 +880,6 @@ where
             kind: None,
             provider: None,
             status: None,
-            membership_id: None,
             new_provider_id: None,
             new_email: None,
             secret: Some(secret),
@@ -1085,10 +1081,12 @@ where
     ///
     /// Validates the `state` parameter against the stored CSRF token, exchanges
     /// the authorization `code` for access/id tokens, fetches the Google user
-    /// profile, and resolves the matching account (creating one on first
-    /// sign-in together with a Google `OAuth` credential). Returns the account,
-    /// a freshly issued auth JWT, and the client redirect URL recovered from the
-    /// stored OAuth state.
+    /// profile, and resolves identity credential-first: an active Google
+    /// credential is the authoritative link from the provider identity to an
+    /// account. On first sign-in the account is onboarded (account, then
+    /// workspace membership, then the Google `OAuth` credential anchored to
+    /// that membership). Returns the account, a freshly issued token pair, and
+    /// the client redirect URL recovered from the stored OAuth state.
     pub async fn process_google_callback(
         &self,
         ctx: &mut CoreCtx,
@@ -1104,8 +1102,9 @@ where
             .await
             .map_err(|_| CoreError::Auth("invalid oauth state".to_string()))?;
 
-        // TODO: encode workspace id state in state
-        // get workspace from self.ws_svc
+        // The workspace for onboarding comes from the flow state captured at
+        // initiation.
+        let ws_id = oauth_entity.workspace_id;
 
         // 2. Exchange the authorization code for tokens.
         let token_response = request_google_token(&code, &self.config).await?;
@@ -1119,71 +1118,128 @@ where
             CANONICAL_PERMISSIONS.account.create,
             CANONICAL_PERMISSIONS.credential.create,
             CANONICAL_PERMISSIONS.credential.describe,
+            CANONICAL_PERMISSIONS.membership.create,
         ])?;
         let store = self.acc_svc.store();
 
-        // 4. Resolve an existing account by email, or create a new one.
-        // NOTE: no workspace scope on ctx
+        // 4. Look up an active Google credential by provider identity.
+        // NOTE: unscoped — provider identity is global, not workspace-scoped.
         let store_ctx = ctx.unscoped_store_ctx();
-        let account =
-            if let Some(existing) = store.get_by_email(&store_ctx, &google_user.email).await? {
-                let account: Account = existing.into();
-                if !account.enabled {
-                    return Err(CoreError::Auth("account disabled".to_string()));
-                }
-                account
-            } else {
-                // 5. Create the account from the Google profile.
-                let account_create_params = AccountCreateParams {
-                    email: google_user.email.clone(),
-                    name: google_user.name,
-                    description: None,
-                    avatar_url: google_user.picture.clone(),
-                    kind: AccountKind::User,
-                    verified: google_user.verified_email,
-                    enabled: true,
-                    tags: None,
-                    meta: Some(AccountMeta {
-                        schema_version: "1".to_string(),
-                    }),
-                };
-                let account: Account = self
-                    .acc_svc
-                    .store()
-                    .create(&ctx.unscoped_store_ctx(), account_create_params.into())
-                    .await?
-                    .into();
+        let credential_filter: CredentialFilter = json!({
+            "provider": CredentialProvider::Google.to_string(),
+            "provider_id": google_user.id.clone(),
+            "status": CredentialStatus::Active.to_string(),
+        })
+        .try_into()?;
+        let credential = self
+            .credential_svc
+            .store()
+            .list(&store_ctx, Some(credential_filter), None)
+            .await?
+            .into_iter()
+            .next();
 
-                // 6. Link the Google OAuth credential to the new account.
-                self.credential_svc
-                    .create(
-                        ctx,
-                        CredentialCreateParams {
-                            account_id: account.id,
-                            // TODO: workspace is not on ctx, not auth scoped endpoint
-                            workspace_id: Some(ctx.ws_cache.id),
-                            membership_id: None,
-                            kind: CredentialKind::OAuth,
-                            provider: CredentialProvider::Google,
-                            status: CredentialStatus::Active,
-                            provider_id: Some(google_user.id),
-                            email: Some(google_user.email),
-                            config: CredentialConfig::default(),
-                            secret: None,
-                            expires_at: None,
-                            last_used_at: Some(now_utc()),
-                            tags: vec![],
-                            meta: CredentialMeta {
-                                schema_version: "1".to_string(),
-                            },
-                        },
-                    )
-                    .await?;
+        let account = if let Some(credential) = credential {
+            // 5a. Known identity — authenticate as the credential's account.
+            let account: Account = store.get(&store_ctx, &credential.account_id).await?.into();
+            if !account.enabled {
+                return Err(CoreError::Auth("account disabled".to_string()));
+            }
+            account
+        } else if store
+            .get_by_email(&store_ctx, &google_user.email)
+            .await?
+            .is_some()
+        {
+            // 5b. The email belongs to an existing account but no Google
+            //     credential is linked to it — refuse to authenticate.
+            return Err(CoreError::Auth(
+                "google identity is not linked to an account".to_string(),
+            ));
+        } else {
+            // 5c. First sign-in — onboard: account, then membership, then the
+            //     Google OAuth credential anchored to that membership.
+            let viewer_role = self
+                .role_svc
+                .get_by_name(
+                    ctx,
+                    &RoleDescribeIdentifier {
+                        id: None,
+                        name: Some(SYSTEM_CONST.workspace_viewer_role.to_string()),
+                    },
+                )
+                .await?;
 
-                account
+            let account_create_params = AccountCreateParams {
+                email: google_user.email.clone(),
+                name: google_user.name,
+                description: None,
+                avatar_url: google_user.picture.clone(),
+                kind: AccountKind::User,
+                verified: google_user.verified_email,
+                enabled: true,
+                tags: None,
+                meta: Some(AccountMeta {
+                    schema_version: "1".to_string(),
+                }),
             };
+            let account: Account = self
+                .acc_svc
+                .store()
+                .create(&ctx.unscoped_store_ctx(), account_create_params.into())
+                .await?
+                .into();
 
-        // 7. Issue a token pair (access + refresh) for the session.
+            let membership = self
+                .membership_svc
+                .create(
+                    ctx,
+                    MembershipCreateParams {
+                        account_id: Some(account.id),
+                        email: account.email.clone(),
+                        workspace_id: Some(ws_id),
+                        profile: None,
+                        scope: MembershipScope::Workspace,
+                        status: Some(MembershipStatus::Active),
+                        project_id: None,
+                        role_ids: vec![viewer_role.id.into()],
+                        policy_ids: vec![],
+                        tags: vec![],
+                        meta: MembershipMeta {
+                            schema_version: "1".to_string(),
+                        },
+                    },
+                )
+                .await?;
+
+            self.credential_svc
+                .create(
+                    ctx,
+                    CredentialCreateParams {
+                        account_id: account.id,
+                        workspace_id: Some(ws_id),
+                        membership_id: membership.id,
+                        kind: CredentialKind::OAuth,
+                        provider: CredentialProvider::Google,
+                        status: CredentialStatus::Active,
+                        provider_id: Some(google_user.id),
+                        email: Some(google_user.email),
+                        config: CredentialConfig::default(),
+                        secret: None,
+                        expires_at: None,
+                        last_used_at: Some(now_utc()),
+                        tags: vec![],
+                        meta: CredentialMeta {
+                            schema_version: "1".to_string(),
+                        },
+                    },
+                )
+                .await?;
+
+            account
+        };
+
+        // 6. Issue a token pair (access + refresh) for the session.
         let account_row = self
             .acc_svc
             .store()

@@ -94,8 +94,6 @@ pub struct CredentialUpdateReq {
     pub new_email: Option<String>,
     pub secret: Option<String>,
     pub config: Option<CredentialConfig>,
-    #[serde(default)]
-    pub membership_id: Option<Uuid>,
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub expires_at: Option<OffsetDateTime>,
     #[serde(default, with = "time::serde::rfc3339::option")]
@@ -118,7 +116,6 @@ impl IntoParams<CredentialUpdateParams> for CredentialUpdateReq {
             config: self.config,
             provider: self.provider,
             status: self.status,
-            membership_id: self.membership_id,
             new_provider_id: self.new_provider_id,
             new_email: self.new_email,
             secret: self.secret,
@@ -282,7 +279,7 @@ mod tests {
             last_used_at: None,
             tags: Some(vec!["t".to_string()]),
             meta: Some(CredentialMeta::default()),
-        expires_at: None, membership_id: None, workspace_id: Some(ws_id),
+        expires_at: None, workspace_id: Some(ws_id),
         }
         .into_params()
         .unwrap();
