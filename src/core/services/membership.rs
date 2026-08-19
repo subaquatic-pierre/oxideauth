@@ -9,15 +9,15 @@ use crate::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
         models::{
-            account::{AccountCreateParams, AccountDescribeParams, AccountKind},
+            account::AccountDescribeParams,
             list::{ListResponse, RequestFilterParams},
             membership::{
                 Membership, MembershipCreateParams, MembershipDeleteParams,
-                MembershipDescribeParams, MembershipListParams, MembershipProfileDetails,
-                MembershipUpdateParams, MembershipWithPolicies,
+                MembershipDescribeParams, MembershipListParams, MembershipUpdateParams,
+                MembershipWithPolicies,
             },
             permission::PermissionRule,
-            profile::{ProfileCreateParams, ProfileDeleteParams, ProfileMeta},
+            profile::ProfileDeleteParams,
             role::{Role, RoleDescribeParams, RoleFilter, RoleListParams},
             workspace::{Workspace, WorkspaceDescribeParams},
         },
@@ -128,142 +128,6 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
         Ok(row.config.default_membership_status)
     }
 
-    /// Resolves the account for the membership and ensures a profile exists for
-    /// `(account_id, workspace_id)`, returning the resolved `account_id` and
-    /// linked `profile_id`.
-    ///
-    /// The account is resolved by `account_id` when provided (returning
-    /// `NotFound` if it does not exist), otherwise by `email` — creating a fresh
-    /// account when none matches. When a NEW profile is created, the optional
-    /// `profile` persona details are applied (the name falls back to the email)
-    /// and the profile's email is always the supplied `email`, which may differ
-    /// from the account's email.
-    ///
-    /// All account/profile access goes through the public `AccountService` and
-    /// `ProfileService` APIs (no direct store access for those tables).
-    async fn resolve_account_and_profile(
-        &self,
-        ctx: &mut CoreCtx,
-        email: &str,
-        account_id: Option<Uuid>,
-        profile: Option<&MembershipProfileDetails>,
-        workspace_id: Uuid,
-    ) -> CoreResult<(Uuid, Option<Uuid>)> {
-        // 1. Resolve or create the account.
-        let account_id = match account_id {
-            Some(id) => {
-                // Resolve an existing account by id; the supplied `email` (not
-                // the account email) becomes the profile email below.
-                match self
-                    .acc_svc
-                    .get_by_email(
-                        ctx,
-                        &AccountDescribeParams {
-                            id: Some(id),
-                            email: None,
-                        },
-                    )
-                    .await?
-                {
-                    Some(account) => account.id,
-                    None => {
-                        return Err(CoreError::NotFound(format!("account '{}' not found", id)));
-                    }
-                }
-            }
-            None => match self
-                .acc_svc
-                .get_by_email(
-                    ctx,
-                    &AccountDescribeParams {
-                        id: None,
-                        email: Some(email.to_string()),
-                    },
-                )
-                .await?
-            {
-                Some(account) => account.id,
-                None => {
-                    let account = self
-                        .acc_svc
-                        .create(
-                            ctx,
-                            AccountCreateParams {
-                                email: email.to_string(),
-                                name: email.to_string(),
-                                kind: AccountKind::User,
-                                enabled: true,
-                                verified: false,
-                                description: None,
-                                avatar_url: None,
-                                tags: None,
-                                meta: None,
-                            },
-                        )
-                        .await?;
-                    account.id
-                }
-            },
-        };
-
-        // 2. Ensure a profile exists for (account_id, workspace_id).
-        //    Escalate the profile permissions the helpers validate against.
-        ctx.escalate_perms(&[
-            CANONICAL_PERMISSIONS.profile.create,
-            CANONICAL_PERMISSIONS.profile.describe,
-        ])?;
-
-        let profile_id = match self
-            .profile_svc
-            .find_by_account_workspace(ctx, account_id, workspace_id)
-            .await?
-        {
-            Some(profile) => profile.id,
-            None => {
-                let created = self
-                    .profile_svc
-                    .create(
-                        ctx,
-                        ProfileCreateParams {
-                            account_id,
-                            workspace_id: Some(workspace_id),
-                            email: email.to_string(),
-                            name: profile
-                                .and_then(|p| p.name.clone())
-                                .unwrap_or_else(|| email.to_string()),
-                            description: profile.and_then(|p| p.description.clone()),
-                            display_name: profile.and_then(|p| p.display_name.clone()),
-                            job_title: profile.and_then(|p| p.job_title.clone()),
-                            timezone: profile.and_then(|p| p.timezone.clone()),
-                            avatar_url: profile.and_then(|p| p.avatar_url.clone()),
-                            tags: profile.and_then(|p| p.tags.clone()).unwrap_or_default(),
-                            meta: profile.and_then(|p| p.meta.clone()).unwrap_or_default(),
-                        },
-                    )
-                    .await;
-
-                match created {
-                    Ok(profile) => profile.id,
-                    // Concurrent create won the race — fetch the existing profile.
-                    Err(CoreError::AlreadyExists(_)) => {
-                        self.profile_svc
-                            .find_by_account_workspace(ctx, account_id, workspace_id)
-                            .await?
-                            .ok_or_else(|| {
-                                CoreError::AlreadyExists(
-                                    "profile missing after duplicate create".to_string(),
-                                )
-                            })?
-                            .id
-                    }
-                    Err(err) => return Err(err),
-                }
-            }
-        };
-
-        Ok((account_id, Some(profile_id)))
-    }
-
     async fn get_roles(
         &self,
         ctx: &mut CoreCtx,
@@ -356,10 +220,11 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
             .scope_and_validate(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
             .await?;
 
-        // Extract fields needed after params is consumed by resolution.
+        // Extract fields needed after params is consumed.
         // Resolve the concrete workspace: derive from the context when omitted.
         let workspace_id = params.workspace_id.unwrap_or_else(|| ctx.scoped_ws_id());
-        let email = params.email.clone();
+        let account_id = params.account_id;
+        let profile_id = params.profile_id;
         let role_ids = params.role_ids.clone();
         let policy_ids = params.policy_ids.clone();
         let scope = params.scope;
@@ -367,16 +232,25 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
         let tags = params.tags;
         let meta = params.meta;
 
-        // --- Resolve (account_id, profile_id) ---
-        let (account_id, profile_id) = self
-            .resolve_account_and_profile(
+        // Membership creation consumes an existing profile; ownership is
+        // checked here for a clear domain error and enforced again by SQL.
+        ctx.escalate_perms(&[CANONICAL_PERMISSIONS.profile.describe])?;
+        let profile = self
+            .profile_svc
+            .describe(
                 ctx,
-                &email,
-                params.account_id,
-                params.profile.as_ref(),
-                workspace_id,
+                crate::core::models::profile::ProfileDescribeParams {
+                    id: Some(profile_id),
+                    email: None,
+                    workspace_id: Some(workspace_id),
+                },
             )
             .await?;
+        if profile.account_id != account_id || profile.workspace_id != workspace_id {
+            return Err(CoreError::InvalidParams(
+                "profile does not belong to the requested account and workspace".to_string(),
+            ));
+        }
 
         // --- Resolve effective status: explicit param wins, else workspace config default ---
         let effective_status = match params.status {
@@ -652,7 +526,8 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Membershi
         // last membership referencing a profile is removed, delete the
         // now-orphaned profile — the workspace identity is recreated if the
         // member is added again.
-        if let Some(profile_id) = to_delete.profile_id {
+        {
+            let profile_id = to_delete.profile_id;
             let profile_filter: MembershipFilter = json!({
                 "profile_id": profile_id.to_string()
             })

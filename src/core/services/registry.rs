@@ -133,6 +133,7 @@ impl<D: DbExecutor, C: CacheExecutor> ServiceRegistry<D, C> {
             token.clone(),
             credential.clone(),
             membership.clone(),
+            profile.clone(),
             ctx_factory.clone(),
             role.clone(),
             config.clone(),

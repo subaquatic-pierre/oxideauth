@@ -9,7 +9,6 @@ use crate::{
             audit::CoreAuditFields,
             list::{RequestFilterParams, RequestListOptions},
             policy::Policy,
-            profile::ProfileMeta,
             role::Role,
             workspace::Workspace,
         },
@@ -36,7 +35,7 @@ pub struct Membership {
     pub id: Uuid,
     pub account_id: Uuid,
     pub workspace_id: Uuid,
-    pub profile_id: Option<Uuid>,
+    pub profile_id: Uuid,
     pub project_id: Option<Uuid>,
 
     pub scope: MembershipScope,
@@ -122,10 +121,9 @@ impl From<JoinedPolicyOnMembership> for Policy {
 
 #[derive(Debug, Deserialize)]
 pub struct MembershipCreateParams {
-    pub account_id: Option<Uuid>,
-    pub email: String,
+    pub account_id: Uuid,
     pub workspace_id: Option<Uuid>,
-    pub profile: Option<MembershipProfileDetails>,
+    pub profile_id: Uuid,
     pub scope: MembershipScope,
     pub status: Option<MembershipStatus>,
     pub project_id: Option<Uuid>,
@@ -133,21 +131,6 @@ pub struct MembershipCreateParams {
     pub policy_ids: Vec<Uuid>,
     pub tags: Vec<String>,
     pub meta: MembershipMeta,
-}
-
-/// Optional persona details applied when a NEW profile is created for the
-/// membership (the resolved account may already exist; the profile is the
-/// workspace-local identity).
-#[derive(Debug, Deserialize, Clone, Default)]
-pub struct MembershipProfileDetails {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub display_name: Option<String>,
-    pub job_title: Option<String>,
-    pub timezone: Option<String>,
-    pub avatar_url: Option<String>,
-    pub tags: Option<Vec<String>>,
-    pub meta: Option<ProfileMeta>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -228,7 +211,7 @@ impl Default for Membership {
             id: Uuid::new_v4(),
             account_id: Uuid::nil(),
             workspace_id: Uuid::nil(),
-            profile_id: None,
+            profile_id: Uuid::new_v4(),
             project_id: None,
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
@@ -257,7 +240,7 @@ mod tests {
             id: id.into(),
             account_id: Uuid::new_v4(),
             workspace_id: Uuid::new_v4(),
-            profile_id: Some(Uuid::new_v4()),
+            profile_id: Uuid::new_v4(),
             scope: MembershipScope::Project,
             status: MembershipStatus::Suspended,
             project_id: Some(Uuid::new_v4()),
@@ -284,7 +267,7 @@ mod tests {
         assert_eq!(membership.version, 0);
         assert_eq!(membership.workspace_id, Uuid::nil());
         assert!(membership.project_id.is_none());
-        assert!(membership.profile_id.is_none());
+        assert_ne!(membership.profile_id, Uuid::nil());
         assert!(membership.roles.is_empty());
         assert!(membership.policies.is_empty());
         assert!(membership.tags.is_empty());
@@ -297,10 +280,9 @@ mod tests {
         let workspace_id = Uuid::new_v4();
         let project_id = Uuid::new_v4();
         let params = MembershipCreateParams {
-            account_id: Some(account_id),
-            email: "member@example.com".to_string(),
+            account_id: account_id,
             workspace_id: Some(workspace_id),
-            profile: None,
+            profile_id: Uuid::new_v4(),
             scope: MembershipScope::Project,
             status: Some(MembershipStatus::Invited),
             project_id: Some(project_id),
@@ -312,11 +294,8 @@ mod tests {
             },
         };
 
-        // account_id is resolved by the service; email is the required identity.
-        assert_eq!(params.account_id, Some(account_id));
-        assert_eq!(params.email, "member@example.com");
+        assert_eq!(params.account_id, account_id);
         assert_eq!(params.workspace_id, Some(workspace_id));
-        assert!(params.profile.is_none());
         assert_eq!(params.scope, MembershipScope::Project);
         assert_eq!(params.status, Some(MembershipStatus::Invited));
         assert_eq!(params.project_id, Some(project_id));

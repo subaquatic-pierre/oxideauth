@@ -53,7 +53,7 @@ pub struct MembershipRow {
 
     pub account_id: Uuid,
     pub workspace_id: Uuid,
-    pub profile_id: Option<Uuid>,
+    pub profile_id: Uuid,
     pub scope: MembershipScope,
     pub status: MembershipStatus,
     pub project_id: Option<Uuid>,
@@ -186,7 +186,7 @@ impl Nullable for MembershipStatus {
 pub struct MembershipForCreate {
     pub account_id: Uuid,
     pub workspace_id: Uuid,
-    pub profile_id: Option<Uuid>,
+    pub profile_id: Uuid,
     pub scope: MembershipScope,
     pub status: MembershipStatus,
     pub project_id: Option<Uuid>,
@@ -268,7 +268,7 @@ impl Default for MembershipForCreate {
         Self {
             account_id: Uuid::new_v4(),
             workspace_id: Uuid::new_v4(),
-            profile_id: None,
+            profile_id: Uuid::new_v4(),
             scope: MembershipScope::Workspace,
             project_id: None,
             status: MembershipStatus::Active,
@@ -286,7 +286,7 @@ impl Default for MembershipForUpdate {
         Self {
             scope: None,
             project_id: None,
-            profile_id: None,
+            profile_id: Some(Uuid::new_v4()),
             status: None,
             version: None,
             tags: None,

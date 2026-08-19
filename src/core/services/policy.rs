@@ -666,7 +666,7 @@ mod tests {
             workspace_id: ws_id,
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
-            profile_id: None,
+            profile_id: Uuid::new_v4(),
             project_id: None,
             version: 1,
             tags: vec![],

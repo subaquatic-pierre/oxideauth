@@ -38,14 +38,15 @@ use crate::{
                 MembershipUpdateParams,
             },
             permission::{PermissionRule, PermissionSet},
+            profile::ProfileCreateParams,
             role::{RoleDescribeIdentifier, RoleListParams},
             token::{TokenClaims, TokenType},
             workspace::WorkspaceDescribeParams,
         },
         services::{
             account::AccountService, credential::CredentialService, membership::MembershipService,
-            permission::CANONICAL_PERMISSIONS, role::RoleService, token::TokenService,
-            validator::AuthValidator, workspace::WorkspaceService,
+            permission::CANONICAL_PERMISSIONS, profile::ProfileService, role::RoleService,
+            token::TokenService, validator::AuthValidator, workspace::WorkspaceService,
         },
         traits::{
             params::ValidateParams,
@@ -116,6 +117,7 @@ where
     token_svc: Arc<TokenService<D, C>>,
     credential_svc: Arc<CredentialService<D, C>>,
     membership_svc: Arc<MembershipService<D, C>>,
+    profile_svc: Arc<ProfileService<D, C>>,
     ctx_factory: Arc<ContextFactory>,
     role_svc: Arc<RoleService<D, C>>,
     cm: Arc<CacheManager<C>>,
@@ -136,6 +138,7 @@ where
         token_svc: Arc<TokenService<D, C>>,
         credential_svc: Arc<CredentialService<D, C>>,
         membership_svc: Arc<MembershipService<D, C>>,
+        profile_svc: Arc<ProfileService<D, C>>,
         ctx_factory: Arc<ContextFactory>,
         role_svc: Arc<RoleService<D, C>>,
         config: Config,
@@ -149,6 +152,7 @@ where
             token_svc,
             credential_svc,
             membership_svc,
+            profile_svc,
             role_svc,
             cm,
             config,
@@ -278,6 +282,7 @@ where
             CANONICAL_PERMISSIONS.account.create,
             CANONICAL_PERMISSIONS.credential.create,
             CANONICAL_PERMISSIONS.membership.create,
+            CANONICAL_PERMISSIONS.profile.create,
         ])?;
 
         // --- Create account (via store — AccountService::create is too heavy with validation) ---
@@ -299,16 +304,36 @@ where
         let acc_ver = account_row.version;
         let account: Account = account_row.into();
 
+        // Profile identity is established explicitly before the membership.
+        let profile = self
+            .profile_svc
+            .create(
+                ctx,
+                ProfileCreateParams {
+                    account_id: account.id,
+                    workspace_id: Some(ws_id),
+                    email: account.email.clone(),
+                    name: account.name.clone(),
+                    description: None,
+                    display_name: None,
+                    job_title: None,
+                    timezone: None,
+                    avatar_url: account.avatar_url.clone(),
+                    tags: vec![],
+                    meta: Default::default(),
+                },
+            )
+            .await?;
+
         // --- Create membership with Viewer role (via service) ---
         let membership = self
             .membership_svc
             .create(
                 ctx,
                 MembershipCreateParams {
-                    account_id: Some(account.id),
-                    email: account.email.clone(),
+                    account_id: account.id,
                     workspace_id: Some(ws_id),
-                    profile: None,
+                    profile_id: profile.id,
                     scope: MembershipScope::Workspace,
                     status: Some(MembershipStatus::Active),
                     project_id: None,
@@ -1119,6 +1144,7 @@ where
             CANONICAL_PERMISSIONS.credential.create,
             CANONICAL_PERMISSIONS.credential.describe,
             CANONICAL_PERMISSIONS.membership.create,
+            CANONICAL_PERMISSIONS.profile.create,
         ])?;
         let store = self.acc_svc.store();
 
@@ -1190,15 +1216,34 @@ where
                 .await?
                 .into();
 
+            let profile = self
+                .profile_svc
+                .create(
+                    ctx,
+                    ProfileCreateParams {
+                        account_id: account.id,
+                        workspace_id: Some(ws_id),
+                        email: account.email.clone(),
+                        name: account.name.clone(),
+                        description: None,
+                        display_name: None,
+                        job_title: None,
+                        timezone: None,
+                        avatar_url: account.avatar_url.clone(),
+                        tags: vec![],
+                        meta: Default::default(),
+                    },
+                )
+                .await?;
+
             let membership = self
                 .membership_svc
                 .create(
                     ctx,
                     MembershipCreateParams {
-                        account_id: Some(account.id),
-                        email: account.email.clone(),
+                        account_id: account.id,
                         workspace_id: Some(ws_id),
-                        profile: None,
+                        profile_id: profile.id,
                         scope: MembershipScope::Workspace,
                         status: Some(MembershipStatus::Active),
                         project_id: None,

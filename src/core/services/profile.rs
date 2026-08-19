@@ -1,8 +1,6 @@
 use std::sync::Arc;
 use uuid::Uuid;
 
-use serde_json::json;
-
 use crate::{
     cache::{manager::CacheManager, traits::CacheExecutor},
     core::{
@@ -31,7 +29,6 @@ use crate::{
         ctx::StoreCtx,
         entities::{
             id::DbId,
-            membership::MembershipFilter,
             profile::{ProfileForCreate, ProfileForUpdate, ProfileRow},
         },
         error::StoreError,
@@ -341,29 +338,19 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for ProfileSe
             .scope_and_validate(ctx, params.workspace_id, &[Self::DELETE_PERMISSION])
             .await?;
 
-        // Guard: a profile is the workspace identity anchor for its memberships.
-        // Refuse deletion while any membership still references this profile.
-        let membership_filter: MembershipFilter = json!({
-            "profile_id": params.id.to_string()
-        })
-        .try_into()?;
-
-        let attached = self
-            .sm
-            .membership
-            .list(&store_ctx, Some(membership_filter), None)
-            .await?;
-
-        if !attached.is_empty() {
-            return Err(CoreError::InvalidParams(format!(
-                "cannot delete profile '{}' with attached memberships",
-                params.id
-            )));
-        }
-
-        let profile_row = store.delete(&store_ctx, &params.id.into()).await?;
+        // PostgreSQL's restrictive FK is authoritative; do not preflight with
+        // a membership query because that introduces a check-then-delete race.
+        let profile_row = match store.delete(&store_ctx, &params.id.into()).await {
+            Ok(row) => row,
+            Err(StoreError::ConstraintViolation) => {
+                return Err(CoreError::InvalidParams(format!(
+                    "cannot delete profile '{}' with attached memberships",
+                    params.id
+                )));
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         Ok(profile_row.into())
     }
 }
-

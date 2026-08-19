@@ -15,6 +15,7 @@ use oxideauth::{
                 MembershipForCreate, MembershipMeta, MembershipScope, MembershipStatus,
             },
             permission::{PermissionForCreate, PermissionRow},
+            profile::ProfileForCreate,
             project::{ProjectConfig, ProjectForCreate, ProjectMeta},
             role::{RoleFilter, RoleForCreate, RoleIden, RoleRow},
             workspace::WorkspaceForCreate,
@@ -29,7 +30,19 @@ use oxideauth::{
             meta::MutateStore,
         },
     },
-};
+}; 
+
+async fn create_profile<D: oxideauth::store::traits::dbx::DbExecutor, C: oxideauth::cache::traits::CacheExecutor>(
+    app: &oxideauth::app::AppState<D, C>,
+    ctx: &StoreCtx,
+    account_id: Uuid,
+    workspace_id: Uuid,
+) -> StoreResult<Uuid> {
+    let mut profile = ProfileForCreate::default();
+    profile.account_id = account_id;
+    profile.workspace_id = Some(workspace_id);
+    Ok(app.sm.profile.create(ctx, profile).await?.id.into())
+}
 
 // -----------------------------------------------------------------------------
 // list_in_namespace_by_join_table
@@ -65,7 +78,7 @@ async fn test_list_in_namespace_by_join_table_pass() -> StoreResult<()> {
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
-            profile_id: None,
+            profile_id: create_profile(&app, &ctx, acc.id.into(), ws_id).await?,
             tags: vec![],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -120,7 +133,7 @@ async fn test_list_in_namespace_by_join_table_scoped() -> StoreResult<()> {
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
-            profile_id: None,
+            profile_id: create_profile(&app, &ctx, acc.id.into(), ws_id).await?,
             tags: vec![],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -178,7 +191,7 @@ async fn test_list_in_namespace_by_join_table_with_filter() -> StoreResult<()> {
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
-            profile_id: None,
+            profile_id: create_profile(&app, &ctx, acc.id.into(), ws_id).await?,
             tags: vec![],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -236,7 +249,7 @@ async fn test_list_in_namespace_by_join_table_with_tags() -> StoreResult<()> {
             scope: MembershipScope::Workspace,
             status: MembershipStatus::Active,
             project_id: None,
-            profile_id: None,
+            profile_id: create_profile(&app, &ctx, acc.id.into(), ws_id).await?,
             tags: vec![],
             meta: MembershipMeta {
                 schema_version: "1".to_string(),
@@ -303,7 +316,7 @@ async fn test_list_in_namespace_by_join_table_distinct() -> StoreResult<()> {
         scope: MembershipScope::Workspace,
         status: MembershipStatus::Active,
         project_id: None,
-        profile_id: None,
+        profile_id: create_profile(&app, &ctx, account_id, ws_id).await?,
         tags: vec![],
         meta: MembershipMeta {
             schema_version: "1".to_string(),
@@ -317,7 +330,7 @@ async fn test_list_in_namespace_by_join_table_distinct() -> StoreResult<()> {
         scope: MembershipScope::Project,
         status: MembershipStatus::Active,
         project_id: Some(proj_id),
-        profile_id: None,
+        profile_id: create_profile(&app, &ctx, account_id, ws_id).await?,
         tags: vec![],
         meta: MembershipMeta {
             schema_version: "1".to_string(),
@@ -408,7 +421,7 @@ async fn test_list_in_namespace_by_join_table_other_namespace() -> StoreResult<(
         scope: MembershipScope::Workspace,
         status: MembershipStatus::Active,
         project_id: None,
-        profile_id: None,
+            profile_id: create_profile(&app, &ctx, acc.id.into(), ws_id).await?,
         tags: vec![],
         meta: MembershipMeta {
             schema_version: "1".to_string(),
@@ -455,7 +468,7 @@ async fn test_list_in_namespace_by_join_table_query_fn_direct() -> StoreResult<(
         scope: MembershipScope::Workspace,
         status: MembershipStatus::Active,
         project_id: None,
-        profile_id: None,
+            profile_id: create_profile(&app, &ctx, acc.id.into(), ws_id).await?,
         tags: vec![],
         meta: MembershipMeta {
             schema_version: "1".to_string(),

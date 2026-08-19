@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS
 -- One profile per account per workspace
 CREATE UNIQUE INDEX IF NOT EXISTS profile_account_workspace_key ON profile (account_id, workspace_id);
 
+-- Composite target used by membership to enforce tenant ownership of profiles.
+CREATE UNIQUE INDEX IF NOT EXISTS profile_id_account_workspace_key
+  ON profile (id, account_id, workspace_id);
+
 -- Fast lookup of all profiles within a workspace
 CREATE INDEX IF NOT EXISTS profile_by_workspace ON profile (workspace_id);
 

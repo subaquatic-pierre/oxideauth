@@ -12,6 +12,7 @@ use crate::{
             account::AccountCreateParams,
             credential::{CredentialCreateParams, CredentialMeta},
             membership::{MembershipCreateParams, MembershipMeta},
+            profile::ProfileCreateParams,
             workspace::{WorkspaceConfig, WorkspaceCreateParams, WorkspaceUpdateParams},
         },
         services::registry::ServiceRegistry,
@@ -121,18 +122,38 @@ async fn create_membership<D: DbExecutor, C: CacheExecutor>(
 ) -> CoreResult<Uuid> {
     ctx.set_scoped_ws(WorkspaceCache::new_keyed(ws_id));
     ctx.escalate_perms(&["membership:create"])?;
+    ctx.escalate_perms(&["profile:create"])?;
+
+    let profile = svc_reg
+        .profile
+        .create(
+            ctx,
+            ProfileCreateParams {
+                account_id,
+                workspace_id: Some(ws_id),
+                email: email.to_string(),
+                name: email.to_string(),
+                description: None,
+                display_name: None,
+                job_title: None,
+                timezone: None,
+                avatar_url: None,
+                tags: vec![],
+                meta: Default::default(),
+            },
+        )
+        .await?;
 
     let membership = svc_reg
         .membership
         .create(
             ctx,
             MembershipCreateParams {
-                account_id: Some(account_id),
-                email: email.to_string(),
+                account_id: account_id,
                 workspace_id: Some(ws_id),
+                profile_id: profile.id,
                 scope: MembershipScope::Workspace,
                 status: Some(MembershipStatus::Active),
-                profile: None,
                 project_id: None,
                 role_ids: vec![role_id],
                 policy_ids: vec![],
@@ -214,9 +235,16 @@ pub async fn seed_all<D: DbExecutor, C: CacheExecutor>(
 
     let (system_ws, default_ws) = seed_workspaces(&mut ctx, &svc_reg).await?;
     let (system_acc, owner_acc) = seed_users(&mut ctx, &svc_reg, &app.config).await?;
-    let (owner_system_mem, owner_default_mem) =
-        seed_memberships(&mut ctx, &svc_reg, &app.config, system_ws, default_ws, system_acc, owner_acc)
-            .await?;
+    let (owner_system_mem, owner_default_mem) = seed_memberships(
+        &mut ctx,
+        &svc_reg,
+        &app.config,
+        system_ws,
+        default_ws,
+        system_acc,
+        owner_acc,
+    )
+    .await?;
     seed_owners_and_credentials(
         &mut ctx,
         &svc_reg,
@@ -488,36 +516,78 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
     .await?;
 
     // Roles
-    let test_admin_role = workspace_role_id(ctx, svc_reg, test_ws, SYSTEM_CONST.workspace_admin_role).await?;
-    let public_admin_role = workspace_role_id(ctx, svc_reg, public_ws, SYSTEM_CONST.workspace_admin_role).await?;
-    let private_admin_role = workspace_role_id(ctx, svc_reg, private_ws, SYSTEM_CONST.workspace_admin_role).await?;
-    let test_viewer_role = workspace_role_id(ctx, svc_reg, test_ws, SYSTEM_CONST.workspace_viewer_role).await?;
-    let public_viewer_role = workspace_role_id(ctx, svc_reg, public_ws, SYSTEM_CONST.workspace_viewer_role).await?;
-    let private_viewer_role = workspace_role_id(ctx, svc_reg, private_ws, SYSTEM_CONST.workspace_viewer_role).await?;
+    let test_admin_role =
+        workspace_role_id(ctx, svc_reg, test_ws, SYSTEM_CONST.workspace_admin_role).await?;
+    let public_admin_role =
+        workspace_role_id(ctx, svc_reg, public_ws, SYSTEM_CONST.workspace_admin_role).await?;
+    let private_admin_role =
+        workspace_role_id(ctx, svc_reg, private_ws, SYSTEM_CONST.workspace_admin_role).await?;
+    let test_viewer_role =
+        workspace_role_id(ctx, svc_reg, test_ws, SYSTEM_CONST.workspace_viewer_role).await?;
+    let public_viewer_role =
+        workspace_role_id(ctx, svc_reg, public_ws, SYSTEM_CONST.workspace_viewer_role).await?;
+    let private_viewer_role =
+        workspace_role_id(ctx, svc_reg, private_ws, SYSTEM_CONST.workspace_viewer_role).await?;
 
     // Memberships
     let test_admin_mem = create_membership(
-        ctx, svc_reg, test_account, "test@example.com", test_ws, test_admin_role, vec!["test"],
+        ctx,
+        svc_reg,
+        test_account,
+        "test@example.com",
+        test_ws,
+        test_admin_role,
+        vec!["test"],
     )
     .await?;
     let public_admin_mem = create_membership(
-        ctx, svc_reg, public_admin, "public-admin@example.com", public_ws, public_admin_role, vec!["test"],
+        ctx,
+        svc_reg,
+        public_admin,
+        "public-admin@example.com",
+        public_ws,
+        public_admin_role,
+        vec!["test"],
     )
     .await?;
     let private_admin_mem = create_membership(
-        ctx, svc_reg, private_admin, "private-admin@example.com", private_ws, private_admin_role, vec!["test"],
+        ctx,
+        svc_reg,
+        private_admin,
+        "private-admin@example.com",
+        private_ws,
+        private_admin_role,
+        vec!["test"],
     )
     .await?;
     let member_test_mem = create_membership(
-        ctx, svc_reg, member, "member@example.com", test_ws, test_viewer_role, vec!["test"],
+        ctx,
+        svc_reg,
+        member,
+        "member@example.com",
+        test_ws,
+        test_viewer_role,
+        vec!["test"],
     )
     .await?;
     create_membership(
-        ctx, svc_reg, member, "member@example.com", public_ws, public_viewer_role, vec!["test"],
+        ctx,
+        svc_reg,
+        member,
+        "member@example.com",
+        public_ws,
+        public_viewer_role,
+        vec!["test"],
     )
     .await?;
     create_membership(
-        ctx, svc_reg, member, "member@example.com", private_ws, private_viewer_role, vec!["test"],
+        ctx,
+        svc_reg,
+        member,
+        "member@example.com",
+        private_ws,
+        private_viewer_role,
+        vec!["test"],
     )
     .await?;
 
@@ -527,10 +597,46 @@ pub async fn seed_test_data<D: DbExecutor, C: CacheExecutor>(
     set_workspace_owner(ctx, svc_reg, private_ws, private_admin).await?;
 
     // Credentials (linked to memberships)
-    create_password_credential(ctx, svc_reg, test_account, test_ws, test_admin_mem, "testpass", vec!["test"]).await?;
-    create_password_credential(ctx, svc_reg, public_admin, public_ws, public_admin_mem, "adminpass", vec!["test"]).await?;
-    create_password_credential(ctx, svc_reg, private_admin, private_ws, private_admin_mem, "adminpass", vec!["test"]).await?;
-    create_password_credential(ctx, svc_reg, member, test_ws, member_test_mem, "memberpass", vec!["test"]).await?;
+    create_password_credential(
+        ctx,
+        svc_reg,
+        test_account,
+        test_ws,
+        test_admin_mem,
+        "testpass",
+        vec!["test"],
+    )
+    .await?;
+    create_password_credential(
+        ctx,
+        svc_reg,
+        public_admin,
+        public_ws,
+        public_admin_mem,
+        "adminpass",
+        vec!["test"],
+    )
+    .await?;
+    create_password_credential(
+        ctx,
+        svc_reg,
+        private_admin,
+        private_ws,
+        private_admin_mem,
+        "adminpass",
+        vec!["test"],
+    )
+    .await?;
+    create_password_credential(
+        ctx,
+        svc_reg,
+        member,
+        test_ws,
+        member_test_mem,
+        "memberpass",
+        vec!["test"],
+    )
+    .await?;
 
     tracing::info!(
         "Seed test data created: 3 workspaces (test, public-test, private-test), \

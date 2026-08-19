@@ -4,9 +4,7 @@
 --   - Each membership ties an account to a workspace, with optional project-level scope.
 --   - `scope` distinguishes workspace vs. project membership.
 --   - `status` reflects lifecycle (invited, active, suspended).
---   - `profile_id` is part of the base definition (folded in from the former
---     17_membership_profile_id.sql); it is the workspace-facing identity of the
---     linked account and is nullable so legacy account_id-path memberships stay valid.
+--   - `profile_id` is the required workspace-facing identity of the linked account.
 --   - Partial unique indexes enforce one membership per account per workspace/project.
 --   - Active memberships are indexed for fast auth lookups.
 --   - `membership_id_ns_unique` (id, account_id, workspace_id) is the FK target for
@@ -22,7 +20,7 @@ CREATE TABLE IF NOT EXISTS
     version BIGINT NOT NULL DEFAULT 0,
     scope TEXT NOT NULL, -- 'workspace' | 'project'
     project_id UUID, -- set only when scope='project'
-    profile_id UUID, -- workspace-facing identity of the linked account (nullable)
+    profile_id UUID NOT NULL, -- workspace-facing identity of the linked account
     -- Lifecycle state
     status TEXT NOT NULL DEFAULT 'active', -- 'invited'|'active'|'suspended'
     -- START Meta & Tags
@@ -40,7 +38,9 @@ CREATE TABLE IF NOT EXISTS
     CONSTRAINT mem_account_fk FOREIGN KEY (account_id) REFERENCES account (id) ON UPDATE CASCADE ON DELETE CASCADE,
     CONSTRAINT mem_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspace (id) ON UPDATE CASCADE ON DELETE CASCADE,
     CONSTRAINT mem_project_fk FOREIGN KEY (project_id) REFERENCES project (id) ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT membership_profile_fk FOREIGN KEY (profile_id) REFERENCES profile (id) ON UPDATE CASCADE ON DELETE SET NULL,
+    CONSTRAINT membership_profile_fk FOREIGN KEY (profile_id) REFERENCES profile (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT membership_profile_owner_fk FOREIGN KEY (profile_id, account_id, workspace_id)
+      REFERENCES profile (id, account_id, workspace_id) ON UPDATE CASCADE ON DELETE RESTRICT,
     -- Composite FK target for credential (guarantees account/workspace consistency)
     CONSTRAINT membership_id_ns_unique UNIQUE (id, account_id, workspace_id),
     -- Enforce JSON object shape
@@ -84,5 +84,4 @@ WHERE
 
 -- Lookup by linked profile (workspace-facing identity)
 CREATE INDEX IF NOT EXISTS membership_by_profile ON membership (profile_id)
-WHERE
-  profile_id IS NOT NULL;
+;

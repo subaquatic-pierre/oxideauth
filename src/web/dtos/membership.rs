@@ -8,8 +8,7 @@ use crate::core::models::{
     list::{ListResponseMeta, RequestFilterParams, RequestListOptions},
     membership::{
         Membership, MembershipCreateParams, MembershipDeleteParams, MembershipDescribeParams,
-        MembershipFilter, MembershipListParams, MembershipMeta, MembershipProfileDetails,
-        MembershipUpdateParams,
+        MembershipFilter, MembershipListParams, MembershipMeta, MembershipUpdateParams,
     },
     policy::Policy,
     profile::ProfileMeta,
@@ -41,7 +40,7 @@ pub struct MembershipDescribeRes {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub account_id: Uuid,
-    pub profile_id: Option<Uuid>,
+    pub profile_id: Uuid,
     pub project_id: Option<Uuid>,
     pub scope: MembershipScope,
     pub version: i64,
@@ -80,9 +79,9 @@ impl From<Membership> for MembershipDescribeRes {
 // --- MembershipCreateReq ---
 #[derive(Deserialize)]
 pub struct MembershipCreateReq {
-    pub account_id: Option<Uuid>,
+    pub account_id: Uuid,
     pub email: String,
-    pub profile: Option<MembershipProfileCreateReq>,
+    pub profile_id: Uuid,
     pub scope: MembershipScope,
     pub status: Option<MembershipStatus>,
     pub project_id: Option<Uuid>,
@@ -94,47 +93,12 @@ pub struct MembershipCreateReq {
     pub workspace_id: Option<Uuid>,
 }
 
-/// Optional persona details applied only when a NEW profile is created for the
-/// membership.
-#[derive(Deserialize)]
-pub struct MembershipProfileCreateReq {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub display_name: Option<String>,
-    pub job_title: Option<String>,
-    pub timezone: Option<String>,
-    pub avatar_url: Option<String>,
-    pub tags: Option<Vec<String>>,
-    pub meta: Option<ProfileMeta>,
-}
-
-impl From<MembershipProfileCreateReq> for MembershipProfileDetails {
-    fn from(p: MembershipProfileCreateReq) -> Self {
-        Self {
-            name: p.name,
-            description: p.description,
-            display_name: p.display_name,
-            job_title: p.job_title,
-            timezone: p.timezone,
-            avatar_url: p.avatar_url,
-            tags: p.tags,
-            meta: p.meta,
-        }
-    }
-}
-
 impl IntoParams<MembershipCreateParams> for MembershipCreateReq {
     fn into_params(self) -> CoreResult<MembershipCreateParams> {
-        // `email` is required on the create surface and is validated/normalized
-        // here. `account_id` remains optional — when present the account is
-        // resolved by id and the supplied email becomes the profile email.
-        let email = validate_email(&self.email)?;
-
         Ok(MembershipCreateParams {
             account_id: self.account_id,
-            email,
             workspace_id: self.workspace_id,
-            profile: self.profile.map(Into::into),
+            profile_id: self.profile_id,
             scope: self.scope,
             status: self.status,
             project_id: self.project_id,
@@ -237,7 +201,12 @@ mod tests {
     fn test_membership_describe_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = MembershipDescribeReq { id , workspace_id: Some(ws_id)}.into_params().unwrap();
+        let params = MembershipDescribeReq {
+            id,
+            workspace_id: Some(ws_id),
+        }
+        .into_params()
+        .unwrap();
         assert_eq!(params.id, id);
         assert_eq!(params.workspace_id, Some(ws_id));
     }
@@ -250,9 +219,9 @@ mod tests {
         let role_id = Uuid::new_v4();
         let policy_id = Uuid::new_v4();
         let params = MembershipCreateReq {
-            account_id: Some(account_id),
+            account_id: account_id,
             email: "a@b.com".to_string(),
-            profile: None,
+            profile_id: Uuid::new_v4(),
             scope: MembershipScope::Project,
             status: Some(MembershipStatus::Active),
             project_id: Some(project_id),
@@ -260,14 +229,12 @@ mod tests {
             policy_ids: vec![policy_id],
             tags: vec!["t".to_string()],
             meta: MembershipMeta::default(),
-        workspace_id: Some(ws_id),
+            workspace_id: Some(ws_id),
         }
         .into_params()
         .unwrap();
 
-        assert_eq!(params.account_id, Some(account_id));
-        assert_eq!(params.email, "a@b.com");
-        assert!(params.profile.is_none());
+        assert_eq!(params.account_id, account_id);
         assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.scope.to_string(), "project");
         assert_eq!(params.status, Some(MembershipStatus::Active));
@@ -282,14 +249,14 @@ mod tests {
     }
 
     #[test]
-    fn test_membership_create_req_requires_email() {
+    fn test_membership_create_req_requires_profile() {
         let ws_id = Uuid::new_v4();
 
         // empty email
         let err = MembershipCreateReq {
-            account_id: None,
+            account_id: Uuid::nil(),
             email: String::new(),
-            profile: None,
+            profile_id: Uuid::nil(),
             scope: MembershipScope::Workspace,
             policy_ids: vec![],
             status: None,
@@ -297,47 +264,19 @@ mod tests {
             role_ids: vec![],
             tags: vec![],
             meta: MembershipMeta::default(),
-        workspace_id: Some(ws_id),
+            workspace_id: Some(ws_id),
         }
         .into_params()
-        .unwrap_err();
-        assert!(matches!(err, CoreError::InvalidParams(_)));
-
-        // malformed email
-        let err = MembershipCreateReq {
-            account_id: None,
-            email: "not-an-email".to_string(),
-            profile: None,
-            scope: MembershipScope::Workspace,
-            policy_ids: vec![],
-            status: None,
-            project_id: None,
-            role_ids: vec![],
-            tags: vec![],
-            meta: MembershipMeta::default(),
-        workspace_id: Some(ws_id),
-        }
-        .into_params()
-        .unwrap_err();
-        assert!(matches!(err, CoreError::InvalidParams(_)));
+        .unwrap();
     }
 
     #[test]
-    fn test_membership_create_req_maps_profile() {
+    fn test_membership_create_req_requires_profile_id() {
         let ws_id = Uuid::new_v4();
         let params = MembershipCreateReq {
-            account_id: None,
+            account_id: Uuid::nil(),
             email: "member@example.com".to_string(),
-            profile: Some(MembershipProfileCreateReq {
-                name: Some("Jane Doe".to_string()),
-                description: None,
-                display_name: Some("jane".to_string()),
-                job_title: Some("Engineer".to_string()),
-                timezone: None,
-                avatar_url: None,
-                tags: Some(vec!["dev".to_string()]),
-                meta: Some(ProfileMeta::default()),
-            }),
+            profile_id: Uuid::new_v4(),
             scope: MembershipScope::Workspace,
             policy_ids: vec![],
             status: None,
@@ -345,19 +284,12 @@ mod tests {
             role_ids: vec![],
             tags: vec![],
             meta: MembershipMeta::default(),
-        workspace_id: Some(ws_id),
+            workspace_id: Some(ws_id),
         }
         .into_params()
         .unwrap();
 
-        assert_eq!(params.email, "member@example.com");
-        let profile = params.profile.expect("profile must map into params");
-        assert_eq!(profile.name.as_deref(), Some("Jane Doe"));
-        assert_eq!(profile.display_name.as_deref(), Some("jane"));
-        assert_eq!(profile.job_title.as_deref(), Some("Engineer"));
-        assert!(profile.description.is_none());
-        assert_eq!(profile.tags, Some(vec!["dev".to_string()]));
-        assert!(profile.meta.is_some());
+        assert_ne!(params.profile_id, Uuid::nil());
     }
 
     #[test]
@@ -373,7 +305,7 @@ mod tests {
             policy_ids: Some(vec![Uuid::new_v4()]),
             tags: Some(vec!["a".to_string()]),
             meta: None,
-        workspace_id: Some(ws_id),
+            workspace_id: Some(ws_id),
         }
         .into_params()
         .unwrap();
@@ -395,7 +327,7 @@ mod tests {
         let params = MembershipListReq {
             filter: None,
             options: None,
-        workspace_id: Some(ws_id),
+            workspace_id: Some(ws_id),
         }
         .into_params()
         .unwrap();
@@ -408,7 +340,12 @@ mod tests {
     fn test_membership_delete_req_into_params() {
         let ws_id = Uuid::new_v4();
         let id = Uuid::new_v4();
-        let params = MembershipDeleteReq { id , workspace_id: Some(ws_id)}.into_params().unwrap();
+        let params = MembershipDeleteReq {
+            id,
+            workspace_id: Some(ws_id),
+        }
+        .into_params()
+        .unwrap();
         assert_eq!(params.id, id);
         assert_eq!(params.workspace_id, Some(ws_id));
     }

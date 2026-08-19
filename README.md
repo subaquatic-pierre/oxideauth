@@ -97,6 +97,31 @@ is implied from the caller's authenticated context (the token's workspace in the
 case, or the `X-Workspace-Id` header for system administrators). When supplied, it must
 match the caller's scoped workspace; system administrators may target any workspace.
 
+## Provisioning order for a workspace user
+
+For a person to authenticate and perform workspace actions, provision entities in this order:
+
+1. **Workspace** — create the tenant first when it does not already exist. Creation seeds the
+   canonical permissions, default Viewer/Admin roles, and the default policies (policies are
+   attached to roles; roles and policies are workspace-scoped).
+2. **Account** — the global person identity and account status; it is not the workspace-facing
+   identity. Local registration starts the account disabled and unverified, so confirmation and
+   enabling are separate lifecycle steps before normal login/actions.
+3. **Profile** — the account's workspace-scoped identity; it requires both the account and
+   workspace.
+4. **Membership** — links the account, profile, and workspace. It must be active and should link
+   the appropriate role(s) and/or policy(ies); this is the authorization subject for the workspace.
+5. **Credential** — a password, OAuth/SSO credential, or API key tied to that exact account,
+   workspace, and membership. A credential is an authentication method, not a role or session.
+6. **Authentication/session** — login (or the matching credential authentication flow) verifies
+   an active account, credential, and membership, then issues the access/refresh JWT pair. The
+   bearer access token carries the workspace and membership context used for subsequent actions;
+   a session is not a replacement for the membership or its roles/policies.
+
+The public registration flow performs steps 2–6 for an existing public workspace: account →
+profile → active Viewer membership → local password credential → tokens. Account and workspace
+are independent prerequisites, but profile, membership, and credential are not interchangeable.
+
 ## Client authentication
 
 Clients authenticate with a **credential** (raw credential id + secret) acting as an API
