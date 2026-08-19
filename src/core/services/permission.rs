@@ -634,7 +634,8 @@ impl CanonicalPermissions {
     pub fn all(&self) -> Vec<(&'static str, &'static str)> {
         let mut v = Vec::new();
         v.extend_from_slice(self.account.all());
-        v.extend_from_slice(self.workspace.all());
+        // only expose workspace describe, in order for members to decribe their own workspace
+        v.extend_from_slice(&[(self.workspace.describe, "Describe the workspace")]);
         v.extend_from_slice(self.project.all());
         v.extend_from_slice(self.profile.all());
         v.extend_from_slice(self.membership.all());
