@@ -19,8 +19,8 @@ pub struct TokenClaims {
     pub exp: usize,
     pub iat: usize,
     pub ty: TokenType,
-    pub mem_ver: u64,      // Membership token version
-    pub acc_ver: u64,      // Account token version
+    pub mem_ver: i64,      // Membership token version
+    pub acc_ver: i64,      // Account token version
     pub sid: Option<Uuid>, // Session ID (None for single-use tokens)
     pub jti: Option<Uuid>, // JWT ID — unique per token
 }
@@ -40,8 +40,8 @@ impl TokenClaims {
         mem: Uuid,
         exp: OffsetDateTime,
         ty: TokenType,
-        mem_ver: u64,
-        acc_ver: u64,
+        mem_ver: i64,
+        acc_ver: i64,
         sid: Option<Uuid>,
         jti: Option<Uuid>,
     ) -> Self {
@@ -213,7 +213,15 @@ mod tests {
         let exp = now_utc() + Duration::hours(2);
 
         let claims = TokenClaims::new(
-            sub, ws, mem, exp, TokenType::Auth, 5, 6, Some(sid), Some(jti),
+            sub,
+            ws,
+            mem,
+            exp,
+            TokenType::Auth,
+            5,
+            6,
+            Some(sid),
+            Some(jti),
         );
 
         assert_eq!(claims.sub, sub);

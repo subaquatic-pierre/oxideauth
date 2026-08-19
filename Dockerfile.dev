@@ -32,9 +32,6 @@ RUN cargo build
 # Copy the rest of the source code
 COPY . .
 
-# Copy the dev environment file into place
-COPY api/.env.dev .env
-
 EXPOSE 8000
 
 # Use cargo-watch to rebuild and run the application when files change.

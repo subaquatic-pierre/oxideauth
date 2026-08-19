@@ -165,8 +165,8 @@ where
         account_id: Uuid,
         ws_id: Uuid,
         mem_id: Uuid,
-        mem_ver: u64,
-        acc_ver: u64,
+        mem_ver: i64,
+        acc_ver: i64,
         sid: Uuid,
         ttl: u64,
     ) -> CoreResult<TokenPair> {
@@ -296,7 +296,7 @@ where
             }),
         };
         let account_row = self.acc_svc.create(ctx, account_create_params).await?;
-        let acc_ver = account_row.version as u64;
+        let acc_ver = account_row.version;
         let account: Account = account_row.into();
 
         // --- Create credential (via service) ---
@@ -397,8 +397,10 @@ where
             .get_workspace_by_slug_or_id(ctx, &workspace)
             .await?;
         let ws_id = ws.id;
-        ctx.set_scoped_ws(ws.into());
 
+        // if workspace not found then fail
+        // scope this context to request workspace
+        ctx.set_scoped_ws(ws.into());
         ctx.escalate_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
 
         // --- Find account by email ---
@@ -417,13 +419,13 @@ where
             None => {
                 info!(
                     email = %email,
-                    reason = "invalid credentials",
+                    reason = "account not found",
                     "AUTH_LOGIN_FAILED"
                 );
                 return Err(CoreError::Auth("invalid credentials".to_string()));
             }
         };
-        let acc_ver = account_row.version as u64;
+        let acc_ver = account_row.version;
         let account: Account = account_row.into();
 
         // --- Check account status ---
@@ -445,13 +447,14 @@ where
             .store()
             .list(&ctx.unscoped_store_ctx(), Some(filter), None)
             .await?;
+
         let credential = credentials
             .into_iter()
             .find(|c| c.provider == CredentialProvider::Local && c.secret.is_some())
             .ok_or_else(|| {
                 info!(
                     email = %email,
-                    reason = "invalid credentials",
+                    reason = "credential not found",
                     "AUTH_LOGIN_FAILED"
                 );
                 CoreError::Auth("invalid credentials".to_string())
@@ -460,7 +463,7 @@ where
         let secret = credential.secret.as_deref().ok_or_else(|| {
             info!(
                 email = %email,
-                reason = "invalid credentials",
+                reason = "invalid credentials, no secret",
                 "AUTH_LOGIN_FAILED"
             );
             CoreError::Auth("invalid credentials".to_string())
@@ -470,7 +473,7 @@ where
         if !verify_password(secret, &password)? {
             info!(
                 email = %email,
-                reason = "invalid credentials",
+                reason = "invalid password",
                 "AUTH_LOGIN_FAILED"
             );
             return Err(CoreError::Auth("invalid credentials".to_string()));
@@ -496,12 +499,28 @@ where
             .membership_svc
             .list(ctx, membership_list_params)
             .await?;
-        let membership = membership_response.data.into_iter().next();
-        let (mem_id, mem_ver) = membership
-            .map(|m| (m.id, m.version as u64))
-            .unwrap_or((Uuid::nil(), 0));
+        let membership = membership_response.data.into_iter().next().ok_or_else(|| {
+            info!(
+                email = %email,
+                reason = "invalid credentials",
+                "AUTH_LOGIN_FAILED"
+            );
+            CoreError::Auth("invalid credentials".to_string())
+        })?;
+
+        // check if membership active
+        if (membership.status != MembershipStatus::Active) {
+            info!(
+                email = %email,
+                reason = "membership is not active status",
+                "AUTH_LOGIN_FAILED"
+            );
+            return Err(CoreError::Auth("invalid credentials".to_string()));
+        }
 
         let ttl = ctx.ws_cache.config.jwt_max_age;
+        let mem_id = membership.id;
+        let mem_ver = membership.version;
 
         // --- Issue token pair (access + refresh) ---
         let sid = Uuid::new_v4();
@@ -1170,7 +1189,7 @@ where
             .store()
             .get(&ctx.unscoped_store_ctx(), &account.id.into())
             .await?;
-        let acc_ver = account_row.version as u64;
+        let acc_ver = account_row.version;
 
         // NOTE: ctx is not auth scoped
 

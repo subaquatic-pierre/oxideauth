@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS
     workspace_id UUID NOT NULL,
     -- Client identity
     name TEXT NOT NULL,
-    secret_hash TEXT NOT NULL,
     -- Push notification endpoint (optional — clients without an endpoint do not receive pushes)
     endpoint TEXT,
     description TEXT,

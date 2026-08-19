@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS
     workspace_id UUID NOT NULL,
     -- Profile identity / presentation (workspace-facing persona)
     name TEXT NOT NULL,
+    email TEXT NOT NULL,
     description TEXT,
     display_name TEXT,
     job_title TEXT,
@@ -56,3 +57,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS profile_account_workspace_key ON profile (acco
 
 -- Fast lookup of all profiles within a workspace
 CREATE INDEX IF NOT EXISTS profile_by_workspace ON profile (workspace_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS profile_workspace_email_lower_key ON profile (workspace_id, lower(email));

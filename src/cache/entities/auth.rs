@@ -87,8 +87,8 @@ pub struct AuthCache {
     pub sid: Option<Uuid>,
 
     // Cached values (populated after fetch/hydrate)
-    pub mem_version: u64,
-    pub acc_version: u64,
+    pub mem_version: i64,
+    pub acc_version: i64,
     pub mem_active: bool,
     pub acc_enabled: bool,
     pub auth_scope: AuthScopeCache,
@@ -192,8 +192,8 @@ impl AuthCache {
             mem_id,
             acc_id,
             sid,
-            mem_version: mem_row.version as u64,
-            acc_version: acc_row.version as u64,
+            mem_version: mem_row.version as i64,
+            acc_version: acc_row.version as i64,
             mem_active: mem_row.status == MembershipStatus::Active,
             acc_enabled: acc_row.enabled,
             auth_scope,
@@ -333,7 +333,10 @@ mod tests {
         let cache = AuthCache::new_keyed(mem, Uuid::new_v4(), None);
 
         assert_eq!(cache.key().as_ref(), format!("oxauth:mem_id:{}", mem));
-        assert_eq!(AuthCache::new_key(mem).as_ref(), format!("oxauth:mem_id:{}", mem));
+        assert_eq!(
+            AuthCache::new_key(mem).as_ref(),
+            format!("oxauth:mem_id:{}", mem)
+        );
         assert_eq!(AuthCache::_key(), ("oxauth", "mem_id"));
     }
 }

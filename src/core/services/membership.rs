@@ -167,10 +167,7 @@ impl<D: DbExecutor, C: CacheExecutor> MembershipService<D, C> {
                 {
                     Some(account) => account.id,
                     None => {
-                        return Err(CoreError::NotFound(format!(
-                            "account '{}' not found",
-                            id
-                        )));
+                        return Err(CoreError::NotFound(format!("account '{}' not found", id)));
                     }
                 }
             }
@@ -388,6 +385,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
         };
 
         // Guard: one membership per account per workspace
+        // TODO: future must allow multiple memberships across projects within the workspace
         let membership_filter: MembershipFilter = json!({
             "account_id": account_id.to_string(),
             "workspace_id": workspace_id.to_string()
@@ -692,4 +690,3 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Membershi
         Ok(to_delete)
     }
 }
-

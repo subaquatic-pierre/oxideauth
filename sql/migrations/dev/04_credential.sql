@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS
     status TEXT NOT NULL DEFAULT 'active', -- 'active','revoked','pending'
     -- Last time this credential was used for authentication
     last_used_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
     config JSONB NOT NULL DEFAULT '{}'::jsonb,
     -- START Meta & Tags
     tags TEXT[] NOT NULL DEFAULT '{}',
@@ -64,3 +65,5 @@ WHERE
   kind IN ('oauth', 'sso')
   AND status = 'active'
   AND provider_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS credential_membership_id_idx ON credential (membership_id);
