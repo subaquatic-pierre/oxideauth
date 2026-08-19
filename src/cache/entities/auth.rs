@@ -5,6 +5,7 @@ use std::{collections::HashMap, fmt::Display};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::core::services::permission::CANONICAL_PERMISSIONS;
 use crate::store::crud::Get;
 use crate::store::ctx::StoreCtx;
 use crate::store::entities::membership::MembershipStatus;
@@ -46,7 +47,7 @@ impl AuthScopeCache {
             workspace_slug: SYSTEM_CONST.system_ws_slug.to_string(),
             project_id: None,
             roles: vec![],
-            permissions: vec!["*:*".to_string()],
+            permissions: vec![CANONICAL_PERMISSIONS.system.sys_admin.to_string()],
         }
     }
 
@@ -225,7 +226,10 @@ mod tests {
     #[test]
     fn test_auth_scope_system() {
         let scope = AuthScopeCache::system();
-        assert_eq!(scope.permissions, vec!["*:*".to_string()]);
+        assert_eq!(
+            scope.permissions,
+            vec![CANONICAL_PERMISSIONS.system.sys_admin]
+        );
         assert_eq!(scope.workspace_slug, "system");
         assert_eq!(scope.workspace_id, Uuid::nil());
         assert!(scope.project_id.is_none());
@@ -266,7 +270,10 @@ mod tests {
         assert_eq!(cache.mem_id, Uuid::nil());
         assert_eq!(cache.acc_id, Uuid::nil());
         assert_eq!(cache.sid, None);
-        assert_eq!(cache.auth_scope.permissions, vec!["*:*".to_string()]);
+        assert_eq!(
+            cache.auth_scope.permissions,
+            vec![CANONICAL_PERMISSIONS.system.sys_admin]
+        );
         assert_eq!(cache.auth_scope.workspace_slug, "system");
     }
 

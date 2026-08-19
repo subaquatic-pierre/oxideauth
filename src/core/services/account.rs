@@ -240,6 +240,21 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
         let ws_ids = self.account_workspace_ids(ctx, account_id).await?;
         Ok(ws_ids.contains(&ctx.scoped_ws_id()))
     }
+
+    /// Remove an account that was created by an onboarding flow whose later
+    /// step failed. This deliberately uses the store's cascading foreign keys
+    /// as the compensating cleanup boundary; it is not exposed as an API
+    /// operation and must only be called for the account being established.
+    pub(crate) async fn cleanup_onboarding_account(
+        &self,
+        ctx: &CoreCtx,
+        account_id: Uuid,
+    ) -> CoreResult<()> {
+        let store_ctx = StoreCtx::bootstrap();
+        self.invalidate_all_memberships(ctx, account_id).await?;
+        self.store().delete(&store_ctx, &account_id.into()).await?;
+        Ok(())
+    }
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for AccountService<D, C> {

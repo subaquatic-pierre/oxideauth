@@ -334,7 +334,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Permissio
     }
 }
 
-
 // ============================================================================
 // Per-domain permission structs
 // ============================================================================
@@ -593,6 +592,24 @@ impl AuthPermissions {
     }
 }
 
+pub struct SystemPermissions {
+    pub star_all: &'static str,
+    pub sys_admin: &'static str,
+    pub sys_prefix: &'static str,
+    pub workspace_prefix: &'static str,
+}
+
+impl SystemPermissions {
+    pub fn all(&self) -> Vec<(&'static str, &'static str)> {
+        vec![
+            (self.sys_admin, "Complete system access"),
+            (self.sys_prefix, "System prefix (resricted)"),
+            (self.workspace_prefix, "Workspace prefix (restricted)"),
+            (self.star_all, "Star all permissions *"),
+        ]
+    }
+}
+
 // ============================================================================
 // Canonical permissions aggregate
 // ============================================================================
@@ -609,6 +626,7 @@ pub struct CanonicalPermissions {
     pub permission: PermissionPermissions,
     pub policy: PolicyPermissions,
     pub auth: AuthPermissions,
+    pub system: SystemPermissions,
 }
 
 impl CanonicalPermissions {
@@ -626,11 +644,6 @@ impl CanonicalPermissions {
         v.extend_from_slice(self.permission.all());
         v.extend_from_slice(self.policy.all());
         v.extend_from_slice(&self.auth.all());
-        // The system-wide wildcard permission granted to workspace admins.
-        v.push((
-            "*:*",
-            "System-wide admin permission (grants all workspace-scoped access)",
-        ));
         v
     }
 
@@ -735,5 +748,11 @@ pub const CANONICAL_PERMISSIONS: CanonicalPermissions = CanonicalPermissions {
     auth: AuthPermissions {
         refresh: "auth:refresh",
         revoke: "auth:revoke",
+    },
+    system: SystemPermissions {
+        sys_admin: "*:*",
+        sys_prefix: "system",
+        workspace_prefix: "workspace",
+        star_all: "*",
     },
 };

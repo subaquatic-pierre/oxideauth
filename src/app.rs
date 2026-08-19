@@ -137,7 +137,7 @@ pub async fn new_app_data(app_env: AppEnv) -> AppState<PgDbx, RedisChx> {
                 init_dev_db(&app).await;
 
                 debug!("Running init_dev_db, database is reset and seeded");
-                debug!("DEVELOPMENT mode config: {:#?}", app.config);
+                // debug!("DEVELOPMENT mode config: {:#?}", app.config);
             }
         }
         _ => {

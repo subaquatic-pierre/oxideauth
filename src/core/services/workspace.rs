@@ -246,7 +246,11 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             .map(|s| s.to_string())
             .collect();
         // The admin role carries the single system-wide wildcard permission.
-        let admin_names: Vec<String> = vec!["*:*".to_string()];
+        let admin_names: Vec<String> = CANONICAL_PERMISSIONS
+            .all()
+            .into_iter()
+            .map(|(s, _)| s.to_string())
+            .collect();
 
         // 2. Look up the just-seeded permission IDs (workspace-scoped via StoreCtx)
 

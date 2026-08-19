@@ -12,6 +12,7 @@ use crate::{
             list::{RequestFilterParams, RequestListOptions},
             workspace::Workspace,
         },
+        services::permission::CANONICAL_PERMISSIONS,
         traits::{filter::OpValWorkspaceId, list::RequestListParams, params::ValidateParams},
     },
     store::entities::{
@@ -278,7 +279,10 @@ impl<'a> PermissionSet<'a> {
     /// True if the set contains a global wildcard (`*` or `*:*`), i.e. the
     /// caller is a system-namespace admin.
     pub fn has_global_wildcard(&self) -> bool {
-        self.granted.iter().any(|p| p == "*" || p == "*:*")
+        self.granted.iter().any(|p| {
+            p == CANONICAL_PERMISSIONS.system.star_all
+                || p == CANONICAL_PERMISSIONS.system.sys_admin
+        })
     }
 }
 
@@ -318,7 +322,9 @@ impl PermissionRule {
     }
 
     fn matches_str(granted: &str, required: &str) -> bool {
-        if required == "*" || granted == "*" {
+        if required == CANONICAL_PERMISSIONS.system.star_all
+            || granted == CANONICAL_PERMISSIONS.system.star_all
+        {
             return true;
         }
 
@@ -411,13 +417,15 @@ impl PermissionEngine {
             };
 
             // Global resource wildcard, e.g. "*:delete" or "*:*"
-            if granted.resource == "*" {
-                return granted.action == "*" || granted.action == required.action;
+            if granted.resource == CANONICAL_PERMISSIONS.system.star_all {
+                return granted.action == CANONICAL_PERMISSIONS.system.star_all
+                    || granted.action == required.action;
             }
 
             // Specific resource, e.g. "projects:*" or "projects:delete"
             if granted.resource == required.resource {
-                return granted.action == "*" || granted.action == required.action;
+                return granted.action == CANONICAL_PERMISSIONS.system.star_all
+                    || granted.action == required.action;
             }
 
             false
@@ -554,8 +562,7 @@ mod tests {
         let base = PermissionSet::from_str_slice(&["project:read"])?;
 
         // Extend with new and existing permissions
-        let extended =
-            base.with_extended(&["project:delete", "account:read", "project:read"])?;
+        let extended = base.with_extended(&["project:delete", "account:read", "project:read"])?;
 
         let required_read: PermissionRule = "project:read".try_into()?;
         let required_delete: PermissionRule = "project:delete".try_into()?;

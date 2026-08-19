@@ -209,6 +209,16 @@ where
         })
     }
 
+    async fn cleanup_failed_onboarding(&self, ctx: &CoreCtx, account_id: Uuid) {
+        if let Err(cleanup_err) = self
+            .acc_svc
+            .cleanup_onboarding_account(ctx, account_id)
+            .await
+        {
+            tracing::error!(%account_id, error = ?cleanup_err, "failed compensating cleanup for onboarding account");
+        }
+    }
+
     /// Registers a new account with a `Local` password credential in the
     /// specified workspace, creates a membership with the default "Workspace
     /// Viewer" role, and returns the account along with a freshly issued token pair.
@@ -305,9 +315,7 @@ where
         let account: Account = account_row.into();
 
         // Profile identity is established explicitly before the membership.
-        let profile = self
-            .profile_svc
-            .create(
+        let profile = match self.profile_svc.create(
                 ctx,
                 ProfileCreateParams {
                     account_id: account.id,
@@ -323,12 +331,17 @@ where
                     meta: Default::default(),
                 },
             )
-            .await?;
+            .await
+        {
+            Ok(profile) => profile,
+            Err(err) => {
+                self.cleanup_failed_onboarding(ctx, account.id).await;
+                return Err(err);
+            }
+        };
 
         // --- Create membership with Viewer role (via service) ---
-        let membership = self
-            .membership_svc
-            .create(
+        let membership = match self.membership_svc.create(
                 ctx,
                 MembershipCreateParams {
                     account_id: account.id,
@@ -345,11 +358,17 @@ where
                     },
                 },
             )
-            .await?;
+            .await
+        {
+            Ok(membership) => membership,
+            Err(err) => {
+                self.cleanup_failed_onboarding(ctx, account.id).await;
+                return Err(err);
+            }
+        };
 
         // --- Create credential anchored to the membership (via service) ---
-        self.credential_svc
-            .create(
+        if let Err(err) = self.credential_svc.create(
                 ctx,
                 CredentialCreateParams {
                     account_id: account.id,
@@ -371,7 +390,11 @@ where
                     },
                 },
             )
-            .await?;
+            .await
+        {
+            self.cleanup_failed_onboarding(ctx, account.id).await;
+            return Err(err);
+        }
 
         // --- Issue token pair with real workspace + membership IDs ---
         let sid = Uuid::new_v4();
@@ -1165,13 +1188,17 @@ where
             .into_iter()
             .next();
 
-        let account = if let Some(credential) = credential {
+        let (account, token_ws_id, token_mem_id) = if let Some(credential) = credential {
             // 5a. Known identity — authenticate as the credential's account.
             let account: Account = store.get(&store_ctx, &credential.account_id).await?.into();
             if !account.enabled {
                 return Err(CoreError::Auth("account disabled".to_string()));
             }
-            account
+            (
+                account,
+                credential.workspace_id.into(),
+                credential.membership_id.into(),
+            )
         } else if store
             .get_by_email(&store_ctx, &google_user.email)
             .await?
@@ -1216,9 +1243,7 @@ where
                 .await?
                 .into();
 
-            let profile = self
-                .profile_svc
-                .create(
+            let profile = match self.profile_svc.create(
                     ctx,
                     ProfileCreateParams {
                         account_id: account.id,
@@ -1234,11 +1259,16 @@ where
                         meta: Default::default(),
                     },
                 )
-                .await?;
+                .await
+            {
+                Ok(profile) => profile,
+                Err(err) => {
+                    self.cleanup_failed_onboarding(ctx, account.id).await;
+                    return Err(err);
+                }
+            };
 
-            let membership = self
-                .membership_svc
-                .create(
+            let membership = match self.membership_svc.create(
                     ctx,
                     MembershipCreateParams {
                         account_id: account.id,
@@ -1255,10 +1285,16 @@ where
                         },
                     },
                 )
-                .await?;
+                .await
+            {
+                Ok(membership) => membership,
+                Err(err) => {
+                    self.cleanup_failed_onboarding(ctx, account.id).await;
+                    return Err(err);
+                }
+            };
 
-            self.credential_svc
-                .create(
+            if let Err(err) = self.credential_svc.create(
                     ctx,
                     CredentialCreateParams {
                         account_id: account.id,
@@ -1279,9 +1315,13 @@ where
                         },
                     },
                 )
-                .await?;
+                .await
+            {
+                self.cleanup_failed_onboarding(ctx, account.id).await;
+                return Err(err);
+            }
 
-            account
+            (account, ws_id, membership.id)
         };
 
         // 6. Issue a token pair (access + refresh) for the session.
@@ -1297,9 +1337,9 @@ where
         let sid = Uuid::new_v4();
         let tp = self.issue_token_pair(
             account.id,
-            Uuid::nil(), // workspace, set up separately after sign-in
-            Uuid::nil(), // membership, set up separately after sign-in
-            0,           // mem_ver: no membership on first sign-in
+            token_ws_id,
+            token_mem_id,
+            0,
             acc_ver,
             sid,
             // TODO: change this to workspace config
