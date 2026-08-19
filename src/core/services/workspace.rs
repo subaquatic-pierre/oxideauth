@@ -212,7 +212,7 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         let perm_svc: Arc<PermissionService<D, C>> = self.perm_svc();
 
         let perms: Vec<PermissionCreateParams> = CANONICAL_PERMISSIONS
-            .all()
+            .default_workspace_admin_perms()
             .into_iter()
             .map(|(name, description)| {
                 PermissionCreateParams::new_system(workspace_id, name, Some(description))
@@ -247,7 +247,7 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
             .collect();
         // The admin role carries the single system-wide wildcard permission.
         let admin_names: Vec<String> = CANONICAL_PERMISSIONS
-            .all()
+            .default_workspace_admin_perms()
             .into_iter()
             .map(|(s, _)| s.to_string())
             .collect();

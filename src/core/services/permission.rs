@@ -634,6 +634,23 @@ impl CanonicalPermissions {
     pub fn all(&self) -> Vec<(&'static str, &'static str)> {
         let mut v = Vec::new();
         v.extend_from_slice(self.account.all());
+        v.extend_from_slice(self.workspace.all());
+        v.extend_from_slice(self.project.all());
+        v.extend_from_slice(self.profile.all());
+        v.extend_from_slice(self.membership.all());
+        v.extend_from_slice(self.role.all());
+        v.extend_from_slice(self.client.all());
+        v.extend_from_slice(self.credential.all());
+        v.extend_from_slice(self.permission.all());
+        v.extend_from_slice(self.policy.all());
+        v.extend_from_slice(&self.auth.all());
+        v.extend_from_slice(&self.system.all());
+        v
+    }
+
+    pub fn default_workspace_admin_perms(&self) -> Vec<(&'static str, &'static str)> {
+        let mut v = Vec::new();
+        v.extend_from_slice(self.account.all());
         // only expose workspace describe, in order for members to decribe their own workspace
         v.extend_from_slice(&[(self.workspace.describe, "Describe the workspace")]);
         v.extend_from_slice(self.project.all());
