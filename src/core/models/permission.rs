@@ -33,7 +33,8 @@ pub struct Permission {
     pub id: Uuid,
     pub workspace_id: Uuid,
 
-    pub name: String,
+    pub key: String,
+    pub label: Option<String>,
     pub description: Option<String>,
 
     pub tags: Vec<String>,
@@ -47,7 +48,8 @@ impl From<PermissionRow> for Permission {
         Self {
             id: row.id.into(),
             workspace_id: row.workspace_id,
-            name: row.name,
+            key: row.key,
+            label: row.label,
             description: row.description,
             tags: row.tags,
             meta: row.meta,
@@ -61,7 +63,8 @@ impl From<JoinedPermissionOnRole> for Permission {
         Self {
             id: row.id.into(),
             workspace_id: row.workspace_id,
-            name: row.name,
+            key: row.key,
+            label: row.label,
             description: row.description,
             tags: row.tags,
             meta: row.meta,
@@ -83,7 +86,8 @@ impl Default for Permission {
         Self {
             id: Uuid::new_v4(),
             workspace_id: Uuid::nil(),
-            name: "New Permission".to_string(),
+            key: "resource:action".to_string(),
+            label: None,
             description: None,
             tags: vec![],
             meta: PermissionMeta {
@@ -97,7 +101,8 @@ impl Default for Permission {
 #[derive(Debug, Deserialize)]
 pub struct PermissionCreateParams {
     pub workspace_id: Option<Uuid>,
-    pub name: String,
+    pub key: String,
+    pub label: Option<String>,
     pub description: Option<String>,
     pub tags: Vec<String>,
     pub meta: PermissionMeta,
@@ -107,7 +112,9 @@ impl PermissionCreateParams {
     pub fn new_system(ws_id: Uuid, name: &str, desc: Option<&str>) -> Self {
         Self {
             workspace_id: Some(ws_id),
-            name: name.to_string(),
+            key: name.to_string(),
+            // TODO: add label
+            label: None,
             description: desc.map(|s| s.to_string()),
             tags: vec!["system".to_string()],
             meta: PermissionMeta::default(),
@@ -119,7 +126,8 @@ impl From<PermissionCreateParams> for PermissionForCreate {
     fn from(value: PermissionCreateParams) -> Self {
         PermissionForCreate {
             workspace_id: value.workspace_id.into(),
-            name: value.name,
+            key: value.key,
+            label: value.label,
             description: value.description,
             tags: value.tags,
             meta: value.meta,

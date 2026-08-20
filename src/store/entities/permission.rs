@@ -21,7 +21,7 @@ pub enum PermissionIden {
     Id, // TABLE_PK
     Meta,
     Tags,
-    Name,
+    Key,
     WorkspaceId,
 }
 
@@ -31,7 +31,8 @@ pub struct PermissionRow {
     pub workspace_id: Uuid,
 
     // Permission identity
-    pub name: String,
+    pub key: String,
+    pub label: Option<String>,
     pub description: Option<String>,
 
     pub tags: Vec<String>,
@@ -45,7 +46,8 @@ pub struct PermissionRow {
 #[derive(Debug, Fields)]
 pub struct PermissionForCreate {
     pub workspace_id: Option<Uuid>,
-    pub name: String,
+    pub key: String,
+    pub label: Option<String>,
     pub description: Option<String>,
     pub tags: Vec<String>,
     pub meta: PermissionMeta,
@@ -116,7 +118,8 @@ impl Default for PermissionForCreate {
 
         Self {
             workspace_id: Some(Uuid::new_v4()),
-            name: gen_rand_str(10),
+            key: gen_rand_str(10),
+            label: Some("Default Label".to_string()),
             description: Some("A default permission for testing.".to_string()),
             tags: vec![],
             meta: PermissionMeta {

@@ -48,7 +48,7 @@ impl<D: DbExecutor> PermissionStore<D> {
     ) -> StoreResult<Vec<PermissionRow>> {
         let meta = ReadQueryMeta {
             table: PermissionIden::Table,
-            pk: PermissionIden::Name,
+            pk: PermissionIden::Key,
             has_audit: self.has_audit,
         };
 

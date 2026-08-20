@@ -3,16 +3,12 @@ use serial_test::serial;
 
 use oxideauth::{
     core::{
-        ctx::CoreCtx,
-        models::workspace::WorkspaceDescribeParams,
+        ctx::CoreCtx, models::workspace::WorkspaceDescribeParams,
         traits::service::CoreModelDescribeService,
     },
     dev::init::init_test,
     store::{
-        ctx::StoreCtx,
-        entities::id::DbId,
-        join::GetManyToMany,
-        stores::workspace::SYSTEM_CONST,
+        ctx::StoreCtx, entities::id::DbId, join::GetManyToMany, stores::workspace::SYSTEM_CONST,
     },
 };
 
@@ -60,7 +56,7 @@ async fn test_seeded_admin_role_has_global_wildcard() -> Result<()> {
     let names: Vec<String> = role_with_perms
         .permissions
         .iter()
-        .map(|p| p.name.clone())
+        .map(|p| p.key.clone())
         .collect();
 
     assert_eq!(

@@ -310,7 +310,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Permissio
             Err(StoreError::ConstraintViolation) => {
                 return Err(CoreError::InvalidParams(format!(
                     "permission '{}' is still attached to one or more roles and cannot be deleted",
-                    to_delete.name
+                    to_delete.key
                 )));
             }
             Err(err) => return Err(err.into()),

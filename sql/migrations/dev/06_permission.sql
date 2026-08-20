@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS
     -- Scope: permissions are defined per-workspace
     workspace_id UUID NOT NULL,
     -- Permission identity
-    name TEXT NOT NULL, -- canonical identifier, e.g. 'project.read'
+    key TEXT NOT NULL, -- canonical identifier, e.g. 'project:read'
+    label TEXT,
     description TEXT, -- human-readable description
     -- START Meta & Tags
     tags TEXT[] NOT NULL DEFAULT '{}', -- lightweight labels
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS
     CONSTRAINT perm_meta_is_object CHECK (jsonb_typeof(meta) = 'object'),
     CONSTRAINT perm_audit_is_object CHECK (jsonb_typeof(audit) = 'object'),
     -- Ensure per-workspace uniqueness of permission names
-    CONSTRAINT permission_workspace_name_key UNIQUE (workspace_id, name)
+    CONSTRAINT permission_workspace_name_key UNIQUE (workspace_id, key)
   );
 
 -- =========================

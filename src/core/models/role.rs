@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     core::{
         models::{
-            permission::{PermissionSet, PermissionRule},
+            permission::{PermissionRule, PermissionSet},
             policy::Policy,
         },
         traits::params::ValidateParams,
@@ -191,7 +191,7 @@ pub struct RoleUpdateParams {
     pub name: Option<String>,
     pub description: Option<String>,
     pub permission_ids: Option<Vec<Uuid>>, // To sync the join table
-    pub policy_ids: Option<Vec<Uuid>>, // To sync the join table
+    pub policy_ids: Option<Vec<Uuid>>,     // To sync the join table
     pub tags: Option<Vec<String>>,
     pub meta: Option<RoleMeta>,
 }
@@ -370,8 +370,8 @@ mod tests {
         let perm = JoinedPermissionOnRole {
             id: id.into(),
             workspace_id: ws_id,
-            name: "project:read".to_string(),
-            code: Some("code".to_string()),
+            key: "project:read".to_string(),
+            label: Some("code".to_string()),
             description: Some("desc".to_string()),
             tags: vec![],
             meta: PermissionMeta {
@@ -400,10 +400,13 @@ mod tests {
         assert_eq!(role.meta.schema_version, "1");
         assert_eq!(role.audit.created_at, OffsetDateTime::UNIX_EPOCH);
         assert_eq!(role.permissions.len(), 1);
-        assert!(role.policies.is_empty(), "no policies loaded in this conversion");
+        assert!(
+            role.policies.is_empty(),
+            "no policies loaded in this conversion"
+        );
 
         let perm = &role.permissions[0];
-        assert_eq!(perm.name, "project:read");
+        assert_eq!(perm.key, "project:read");
         assert_eq!(perm.description.as_deref(), Some("desc"));
         assert_eq!(perm.meta.schema_version, "1");
         // permission audit meta is force-marked in the conversion
@@ -462,7 +465,10 @@ mod tests {
         assert_eq!(params.name, "system-owner");
         assert_eq!(params.description.as_deref(), Some("system role"));
         assert_eq!(params.permission_ids, perm_ids);
-        assert!(params.policy_ids.is_empty(), "system roles carry no policies");
+        assert!(
+            params.policy_ids.is_empty(),
+            "system roles carry no policies"
+        );
         assert_eq!(params.tags, vec!["system".to_string()]);
         assert_eq!(params.meta.schema_version, "");
 

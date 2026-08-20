@@ -174,7 +174,7 @@ impl AuthCache {
             role_ids.push(role.id.into());
             let role_with_perms = sm.role.get_many_to_many(&store_ctx, &role.id).await?;
             for perm in role_with_perms.permissions.iter() {
-                let name = perm.name.clone();
+                let name = perm.key.clone();
                 if !permissions.contains(&name) {
                     permissions.push(name);
                 }

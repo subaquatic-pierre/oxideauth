@@ -74,8 +74,8 @@ pub struct JoinedPermissionOnRole {
     pub workspace_id: Uuid,
 
     // Permission identity
-    pub name: String,
-    pub code: Option<String>,
+    pub key: String,
+    pub label: Option<String>,
     pub description: Option<String>,
 
     pub tags: Vec<String>,

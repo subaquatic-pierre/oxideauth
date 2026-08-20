@@ -214,8 +214,8 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         let perms: Vec<PermissionCreateParams> = CANONICAL_PERMISSIONS
             .default_workspace_admin_perms()
             .into_iter()
-            .map(|(name, description)| {
-                PermissionCreateParams::new_system(workspace_id, name, Some(description))
+            .map(|(key, description)| {
+                PermissionCreateParams::new_system(workspace_id, key, Some(description))
             })
             .collect();
         let created = perm_svc
