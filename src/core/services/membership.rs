@@ -335,7 +335,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Members
         let membership_with_roles: MembershipWithRoles =
             store.get_many_to_many(&store_ctx, &db_id).await?;
 
-        // TODO: implement membership -> role -> permission join query
+        // TODO: optimization - implement membership -> role -> permission join query
         let roles = self.get_roles(ctx, membership_with_roles.roles).await?;
 
         // Get Membership with Policies (Join query)

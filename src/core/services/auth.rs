@@ -19,6 +19,7 @@ use crate::{
     config::Config,
     core::{
         ctx::{ContextFactory, CoreCtx},
+        email::normalize_email,
         error::{CoreError, CoreResult},
         models::{
             account::{
@@ -1167,26 +1168,34 @@ where
             CANONICAL_PERMISSIONS.credential.create,
             CANONICAL_PERMISSIONS.credential.describe,
             CANONICAL_PERMISSIONS.membership.create,
+            CANONICAL_PERMISSIONS.membership.describe,
             CANONICAL_PERMISSIONS.profile.create,
         ])?;
         let store = self.acc_svc.store();
+        let normalized_email = normalize_email(&google_user.email);
 
         // 4. Look up an active Google credential by provider identity.
-        // NOTE: unscoped — provider identity is global, not workspace-scoped.
         let store_ctx = ctx.unscoped_store_ctx();
         let credential_filter: CredentialFilter = json!({
+            "workspace_id": ws_id.to_string(),
+            "kind": CredentialKind::OAuth.to_string(),
             "provider": CredentialProvider::Google.to_string(),
             "provider_id": google_user.id.clone(),
             "status": CredentialStatus::Active.to_string(),
         })
         .try_into()?;
-        let credential = self
+        let matching_credentials = self
             .credential_svc
             .store()
             .list(&store_ctx, Some(credential_filter), None)
-            .await?
-            .into_iter()
-            .next();
+            .await?;
+
+        if matching_credentials.len() > 1 {
+            return Err(CoreError::Auth(
+                "ambiguous google identity credential".to_string(),
+            ));
+        }
+        let credential = matching_credentials.into_iter().next();
 
         let (account, token_ws_id, token_mem_id) = if let Some(credential) = credential {
             // 5a. Known identity — authenticate as the credential's account.
@@ -1194,13 +1203,35 @@ where
             if !account.enabled {
                 return Err(CoreError::Auth("account disabled".to_string()));
             }
+
+            // The credential query is workspace-scoped, and the membership is
+            // reloaded with that same workspace to prevent cross-tenant token
+            // issuance through stale or inconsistent credential rows.
+            let membership = self
+                .membership_svc
+                .describe(
+                    ctx,
+                    MembershipDescribeParams {
+                        id: credential.membership_id.into(),
+                        workspace_id: Some(ws_id),
+                    },
+                )
+                .await?;
+            if membership.account_id != Uuid::from(credential.account_id)
+                || membership.workspace_id != ws_id
+                || membership.status != MembershipStatus::Active
+            {
+                return Err(CoreError::Auth(
+                    "google identity is not eligible for authentication".to_string(),
+                ));
+            }
             (
                 account,
-                credential.workspace_id.into(),
-                credential.membership_id.into(),
+                ws_id,
+                membership.id,
             )
         } else if store
-            .get_by_email(&store_ctx, &google_user.email)
+            .get_by_email(&store_ctx, &normalized_email)
             .await?
             .is_some()
         {
@@ -1224,7 +1255,7 @@ where
                 .await?;
 
             let account_create_params = AccountCreateParams {
-                email: google_user.email.clone(),
+                email: normalized_email.clone(),
                 name: google_user.name,
                 description: None,
                 avatar_url: google_user.picture.clone(),
@@ -1304,7 +1335,7 @@ where
                         provider: CredentialProvider::Google,
                         status: CredentialStatus::Active,
                         provider_id: Some(google_user.id),
-                        email: Some(google_user.email),
+                        email: Some(normalized_email),
                         config: CredentialConfig::default(),
                         secret: None,
                         expires_at: None,

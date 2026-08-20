@@ -13,7 +13,8 @@ use crate::{
     store::{
         ctx::StoreCtx,
         entities::credential::{
-            CredentialForCreate, CredentialForUpdate, CredentialRow, CredentialStatus,
+            CredentialForCreate, CredentialForUpdate, CredentialKind, CredentialRow,
+            CredentialStatus,
         },
         error::StoreError,
         manager::StoreManager,
@@ -45,6 +46,7 @@ use crate::{
             },
         },
     },
+    core::email::normalize_email,
     store::contains::FilterByContains,
     utils::{
         crypt::verify_password,
@@ -203,9 +205,25 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Credentia
     async fn create(
         &self,
         ctx: &mut CoreCtx,
-        params: Self::CreateParams,
+        mut params: Self::CreateParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
+
+        // OAuth identity data is persisted in canonical form at the service
+        // boundary.  The provider subject is opaque and must not be
+        // transformed; an absent subject cannot represent an OAuth identity.
+        if params.kind == CredentialKind::OAuth {
+            if params
+                .provider_id
+                .as_deref()
+                .is_none_or(|provider_id| provider_id.is_empty())
+            {
+                return Err(CoreError::InvalidParams(
+                    "OAuth credential provider_id required".to_string(),
+                ));
+            }
+            params.email = params.email.map(|email| normalize_email(&email));
+        }
 
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
@@ -302,13 +320,51 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Credentia
     async fn update(
         &self,
         ctx: &mut CoreCtx,
-        params: Self::UpdateParams,
+        mut params: Self::UpdateParams,
     ) -> CoreResult<Self::CoreModel> {
         let store = self.store();
         let store_ctx = self
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
             .scope_and_validate(ctx, params.workspace_id, &[Self::UPDATE_PERMISSION])
             .await?;
+
+        // Read before invalidating caches or issuing an UPDATE.  This keeps a
+        // rejected identity mutation side-effect free and protects every
+        // supported credential update path (all writes go through this
+        // service).  Metadata and lifecycle fields remain independently
+        // updateable below.
+        let existing = store.get(&store_ctx, &params.id.into()).await?;
+        if existing.kind == CredentialKind::OAuth {
+            if params.kind.as_ref().is_some_and(|kind| kind != &existing.kind)
+                || params
+                    .provider
+                    .as_ref()
+                    .is_some_and(|provider| provider != &existing.provider)
+                || params
+                    .new_provider_id
+                    .as_ref()
+                    .is_some_and(|provider_id| Some(provider_id) != existing.provider_id.as_ref())
+            {
+                return Err(CoreError::InvalidParams(
+                    "OAuth identity fields are immutable; create a new credential to replace the identity"
+                        .to_string(),
+                ));
+            }
+
+            // OAuth email is stored normalized, so an equivalent case or
+            // surrounding-whitespace representation is not a mutation.
+            params.new_email = params.new_email.map(|email| normalize_email(&email));
+            if params
+                .new_email
+                .as_ref()
+                .is_some_and(|email| Some(email) != existing.email.as_ref())
+            {
+                return Err(CoreError::InvalidParams(
+                    "OAuth identity fields are immutable; create a new credential to replace the identity"
+                        .to_string(),
+                ));
+            }
+        }
 
         // Invalidate any cached client auth for this credential BEFORE the store
         // mutation, so no concurrent request can read a stale grant.
@@ -378,4 +434,3 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Credentia
         Ok(to_delete)
     }
 }
-

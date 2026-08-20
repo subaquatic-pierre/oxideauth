@@ -97,7 +97,7 @@ impl Nullable for CredentialProvider {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, EnumTextType)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, EnumTextType)]
 pub enum CredentialKind {
     #[serde(rename = "password")]
     Password,

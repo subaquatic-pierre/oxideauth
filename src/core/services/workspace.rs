@@ -213,9 +213,14 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
 
         let perms: Vec<PermissionCreateParams> = CANONICAL_PERMISSIONS
             .default_workspace_admin_perms()
-            .into_iter()
-            .map(|(key, description)| {
-                PermissionCreateParams::new_system(workspace_id, key, Some(description))
+            .iter()
+            .map(|entry| {
+                PermissionCreateParams::new_system(
+                    workspace_id,
+                    entry.key,
+                    Some(entry.label),
+                    Some(entry.description),
+                )
             })
             .collect();
         let created = perm_svc
@@ -242,14 +247,14 @@ impl<D: DbExecutor, C: CacheExecutor> WorkspaceService<D, C> {
         // 1. Collect permission name sets for each default role
         let viewer_names: Vec<String> = CANONICAL_PERMISSIONS
             .default_workspace_viewer_perms()
-            .into_iter()
-            .map(|s| s.to_string())
+            .iter()
+            .map(|entry| entry.key.to_string())
             .collect();
         // The admin role carries the single system-wide wildcard permission.
         let admin_names: Vec<String> = CANONICAL_PERMISSIONS
             .default_workspace_admin_perms()
-            .into_iter()
-            .map(|(s, _)| s.to_string())
+            .iter()
+            .map(|entry| entry.key.to_string())
             .collect();
 
         // 2. Look up the just-seeded permission IDs (workspace-scoped via StoreCtx)

@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, OnceLock},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use uuid::Uuid;
 
@@ -146,8 +143,8 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
         if CANONICAL_PERMISSIONS
             .system
             .all()
-            .into_iter()
-            .any(|(el, _)| key.starts_with(el))
+            .iter()
+            .any(|el| key.starts_with(el.key))
         {
             return Err(CoreError::InvalidParams(format!(
                 "permission key is reserved {key}"
@@ -364,6 +361,96 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for Permissio
 // Per-domain permission structs
 // ============================================================================
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CanonicalPermission {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub description: &'static str,
+}
+
+const ACCOUNT: [CanonicalPermission; 5] = [
+    CanonicalPermission { key: "account:create", label: "Create Account", description: "Create new accounts" },
+    CanonicalPermission { key: "account:describe", label: "Describe Account", description: "View account details" },
+    CanonicalPermission { key: "account:list", label: "List Accounts", description: "List accounts" },
+    CanonicalPermission { key: "account:update", label: "Update Account", description: "Update account details" },
+    CanonicalPermission { key: "account:delete", label: "Delete Account", description: "Delete accounts" },
+];
+const WORKSPACE: [CanonicalPermission; 5] = [
+    CanonicalPermission { key: "workspace:create", label: "Create Workspace", description: "Create new workspaces" },
+    CanonicalPermission { key: "workspace:describe", label: "Describe Workspace", description: "View workspace details" },
+    CanonicalPermission { key: "workspace:list", label: "List Workspaces", description: "List workspaces" },
+    CanonicalPermission { key: "workspace:update", label: "Update Workspace", description: "Update workspace settings" },
+    CanonicalPermission { key: "workspace:delete", label: "Delete Workspace", description: "Delete workspaces" },
+];
+const PROJECT: [CanonicalPermission; 5] = [
+    CanonicalPermission { key: "project:create", label: "Create Project", description: "Create new projects" },
+    CanonicalPermission { key: "project:describe", label: "Describe Project", description: "View project details" },
+    CanonicalPermission { key: "project:list", label: "List Projects", description: "List projects" },
+    CanonicalPermission { key: "project:update", label: "Update Project", description: "Update project settings" },
+    CanonicalPermission { key: "project:delete", label: "Delete Project", description: "Delete projects" },
+];
+const PROFILE: [CanonicalPermission; 5] = [
+    CanonicalPermission { key: "profile:create", label: "Create Profile", description: "Create new profiles" },
+    CanonicalPermission { key: "profile:describe", label: "Describe Profile", description: "View profile details" },
+    CanonicalPermission { key: "profile:list", label: "List Profiles", description: "List profiles" },
+    CanonicalPermission { key: "profile:update", label: "Update Profile", description: "Update profile settings" },
+    CanonicalPermission { key: "profile:delete", label: "Delete Profile", description: "Delete profiles" },
+];
+const MEMBERSHIP: [CanonicalPermission; 5] = [
+    CanonicalPermission { key: "membership:create", label: "Create Membership", description: "Invite members to workspace" },
+    CanonicalPermission { key: "membership:describe", label: "Describe Membership", description: "View membership details" },
+    CanonicalPermission { key: "membership:list", label: "List Memberships", description: "List memberships" },
+    CanonicalPermission { key: "membership:update", label: "Update Membership", description: "Update membership roles" },
+    CanonicalPermission { key: "membership:delete", label: "Delete Membership", description: "Remove members" },
+];
+const ROLE: [CanonicalPermission; 5] = [
+    CanonicalPermission { key: "role:create", label: "Create Role", description: "Create new roles" },
+    CanonicalPermission { key: "role:describe", label: "Describe Role", description: "View role details" },
+    CanonicalPermission { key: "role:list", label: "List Roles", description: "List roles" },
+    CanonicalPermission { key: "role:update", label: "Update Role", description: "Update role permissions" },
+    CanonicalPermission { key: "role:delete", label: "Delete Role", description: "Delete roles" },
+];
+const CLIENT: [CanonicalPermission; 7] = [
+    CanonicalPermission { key: "client:create", label: "Create Client", description: "Register new API clients" },
+    CanonicalPermission { key: "client:describe", label: "Describe Client", description: "View client details" },
+    CanonicalPermission { key: "client:list", label: "List Clients", description: "List clients" },
+    CanonicalPermission { key: "client:update", label: "Update Client", description: "Update client configuration" },
+    CanonicalPermission { key: "client:delete", label: "Delete Client", description: "Delete clients" },
+    CanonicalPermission { key: "client:validate", label: "Validate Client", description: "Validate client credentials" },
+    CanonicalPermission { key: "client:regenerateSecret", label: "Regenerate Client Secret", description: "Regenerate client secret" },
+];
+const CREDENTIAL: [CanonicalPermission; 5] = [
+    CanonicalPermission { key: "credential:create", label: "Create Credential", description: "Create new credentials" },
+    CanonicalPermission { key: "credential:describe", label: "Describe Credential", description: "View credential details" },
+    CanonicalPermission { key: "credential:list", label: "List Credentials", description: "List credentials" },
+    CanonicalPermission { key: "credential:update", label: "Update Credential", description: "Update credentials" },
+    CanonicalPermission { key: "credential:delete", label: "Delete Credential", description: "Delete credentials" },
+];
+const PERMISSION: [CanonicalPermission; 5] = [
+    CanonicalPermission { key: "permission:create", label: "Create Permission", description: "Create new permissions" },
+    CanonicalPermission { key: "permission:describe", label: "Describe Permission", description: "View permission details" },
+    CanonicalPermission { key: "permission:list", label: "List Permissions", description: "List permissions" },
+    CanonicalPermission { key: "permission:update", label: "Update Permission", description: "Update permissions" },
+    CanonicalPermission { key: "permission:delete", label: "Delete Permission", description: "Delete permissions" },
+];
+const POLICY: [CanonicalPermission; 5] = [
+    CanonicalPermission { key: "policy:create", label: "Create Policy", description: "Create new policies" },
+    CanonicalPermission { key: "policy:describe", label: "Describe Policy", description: "View policy details" },
+    CanonicalPermission { key: "policy:list", label: "List Policies", description: "List policies" },
+    CanonicalPermission { key: "policy:update", label: "Update Policy", description: "Update policies" },
+    CanonicalPermission { key: "policy:delete", label: "Delete Policy", description: "Delete policies" },
+];
+const AUTH: [CanonicalPermission; 2] = [
+    CanonicalPermission { key: "auth:refresh", label: "Refresh Tokens", description: "Rotate authentication tokens (refresh access)" },
+    CanonicalPermission { key: "auth:revoke", label: "Revoke Tokens", description: "Revoke authentication tokens (invalidate sessions)" },
+];
+const SYSTEM: [CanonicalPermission; 4] = [
+    CanonicalPermission { key: "*:*", label: "System Administrator", description: "Complete system access" },
+    CanonicalPermission { key: "system", label: "System Prefix", description: "System prefix (resricted)" },
+    CanonicalPermission { key: "workspace", label: "Workspace Prefix", description: "Workspace prefix (restricted)" },
+    CanonicalPermission { key: "*", label: "All Permissions", description: "Star all permissions *" },
+];
+
 pub struct AccountPermissions {
     pub create: &'static str,
     pub describe: &'static str,
@@ -373,17 +460,8 @@ pub struct AccountPermissions {
 }
 
 impl AccountPermissions {
-    pub fn all(&self) -> &[(&'static str, &'static str)] {
-        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
-        ALL.get_or_init(|| {
-            [
-                (self.create, "Create new accounts"),
-                (self.describe, "View account details"),
-                (self.list, "List accounts"),
-                (self.update, "Update account details"),
-                (self.delete, "Delete accounts"),
-            ]
-        })
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &ACCOUNT
     }
 }
 
@@ -396,17 +474,8 @@ pub struct WorkspacePermissions {
 }
 
 impl WorkspacePermissions {
-    pub fn all(&self) -> &[(&'static str, &'static str)] {
-        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
-        ALL.get_or_init(|| {
-            [
-                (self.create, "Create new workspaces"),
-                (self.describe, "View workspace details"),
-                (self.list, "List workspaces"),
-                (self.update, "Update workspace settings"),
-                (self.delete, "Delete workspaces"),
-            ]
-        })
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &WORKSPACE
     }
 }
 
@@ -419,17 +488,8 @@ pub struct ProjectPermissions {
 }
 
 impl ProjectPermissions {
-    pub fn all(&self) -> &[(&'static str, &'static str)] {
-        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
-        ALL.get_or_init(|| {
-            [
-                (self.create, "Create new projects"),
-                (self.describe, "View project details"),
-                (self.list, "List projects"),
-                (self.update, "Update project settings"),
-                (self.delete, "Delete projects"),
-            ]
-        })
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &PROJECT
     }
 }
 
@@ -442,17 +502,8 @@ pub struct ProfilePermissions {
 }
 
 impl ProfilePermissions {
-    pub fn all(&self) -> &[(&'static str, &'static str)] {
-        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
-        ALL.get_or_init(|| {
-            [
-                (self.create, "Create new profiles"),
-                (self.describe, "View profile details"),
-                (self.list, "List profiles"),
-                (self.update, "Update profile settings"),
-                (self.delete, "Delete profiles"),
-            ]
-        })
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &PROFILE
     }
 }
 
@@ -465,17 +516,8 @@ pub struct MembershipPermissions {
 }
 
 impl MembershipPermissions {
-    pub fn all(&self) -> &[(&'static str, &'static str)] {
-        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
-        ALL.get_or_init(|| {
-            [
-                (self.create, "Invite members to workspace"),
-                (self.describe, "View membership details"),
-                (self.list, "List memberships"),
-                (self.update, "Update membership roles"),
-                (self.delete, "Remove members"),
-            ]
-        })
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &MEMBERSHIP
     }
 }
 
@@ -488,17 +530,8 @@ pub struct RolePermissions {
 }
 
 impl RolePermissions {
-    pub fn all(&self) -> &[(&'static str, &'static str)] {
-        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
-        ALL.get_or_init(|| {
-            [
-                (self.create, "Create new roles"),
-                (self.describe, "View role details"),
-                (self.list, "List roles"),
-                (self.update, "Update role permissions"),
-                (self.delete, "Delete roles"),
-            ]
-        })
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &ROLE
     }
 }
 
@@ -513,19 +546,8 @@ pub struct ClientPermissions {
 }
 
 impl ClientPermissions {
-    pub fn all(&self) -> &[(&'static str, &'static str)] {
-        static ALL: OnceLock<[(&'static str, &'static str); 7]> = OnceLock::new();
-        ALL.get_or_init(|| {
-            [
-                (self.create, "Register new API clients"),
-                (self.describe, "View client details"),
-                (self.list, "List clients"),
-                (self.update, "Update client configuration"),
-                (self.delete, "Delete clients"),
-                (self.validate, "Validate client credentials"),
-                (self.regenerate_secret, "Regenerate client secret"),
-            ]
-        })
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &CLIENT
     }
 }
 
@@ -538,17 +560,8 @@ pub struct CredentialPermissions {
 }
 
 impl CredentialPermissions {
-    pub fn all(&self) -> &[(&'static str, &'static str)] {
-        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
-        ALL.get_or_init(|| {
-            [
-                (self.create, "Create new credentials"),
-                (self.describe, "View credential details"),
-                (self.list, "List credentials"),
-                (self.update, "Update credentials"),
-                (self.delete, "Delete credentials"),
-            ]
-        })
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &CREDENTIAL
     }
 }
 
@@ -561,17 +574,8 @@ pub struct PermissionPermissions {
 }
 
 impl PermissionPermissions {
-    pub fn all(&self) -> &[(&'static str, &'static str)] {
-        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
-        ALL.get_or_init(|| {
-            [
-                (self.create, "Create new permissions"),
-                (self.describe, "View permission details"),
-                (self.list, "List permissions"),
-                (self.update, "Update permissions"),
-                (self.delete, "Delete permissions"),
-            ]
-        })
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &PERMISSION
     }
 }
 
@@ -584,17 +588,8 @@ pub struct PolicyPermissions {
 }
 
 impl PolicyPermissions {
-    pub fn all(&self) -> &[(&'static str, &'static str)] {
-        static ALL: OnceLock<[(&'static str, &'static str); 5]> = OnceLock::new();
-        ALL.get_or_init(|| {
-            [
-                (self.create, "Create new policies"),
-                (self.describe, "View policy details"),
-                (self.list, "List policies"),
-                (self.update, "Update policies"),
-                (self.delete, "Delete policies"),
-            ]
-        })
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &POLICY
     }
 }
 
@@ -604,17 +599,8 @@ pub struct AuthPermissions {
 }
 
 impl AuthPermissions {
-    pub fn all(&self) -> Vec<(&'static str, &'static str)> {
-        vec![
-            (
-                self.refresh,
-                "Rotate authentication tokens (refresh access)",
-            ),
-            (
-                self.revoke,
-                "Revoke authentication tokens (invalidate sessions)",
-            ),
-        ]
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &AUTH
     }
 }
 
@@ -626,13 +612,8 @@ pub struct SystemPermissions {
 }
 
 impl SystemPermissions {
-    pub fn all(&self) -> Vec<(&'static str, &'static str)> {
-        vec![
-            (self.sys_admin, "Complete system access"),
-            (self.sys_prefix, "System prefix (resricted)"),
-            (self.workspace_prefix, "Workspace prefix (restricted)"),
-            (self.star_all, "Star all permissions *"),
-        ]
+    pub fn all(&self) -> &[CanonicalPermission] {
+        &SYSTEM
     }
 }
 
@@ -656,63 +637,44 @@ pub struct CanonicalPermissions {
 }
 
 impl CanonicalPermissions {
-    /// Returns all canonical permissions as (name, description) tuples across all domains.
-    pub fn all(&self) -> Vec<(&'static str, &'static str)> {
-        let mut v = Vec::new();
-        v.extend_from_slice(self.account.all());
-        v.extend_from_slice(self.workspace.all());
-        v.extend_from_slice(self.project.all());
-        v.extend_from_slice(self.profile.all());
-        v.extend_from_slice(self.membership.all());
-        v.extend_from_slice(self.role.all());
-        v.extend_from_slice(self.client.all());
-        v.extend_from_slice(self.credential.all());
-        v.extend_from_slice(self.permission.all());
-        v.extend_from_slice(self.policy.all());
-        v.extend_from_slice(&self.auth.all());
-        v.extend_from_slice(&self.system.all());
-        v
-    }
-
-    pub fn default_workspace_admin_perms(&self) -> Vec<(&'static str, &'static str)> {
-        let mut v = Vec::new();
-        v.extend_from_slice(self.account.all());
-        // only expose workspace describe, in order for members to decribe their own workspace
-        v.extend_from_slice(&[(self.workspace.describe, "Describe the workspace")]);
-        v.extend_from_slice(self.project.all());
-        v.extend_from_slice(self.profile.all());
-        v.extend_from_slice(self.membership.all());
-        v.extend_from_slice(self.role.all());
-        v.extend_from_slice(self.client.all());
-        v.extend_from_slice(self.credential.all());
-        v.extend_from_slice(self.permission.all());
-        v.extend_from_slice(self.policy.all());
-        v.extend_from_slice(&self.auth.all());
-        v
-    }
-
-    pub fn default_workspace_viewer_perms(&self) -> Vec<&'static str> {
-        let v = vec![
-            // account
-            CANONICAL_PERMISSIONS.account.describe, // describe own account
-            CANONICAL_PERMISSIONS.account.update,   // update own account
-            // workspace
-            CANONICAL_PERMISSIONS.workspace.describe, // describe own workspace
-            // project
-            CANONICAL_PERMISSIONS.project.describe, // describe projects
-            CANONICAL_PERMISSIONS.project.list,     // list projects
-            // profile
-            CANONICAL_PERMISSIONS.profile.describe, // describe profiles
-            CANONICAL_PERMISSIONS.profile.list,     // list profiles
-            // membership
-            CANONICAL_PERMISSIONS.membership.describe, // describe memberships
-            CANONICAL_PERMISSIONS.membership.list,     // list memberships
-            // auth
-            CANONICAL_PERMISSIONS.auth.refresh,
-            CANONICAL_PERMISSIONS.auth.revoke,
+    pub fn all(&self) -> &[CanonicalPermission] {
+        static ALL: [CanonicalPermission; 58] = [
+            ACCOUNT[0], ACCOUNT[1], ACCOUNT[2], ACCOUNT[3], ACCOUNT[4],
+            WORKSPACE[0], WORKSPACE[1], WORKSPACE[2], WORKSPACE[3], WORKSPACE[4],
+            PROJECT[0], PROJECT[1], PROJECT[2], PROJECT[3], PROJECT[4],
+            PROFILE[0], PROFILE[1], PROFILE[2], PROFILE[3], PROFILE[4],
+            MEMBERSHIP[0], MEMBERSHIP[1], MEMBERSHIP[2], MEMBERSHIP[3], MEMBERSHIP[4],
+            ROLE[0], ROLE[1], ROLE[2], ROLE[3], ROLE[4],
+            CLIENT[0], CLIENT[1], CLIENT[2], CLIENT[3], CLIENT[4], CLIENT[5], CLIENT[6],
+            CREDENTIAL[0], CREDENTIAL[1], CREDENTIAL[2], CREDENTIAL[3], CREDENTIAL[4],
+            PERMISSION[0], PERMISSION[1], PERMISSION[2], PERMISSION[3], PERMISSION[4],
+            POLICY[0], POLICY[1], POLICY[2], POLICY[3], POLICY[4],
+            AUTH[0], AUTH[1], SYSTEM[0], SYSTEM[1], SYSTEM[2], SYSTEM[3],
         ];
+        &ALL
+    }
 
-        v
+    pub fn default_workspace_admin_perms(&self) -> &[CanonicalPermission] {
+        static ADMIN: [CanonicalPermission; 50] = [
+            ACCOUNT[0], ACCOUNT[1], ACCOUNT[2], ACCOUNT[3], ACCOUNT[4], WORKSPACE[1],
+            PROJECT[0], PROJECT[1], PROJECT[2], PROJECT[3], PROJECT[4],
+            PROFILE[0], PROFILE[1], PROFILE[2], PROFILE[3], PROFILE[4],
+            MEMBERSHIP[0], MEMBERSHIP[1], MEMBERSHIP[2], MEMBERSHIP[3], MEMBERSHIP[4],
+            ROLE[0], ROLE[1], ROLE[2], ROLE[3], ROLE[4],
+            CLIENT[0], CLIENT[1], CLIENT[2], CLIENT[3], CLIENT[4], CLIENT[5], CLIENT[6],
+            CREDENTIAL[0], CREDENTIAL[1], CREDENTIAL[2], CREDENTIAL[3], CREDENTIAL[4],
+            PERMISSION[0], PERMISSION[1], PERMISSION[2], PERMISSION[3], PERMISSION[4],
+            POLICY[0], POLICY[1], POLICY[2], POLICY[3], POLICY[4], AUTH[0], AUTH[1],
+        ];
+        &ADMIN
+    }
+
+    pub fn default_workspace_viewer_perms(&self) -> &[CanonicalPermission] {
+        static VIEWER: [CanonicalPermission; 11] = [
+            ACCOUNT[1], ACCOUNT[3], WORKSPACE[1], PROJECT[1], PROJECT[2],
+            PROFILE[1], PROFILE[2], MEMBERSHIP[1], MEMBERSHIP[2], AUTH[0], AUTH[1],
+        ];
+        &VIEWER
     }
 }
 
