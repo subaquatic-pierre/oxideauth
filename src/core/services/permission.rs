@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
@@ -97,8 +98,13 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
             .await?;
 
         let mut data: Vec<PermissionForCreate> = vec![];
+        let is_system_admin = ctx.is_system_admin()?;
+
+        debug!("CTX inside PermissionService.create_many: {ctx:#?}");
         for param in params.permissions.into_iter() {
-            Self::validate_restricted_key(&param.key)?;
+            if !is_system_admin {
+                Self::validate_restricted_key(&param.key)?;
+            }
             data.push(param.into());
         }
 
@@ -170,7 +176,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Permissio
             .await?;
 
         // ensure no keys are system restricted keys
-        Self::validate_restricted_key(&params.key)?;
+        if !ctx.is_system_admin()? {
+            Self::validate_restricted_key(&params.key)?;
+        }
 
         let n_perm = store.create(&store_ctx, params.into()).await?;
 
@@ -369,86 +377,318 @@ pub struct CanonicalPermission {
 }
 
 const ACCOUNT: [CanonicalPermission; 5] = [
-    CanonicalPermission { key: "account:create", label: "Create Account", description: "Create new accounts" },
-    CanonicalPermission { key: "account:describe", label: "Describe Account", description: "View account details" },
-    CanonicalPermission { key: "account:list", label: "List Accounts", description: "List accounts" },
-    CanonicalPermission { key: "account:update", label: "Update Account", description: "Update account details" },
-    CanonicalPermission { key: "account:delete", label: "Delete Account", description: "Delete accounts" },
+    CanonicalPermission {
+        key: "account:create",
+        label: "Create Account",
+        description: "Create new accounts",
+    },
+    CanonicalPermission {
+        key: "account:describe",
+        label: "Describe Account",
+        description: "View account details",
+    },
+    CanonicalPermission {
+        key: "account:list",
+        label: "List Accounts",
+        description: "List accounts",
+    },
+    CanonicalPermission {
+        key: "account:update",
+        label: "Update Account",
+        description: "Update account details",
+    },
+    CanonicalPermission {
+        key: "account:delete",
+        label: "Delete Account",
+        description: "Delete accounts",
+    },
 ];
 const WORKSPACE: [CanonicalPermission; 5] = [
-    CanonicalPermission { key: "workspace:create", label: "Create Workspace", description: "Create new workspaces" },
-    CanonicalPermission { key: "workspace:describe", label: "Describe Workspace", description: "View workspace details" },
-    CanonicalPermission { key: "workspace:list", label: "List Workspaces", description: "List workspaces" },
-    CanonicalPermission { key: "workspace:update", label: "Update Workspace", description: "Update workspace settings" },
-    CanonicalPermission { key: "workspace:delete", label: "Delete Workspace", description: "Delete workspaces" },
+    CanonicalPermission {
+        key: "workspace:create",
+        label: "Create Workspace",
+        description: "Create new workspaces",
+    },
+    CanonicalPermission {
+        key: "workspace:describe",
+        label: "Describe Workspace",
+        description: "View workspace details",
+    },
+    CanonicalPermission {
+        key: "workspace:list",
+        label: "List Workspaces",
+        description: "List workspaces",
+    },
+    CanonicalPermission {
+        key: "workspace:update",
+        label: "Update Workspace",
+        description: "Update workspace settings",
+    },
+    CanonicalPermission {
+        key: "workspace:delete",
+        label: "Delete Workspace",
+        description: "Delete workspaces",
+    },
 ];
 const PROJECT: [CanonicalPermission; 5] = [
-    CanonicalPermission { key: "project:create", label: "Create Project", description: "Create new projects" },
-    CanonicalPermission { key: "project:describe", label: "Describe Project", description: "View project details" },
-    CanonicalPermission { key: "project:list", label: "List Projects", description: "List projects" },
-    CanonicalPermission { key: "project:update", label: "Update Project", description: "Update project settings" },
-    CanonicalPermission { key: "project:delete", label: "Delete Project", description: "Delete projects" },
+    CanonicalPermission {
+        key: "project:create",
+        label: "Create Project",
+        description: "Create new projects",
+    },
+    CanonicalPermission {
+        key: "project:describe",
+        label: "Describe Project",
+        description: "View project details",
+    },
+    CanonicalPermission {
+        key: "project:list",
+        label: "List Projects",
+        description: "List projects",
+    },
+    CanonicalPermission {
+        key: "project:update",
+        label: "Update Project",
+        description: "Update project settings",
+    },
+    CanonicalPermission {
+        key: "project:delete",
+        label: "Delete Project",
+        description: "Delete projects",
+    },
 ];
 const PROFILE: [CanonicalPermission; 5] = [
-    CanonicalPermission { key: "profile:create", label: "Create Profile", description: "Create new profiles" },
-    CanonicalPermission { key: "profile:describe", label: "Describe Profile", description: "View profile details" },
-    CanonicalPermission { key: "profile:list", label: "List Profiles", description: "List profiles" },
-    CanonicalPermission { key: "profile:update", label: "Update Profile", description: "Update profile settings" },
-    CanonicalPermission { key: "profile:delete", label: "Delete Profile", description: "Delete profiles" },
+    CanonicalPermission {
+        key: "profile:create",
+        label: "Create Profile",
+        description: "Create new profiles",
+    },
+    CanonicalPermission {
+        key: "profile:describe",
+        label: "Describe Profile",
+        description: "View profile details",
+    },
+    CanonicalPermission {
+        key: "profile:list",
+        label: "List Profiles",
+        description: "List profiles",
+    },
+    CanonicalPermission {
+        key: "profile:update",
+        label: "Update Profile",
+        description: "Update profile settings",
+    },
+    CanonicalPermission {
+        key: "profile:delete",
+        label: "Delete Profile",
+        description: "Delete profiles",
+    },
 ];
 const MEMBERSHIP: [CanonicalPermission; 5] = [
-    CanonicalPermission { key: "membership:create", label: "Create Membership", description: "Invite members to workspace" },
-    CanonicalPermission { key: "membership:describe", label: "Describe Membership", description: "View membership details" },
-    CanonicalPermission { key: "membership:list", label: "List Memberships", description: "List memberships" },
-    CanonicalPermission { key: "membership:update", label: "Update Membership", description: "Update membership roles" },
-    CanonicalPermission { key: "membership:delete", label: "Delete Membership", description: "Remove members" },
+    CanonicalPermission {
+        key: "membership:create",
+        label: "Create Membership",
+        description: "Invite members to workspace",
+    },
+    CanonicalPermission {
+        key: "membership:describe",
+        label: "Describe Membership",
+        description: "View membership details",
+    },
+    CanonicalPermission {
+        key: "membership:list",
+        label: "List Memberships",
+        description: "List memberships",
+    },
+    CanonicalPermission {
+        key: "membership:update",
+        label: "Update Membership",
+        description: "Update membership roles",
+    },
+    CanonicalPermission {
+        key: "membership:delete",
+        label: "Delete Membership",
+        description: "Remove members",
+    },
 ];
 const ROLE: [CanonicalPermission; 5] = [
-    CanonicalPermission { key: "role:create", label: "Create Role", description: "Create new roles" },
-    CanonicalPermission { key: "role:describe", label: "Describe Role", description: "View role details" },
-    CanonicalPermission { key: "role:list", label: "List Roles", description: "List roles" },
-    CanonicalPermission { key: "role:update", label: "Update Role", description: "Update role permissions" },
-    CanonicalPermission { key: "role:delete", label: "Delete Role", description: "Delete roles" },
+    CanonicalPermission {
+        key: "role:create",
+        label: "Create Role",
+        description: "Create new roles",
+    },
+    CanonicalPermission {
+        key: "role:describe",
+        label: "Describe Role",
+        description: "View role details",
+    },
+    CanonicalPermission {
+        key: "role:list",
+        label: "List Roles",
+        description: "List roles",
+    },
+    CanonicalPermission {
+        key: "role:update",
+        label: "Update Role",
+        description: "Update role permissions",
+    },
+    CanonicalPermission {
+        key: "role:delete",
+        label: "Delete Role",
+        description: "Delete roles",
+    },
 ];
 const CLIENT: [CanonicalPermission; 7] = [
-    CanonicalPermission { key: "client:create", label: "Create Client", description: "Register new API clients" },
-    CanonicalPermission { key: "client:describe", label: "Describe Client", description: "View client details" },
-    CanonicalPermission { key: "client:list", label: "List Clients", description: "List clients" },
-    CanonicalPermission { key: "client:update", label: "Update Client", description: "Update client configuration" },
-    CanonicalPermission { key: "client:delete", label: "Delete Client", description: "Delete clients" },
-    CanonicalPermission { key: "client:validate", label: "Validate Client", description: "Validate client credentials" },
-    CanonicalPermission { key: "client:regenerateSecret", label: "Regenerate Client Secret", description: "Regenerate client secret" },
+    CanonicalPermission {
+        key: "client:create",
+        label: "Create Client",
+        description: "Register new API clients",
+    },
+    CanonicalPermission {
+        key: "client:describe",
+        label: "Describe Client",
+        description: "View client details",
+    },
+    CanonicalPermission {
+        key: "client:list",
+        label: "List Clients",
+        description: "List clients",
+    },
+    CanonicalPermission {
+        key: "client:update",
+        label: "Update Client",
+        description: "Update client configuration",
+    },
+    CanonicalPermission {
+        key: "client:delete",
+        label: "Delete Client",
+        description: "Delete clients",
+    },
+    CanonicalPermission {
+        key: "client:validate",
+        label: "Validate Client",
+        description: "Validate client credentials",
+    },
+    CanonicalPermission {
+        key: "client:regenerateSecret",
+        label: "Regenerate Client Secret",
+        description: "Regenerate client secret",
+    },
 ];
 const CREDENTIAL: [CanonicalPermission; 5] = [
-    CanonicalPermission { key: "credential:create", label: "Create Credential", description: "Create new credentials" },
-    CanonicalPermission { key: "credential:describe", label: "Describe Credential", description: "View credential details" },
-    CanonicalPermission { key: "credential:list", label: "List Credentials", description: "List credentials" },
-    CanonicalPermission { key: "credential:update", label: "Update Credential", description: "Update credentials" },
-    CanonicalPermission { key: "credential:delete", label: "Delete Credential", description: "Delete credentials" },
+    CanonicalPermission {
+        key: "credential:create",
+        label: "Create Credential",
+        description: "Create new credentials",
+    },
+    CanonicalPermission {
+        key: "credential:describe",
+        label: "Describe Credential",
+        description: "View credential details",
+    },
+    CanonicalPermission {
+        key: "credential:list",
+        label: "List Credentials",
+        description: "List credentials",
+    },
+    CanonicalPermission {
+        key: "credential:update",
+        label: "Update Credential",
+        description: "Update credentials",
+    },
+    CanonicalPermission {
+        key: "credential:delete",
+        label: "Delete Credential",
+        description: "Delete credentials",
+    },
 ];
 const PERMISSION: [CanonicalPermission; 5] = [
-    CanonicalPermission { key: "permission:create", label: "Create Permission", description: "Create new permissions" },
-    CanonicalPermission { key: "permission:describe", label: "Describe Permission", description: "View permission details" },
-    CanonicalPermission { key: "permission:list", label: "List Permissions", description: "List permissions" },
-    CanonicalPermission { key: "permission:update", label: "Update Permission", description: "Update permissions" },
-    CanonicalPermission { key: "permission:delete", label: "Delete Permission", description: "Delete permissions" },
+    CanonicalPermission {
+        key: "permission:create",
+        label: "Create Permission",
+        description: "Create new permissions",
+    },
+    CanonicalPermission {
+        key: "permission:describe",
+        label: "Describe Permission",
+        description: "View permission details",
+    },
+    CanonicalPermission {
+        key: "permission:list",
+        label: "List Permissions",
+        description: "List permissions",
+    },
+    CanonicalPermission {
+        key: "permission:update",
+        label: "Update Permission",
+        description: "Update permissions",
+    },
+    CanonicalPermission {
+        key: "permission:delete",
+        label: "Delete Permission",
+        description: "Delete permissions",
+    },
 ];
 const POLICY: [CanonicalPermission; 5] = [
-    CanonicalPermission { key: "policy:create", label: "Create Policy", description: "Create new policies" },
-    CanonicalPermission { key: "policy:describe", label: "Describe Policy", description: "View policy details" },
-    CanonicalPermission { key: "policy:list", label: "List Policies", description: "List policies" },
-    CanonicalPermission { key: "policy:update", label: "Update Policy", description: "Update policies" },
-    CanonicalPermission { key: "policy:delete", label: "Delete Policy", description: "Delete policies" },
+    CanonicalPermission {
+        key: "policy:create",
+        label: "Create Policy",
+        description: "Create new policies",
+    },
+    CanonicalPermission {
+        key: "policy:describe",
+        label: "Describe Policy",
+        description: "View policy details",
+    },
+    CanonicalPermission {
+        key: "policy:list",
+        label: "List Policies",
+        description: "List policies",
+    },
+    CanonicalPermission {
+        key: "policy:update",
+        label: "Update Policy",
+        description: "Update policies",
+    },
+    CanonicalPermission {
+        key: "policy:delete",
+        label: "Delete Policy",
+        description: "Delete policies",
+    },
 ];
 const AUTH: [CanonicalPermission; 2] = [
-    CanonicalPermission { key: "auth:refresh", label: "Refresh Tokens", description: "Rotate authentication tokens (refresh access)" },
-    CanonicalPermission { key: "auth:revoke", label: "Revoke Tokens", description: "Revoke authentication tokens (invalidate sessions)" },
+    CanonicalPermission {
+        key: "auth:refresh",
+        label: "Refresh Tokens",
+        description: "Rotate authentication tokens (refresh access)",
+    },
+    CanonicalPermission {
+        key: "auth:revoke",
+        label: "Revoke Tokens",
+        description: "Revoke authentication tokens (invalidate sessions)",
+    },
 ];
 const SYSTEM: [CanonicalPermission; 4] = [
-    CanonicalPermission { key: "*:*", label: "System Administrator", description: "Complete system access" },
-    CanonicalPermission { key: "system", label: "System Prefix", description: "System prefix (resricted)" },
-    CanonicalPermission { key: "workspace", label: "Workspace Prefix", description: "Workspace prefix (restricted)" },
-    CanonicalPermission { key: "*", label: "All Permissions", description: "Star all permissions *" },
+    CanonicalPermission {
+        key: "*:*",
+        label: "System Administrator",
+        description: "Complete system access",
+    },
+    CanonicalPermission {
+        key: "system",
+        label: "System Prefix",
+        description: "System prefix (resricted)",
+    },
+    CanonicalPermission {
+        key: "workspace",
+        label: "Workspace Prefix",
+        description: "Workspace prefix (restricted)",
+    },
+    CanonicalPermission {
+        key: "*",
+        label: "All Permissions",
+        description: "Star all permissions *",
+    },
 ];
 
 pub struct AccountPermissions {
@@ -639,40 +879,137 @@ pub struct CanonicalPermissions {
 impl CanonicalPermissions {
     pub fn all(&self) -> &[CanonicalPermission] {
         static ALL: [CanonicalPermission; 58] = [
-            ACCOUNT[0], ACCOUNT[1], ACCOUNT[2], ACCOUNT[3], ACCOUNT[4],
-            WORKSPACE[0], WORKSPACE[1], WORKSPACE[2], WORKSPACE[3], WORKSPACE[4],
-            PROJECT[0], PROJECT[1], PROJECT[2], PROJECT[3], PROJECT[4],
-            PROFILE[0], PROFILE[1], PROFILE[2], PROFILE[3], PROFILE[4],
-            MEMBERSHIP[0], MEMBERSHIP[1], MEMBERSHIP[2], MEMBERSHIP[3], MEMBERSHIP[4],
-            ROLE[0], ROLE[1], ROLE[2], ROLE[3], ROLE[4],
-            CLIENT[0], CLIENT[1], CLIENT[2], CLIENT[3], CLIENT[4], CLIENT[5], CLIENT[6],
-            CREDENTIAL[0], CREDENTIAL[1], CREDENTIAL[2], CREDENTIAL[3], CREDENTIAL[4],
-            PERMISSION[0], PERMISSION[1], PERMISSION[2], PERMISSION[3], PERMISSION[4],
-            POLICY[0], POLICY[1], POLICY[2], POLICY[3], POLICY[4],
-            AUTH[0], AUTH[1], SYSTEM[0], SYSTEM[1], SYSTEM[2], SYSTEM[3],
+            ACCOUNT[0],
+            ACCOUNT[1],
+            ACCOUNT[2],
+            ACCOUNT[3],
+            ACCOUNT[4],
+            WORKSPACE[0],
+            WORKSPACE[1],
+            WORKSPACE[2],
+            WORKSPACE[3],
+            WORKSPACE[4],
+            PROJECT[0],
+            PROJECT[1],
+            PROJECT[2],
+            PROJECT[3],
+            PROJECT[4],
+            PROFILE[0],
+            PROFILE[1],
+            PROFILE[2],
+            PROFILE[3],
+            PROFILE[4],
+            MEMBERSHIP[0],
+            MEMBERSHIP[1],
+            MEMBERSHIP[2],
+            MEMBERSHIP[3],
+            MEMBERSHIP[4],
+            ROLE[0],
+            ROLE[1],
+            ROLE[2],
+            ROLE[3],
+            ROLE[4],
+            CLIENT[0],
+            CLIENT[1],
+            CLIENT[2],
+            CLIENT[3],
+            CLIENT[4],
+            CLIENT[5],
+            CLIENT[6],
+            CREDENTIAL[0],
+            CREDENTIAL[1],
+            CREDENTIAL[2],
+            CREDENTIAL[3],
+            CREDENTIAL[4],
+            PERMISSION[0],
+            PERMISSION[1],
+            PERMISSION[2],
+            PERMISSION[3],
+            PERMISSION[4],
+            POLICY[0],
+            POLICY[1],
+            POLICY[2],
+            POLICY[3],
+            POLICY[4],
+            AUTH[0],
+            AUTH[1],
+            SYSTEM[0],
+            SYSTEM[1],
+            SYSTEM[2],
+            SYSTEM[3],
         ];
         &ALL
     }
 
     pub fn default_workspace_admin_perms(&self) -> &[CanonicalPermission] {
         static ADMIN: [CanonicalPermission; 50] = [
-            ACCOUNT[0], ACCOUNT[1], ACCOUNT[2], ACCOUNT[3], ACCOUNT[4], WORKSPACE[1],
-            PROJECT[0], PROJECT[1], PROJECT[2], PROJECT[3], PROJECT[4],
-            PROFILE[0], PROFILE[1], PROFILE[2], PROFILE[3], PROFILE[4],
-            MEMBERSHIP[0], MEMBERSHIP[1], MEMBERSHIP[2], MEMBERSHIP[3], MEMBERSHIP[4],
-            ROLE[0], ROLE[1], ROLE[2], ROLE[3], ROLE[4],
-            CLIENT[0], CLIENT[1], CLIENT[2], CLIENT[3], CLIENT[4], CLIENT[5], CLIENT[6],
-            CREDENTIAL[0], CREDENTIAL[1], CREDENTIAL[2], CREDENTIAL[3], CREDENTIAL[4],
-            PERMISSION[0], PERMISSION[1], PERMISSION[2], PERMISSION[3], PERMISSION[4],
-            POLICY[0], POLICY[1], POLICY[2], POLICY[3], POLICY[4], AUTH[0], AUTH[1],
+            ACCOUNT[0],
+            ACCOUNT[1],
+            ACCOUNT[2],
+            ACCOUNT[3],
+            ACCOUNT[4],
+            WORKSPACE[1],
+            PROJECT[0],
+            PROJECT[1],
+            PROJECT[2],
+            PROJECT[3],
+            PROJECT[4],
+            PROFILE[0],
+            PROFILE[1],
+            PROFILE[2],
+            PROFILE[3],
+            PROFILE[4],
+            MEMBERSHIP[0],
+            MEMBERSHIP[1],
+            MEMBERSHIP[2],
+            MEMBERSHIP[3],
+            MEMBERSHIP[4],
+            ROLE[0],
+            ROLE[1],
+            ROLE[2],
+            ROLE[3],
+            ROLE[4],
+            CLIENT[0],
+            CLIENT[1],
+            CLIENT[2],
+            CLIENT[3],
+            CLIENT[4],
+            CLIENT[5],
+            CLIENT[6],
+            CREDENTIAL[0],
+            CREDENTIAL[1],
+            CREDENTIAL[2],
+            CREDENTIAL[3],
+            CREDENTIAL[4],
+            PERMISSION[0],
+            PERMISSION[1],
+            PERMISSION[2],
+            PERMISSION[3],
+            PERMISSION[4],
+            POLICY[0],
+            POLICY[1],
+            POLICY[2],
+            POLICY[3],
+            POLICY[4],
+            AUTH[0],
+            AUTH[1],
         ];
         &ADMIN
     }
 
     pub fn default_workspace_viewer_perms(&self) -> &[CanonicalPermission] {
         static VIEWER: [CanonicalPermission; 11] = [
-            ACCOUNT[1], ACCOUNT[3], WORKSPACE[1], PROJECT[1], PROJECT[2],
-            PROFILE[1], PROFILE[2], MEMBERSHIP[1], MEMBERSHIP[2], AUTH[0], AUTH[1],
+            ACCOUNT[1],
+            ACCOUNT[3],
+            WORKSPACE[1],
+            PROJECT[1],
+            PROJECT[2],
+            PROFILE[1],
+            PROFILE[2],
+            MEMBERSHIP[1],
+            MEMBERSHIP[2],
+            AUTH[0],
+            AUTH[1],
         ];
         &VIEWER
     }

@@ -2,16 +2,14 @@ use uuid::Uuid;
 
 use crate::cache::entities::auth::{AuthCache, AuthScopeCache};
 use crate::cache::entities::workspace::WorkspaceCache;
+use crate::core::models::permission::PermissionRule;
 use crate::core::models::policy::PolicySet;
 use crate::core::models::workspace::{WorkspaceConfig, WorkspaceMeta};
 use crate::store::stores::workspace::SYSTEM_CONST;
 use crate::{
     core::{
         error::{CoreError, CoreResult},
-        models::{
-            permission::PermissionSet,
-            workspace::Workspace,
-        },
+        models::{permission::PermissionSet, workspace::Workspace},
     },
     store::{ctx::StoreCtx, manager::StoreManager, traits::dbx::DbExecutor},
 };
@@ -109,6 +107,14 @@ impl CoreCtx {
         // only one system_ws_slug can ever exist
         // it is created on system bootstrap
         Ok(&self.ws_cache.slug == SYSTEM_CONST.system_ws_slug)
+    }
+
+    pub fn is_system_admin(&self) -> CoreResult<bool> {
+        // Note: slug is unique across the system
+        // only one system_ws_slug can ever exist
+        // it is created on system bootstrap
+        let rule = PermissionRule::try_from("*:*")?;
+        Ok(self.permissions().is_allowed(&rule))
     }
 
     // --- Operational target (may differ from token scope for root tokens) ---
@@ -275,4 +281,3 @@ impl Default for ContextFactory {
         Self::new()
     }
 }
-
