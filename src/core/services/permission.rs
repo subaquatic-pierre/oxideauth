@@ -34,7 +34,10 @@ use crate::{
         contains::FilterByContains,
         crud::{Create, CreateMany, Delete, Get, GetCount, List, Update},
         ctx::StoreCtx,
-        entities::{permission::PermissionRow, role::RoleFilter},
+        entities::{
+            permission::{PermissionForCreate, PermissionRow},
+            role::RoleFilter,
+        },
         error::StoreError,
         join::ListManyToMany,
         manager::StoreManager,
@@ -95,7 +98,13 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
             .scope_and_validate(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
             .await?;
-        let data = params.permissions.into_iter().map(|el| el.into()).collect();
+
+        let mut data: Vec<PermissionForCreate> = vec![];
+        for param in params.permissions.into_iter() {
+            Self::validate_restricted_key(&param.key)?;
+            data.push(param.into());
+        }
+
         let res = self.store().create_many(&store_ctx, data).await?;
 
         let ret = res.into_iter().map(|el| el.into()).collect();
@@ -132,6 +141,20 @@ impl<D: DbExecutor, C: CacheExecutor> PermissionService<D, C> {
         }
         Ok(())
     }
+
+    fn validate_restricted_key(key: &str) -> CoreResult<()> {
+        if CANONICAL_PERMISSIONS
+            .system
+            .all()
+            .into_iter()
+            .any(|(el, _)| key.starts_with(el))
+        {
+            return Err(CoreError::InvalidParams(format!(
+                "permission key is reserved {key}"
+            )));
+        }
+        Ok(())
+    }
 }
 
 impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for PermissionService<D, C> {
@@ -148,6 +171,9 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Permissio
             // NOTE(workspace-scope): scoped - scopes the store context to the requested workspace.
             .scope_and_validate(ctx, params.workspace_id, &[Self::CREATE_PERMISSION])
             .await?;
+
+        // ensure no keys are system restricted keys
+        Self::validate_restricted_key(&params.key)?;
 
         let n_perm = store.create(&store_ctx, params.into()).await?;
 

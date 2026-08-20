@@ -109,12 +109,11 @@ pub struct PermissionCreateParams {
 }
 
 impl PermissionCreateParams {
-    pub fn new_system(ws_id: Uuid, name: &str, desc: Option<&str>) -> Self {
+    pub fn new_system(ws_id: Uuid, key: &str, label: Option<&str>, desc: Option<&str>) -> Self {
         Self {
             workspace_id: Some(ws_id),
-            key: name.to_string(),
-            // TODO: add label
-            label: None,
+            key: key.to_string(),
+            label: label.map(|s| s.to_string()),
             description: desc.map(|s| s.to_string()),
             tags: vec!["system".to_string()],
             meta: PermissionMeta::default(),
