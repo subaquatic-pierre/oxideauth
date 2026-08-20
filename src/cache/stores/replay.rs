@@ -32,7 +32,7 @@ impl<C: CacheExecutor> RefreshTokenReplayCacheStore<C> {
     /// - `Ok(true)`  — the token was already consumed: a replay was detected.
     /// - `Ok(false)` — the token was fresh: it has now been marked as consumed
     ///   with the given `sid` and TTL (seconds).
-    pub async fn check_and_consume(&self, jti: Uuid, sid: Uuid, ttl: u64) -> CacheResult<bool> {
+    pub async fn check_and_consume(&self, jti: Uuid, sid: Uuid, ttl: i64) -> CacheResult<bool> {
         let key = CacheKey::new("oxauth", "crt", jti);
         if self
             .chx

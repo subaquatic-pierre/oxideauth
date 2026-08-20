@@ -6,10 +6,7 @@ use std::{
 use axum::async_trait;
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::cache::{
-    error::CacheResult,
-    traits::CacheExecutor,
-};
+use crate::cache::{error::CacheResult, traits::CacheExecutor};
 
 /// In-memory cache executor for local development and tests.
 ///
@@ -40,10 +37,7 @@ impl CacheExecutor for MockChx {
         T: DeserializeOwned + Send + Sync,
     {
         let raw = {
-            let store = self
-                .store
-                .lock()
-                .expect("MockChx store poisoned");
+            let store = self.store.lock().expect("MockChx store poisoned");
             store.get(key).cloned()
         };
 
@@ -61,7 +55,7 @@ impl CacheExecutor for MockChx {
         key: &str,
         _path: Option<&str>,
         val: &T,
-        _ttl: Option<u64>,
+        _ttl: Option<i64>,
     ) -> CacheResult<()>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
@@ -74,7 +68,7 @@ impl CacheExecutor for MockChx {
         Ok(())
     }
 
-    async fn json_del<T>(&self, key: &str, _path: Option<&str>) -> CacheResult<u64>
+    async fn json_del<T>(&self, key: &str, _path: Option<&str>) -> CacheResult<i64>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
@@ -88,16 +82,13 @@ impl CacheExecutor for MockChx {
 
     async fn incr(&self, key: &str) -> CacheResult<i64> {
         let mut store = self.store.lock().expect("MockChx store poisoned");
-        let current: i64 = store
-            .get(key)
-            .map(|v| v.parse().unwrap_or(0))
-            .unwrap_or(0);
+        let current: i64 = store.get(key).map(|v| v.parse().unwrap_or(0)).unwrap_or(0);
         let next = current + 1;
         store.insert(key.to_string(), next.to_string());
         Ok(next)
     }
 
-    async fn set(&self, key: &str, val: &str, _ttl_seconds: Option<u64>) -> CacheResult<()> {
+    async fn set(&self, key: &str, val: &str, _ttl_seconds: Option<i64>) -> CacheResult<()> {
         self.store
             .lock()
             .expect("MockChx store poisoned")
@@ -114,7 +105,7 @@ impl CacheExecutor for MockChx {
             .cloned())
     }
 
-    async fn del(&self, key: &str) -> CacheResult<u64> {
+    async fn del(&self, key: &str) -> CacheResult<i64> {
         let removed = self
             .store
             .lock()

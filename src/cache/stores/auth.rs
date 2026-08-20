@@ -33,7 +33,7 @@ impl<C: CacheExecutor> AuthCacheStore<C> {
     }
 
     /// Writes all keys for the entity with the given TTL (seconds).
-    pub async fn write(&self, entity: &AuthCache, ttl: Option<u64>) -> CacheResult<()> {
+    pub async fn write(&self, entity: &AuthCache, ttl: Option<i64>) -> CacheResult<()> {
         self.chx
             .json_set(entity.key().as_ref(), None, entity, ttl)
             .await?;
@@ -46,7 +46,7 @@ impl<C: CacheExecutor> AuthCacheStore<C> {
     }
 
     /// Deletes all keys for the entity. Used on invalidation.
-    pub async fn invalidate(&self, mem_id: Uuid) -> CacheResult<u64> {
+    pub async fn invalidate(&self, mem_id: Uuid) -> CacheResult<i64> {
         let key = AuthCache::new_key(mem_id);
         let res = self.chx.json_del::<AuthCache>(key.as_ref(), None).await?;
 

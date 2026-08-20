@@ -126,6 +126,7 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
     /// When `params.id` is present the account is fetched by id (returning
     /// `Ok(None)` if it does not exist), otherwise `params.email` is used for
     /// an email lookup.
+    // TODO: fix this method api, method name should match params
     pub async fn get_by_email(
         &self,
         ctx: &CoreCtx,

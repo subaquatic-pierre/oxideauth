@@ -10,8 +10,8 @@ pub struct Config {
     pub database_url: String,
     pub redis_url: String,
     pub jwt_secret: String,
-    pub access_token_max_age: u64,
-    pub refresh_token_max_age: u64,
+    pub access_token_max_age: i64,
+    pub refresh_token_max_age: i64,
 
     pub google_oauth_client_id: String,
     pub google_oauth_client_secret: String,
@@ -49,11 +49,11 @@ impl Config {
         let jwt_secret = var("JWT_SECRET").expect("JWT_SECRET must be set");
         let access_token_max_age = var("ACCESS_TOKEN_MAXAGE")
             .unwrap_or("900".to_string()) // 15 minutes default
-            .parse::<u64>()
+            .parse::<i64>()
             .unwrap();
         let refresh_token_max_age = var("REFRESH_TOKEN_MAXAGE")
             .unwrap_or("604800".to_string()) // 7 days default
-            .parse::<u64>()
+            .parse::<i64>()
             .unwrap();
 
         let google_oauth_client_id =

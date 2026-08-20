@@ -32,7 +32,7 @@ impl<C: CacheExecutor> PolicyCacheStore<C> {
     }
 
     /// Writes the policy entity with the given TTL (seconds).
-    pub async fn write(&self, entity: &PolicyCache, ttl: Option<u64>) -> CacheResult<()> {
+    pub async fn write(&self, entity: &PolicyCache, ttl: Option<i64>) -> CacheResult<()> {
         self.chx
             .json_set(entity.key().as_ref(), None, entity, ttl)
             .await?;
@@ -41,7 +41,7 @@ impl<C: CacheExecutor> PolicyCacheStore<C> {
     }
 
     /// Deletes the policy entity for a membership. Used on invalidation.
-    pub async fn invalidate(&self, mem_id: Uuid) -> CacheResult<u64> {
+    pub async fn invalidate(&self, mem_id: Uuid) -> CacheResult<i64> {
         let key = PolicyCache::new_key(mem_id);
         let t = self.chx.json_del::<PolicyCache>(key.as_ref(), None).await?;
 

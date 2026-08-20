@@ -120,7 +120,7 @@ pub struct WorkspaceForUpdate {
 #[derive(Debug, Fields, Serialize, Deserialize, Clone)]
 pub struct WorkspaceConfig {
     pub allowed_auth_providers: Vec<String>,
-    pub jwt_max_age: u64,
+    pub jwt_max_age: i64,
     pub jwt_secret: String,
     pub public: bool,
     /// The status assigned to newly created memberships when the caller does

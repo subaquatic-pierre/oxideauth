@@ -35,7 +35,7 @@ impl<C: CacheExecutor> WorkspaceCacheStore<C> {
     }
 
     /// Writes the workspace entity with the given TTL (seconds).
-    pub async fn write(&self, entity: &WorkspaceCache, ttl: Option<u64>) -> CacheResult<()> {
+    pub async fn write(&self, entity: &WorkspaceCache, ttl: Option<i64>) -> CacheResult<()> {
         self.chx
             .json_set(entity.key().as_ref(), None, entity, ttl)
             .await?;
@@ -44,7 +44,7 @@ impl<C: CacheExecutor> WorkspaceCacheStore<C> {
     }
 
     /// Deletes the workspace entity. Used on invalidation.
-    pub async fn invalidate(&self, ws_id: Uuid) -> CacheResult<u64> {
+    pub async fn invalidate(&self, ws_id: Uuid) -> CacheResult<i64> {
         let key = WorkspaceCache::new_key(ws_id);
         let t = self
             .chx

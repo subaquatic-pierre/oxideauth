@@ -77,7 +77,7 @@ impl CacheExecutor for RedisChx {
         Ok(val)
     }
 
-    async fn set(&self, key: &str, val: &str, ttl_seconds: Option<u64>) -> CacheResult<()> {
+    async fn set(&self, key: &str, val: &str, ttl_seconds: Option<i64>) -> CacheResult<()> {
         // let str_val = serde_json::to_string(val)?;
 
         let mut cmd = redis::cmd("SET");
@@ -92,11 +92,11 @@ impl CacheExecutor for RedisChx {
         Ok(())
     }
 
-    async fn del(&self, key: &str) -> CacheResult<u64> {
+    async fn del(&self, key: &str) -> CacheResult<i64> {
         let mut cmd = redis::cmd("DEL");
         cmd.arg(key);
 
-        let val: u64 = self.query_async(cmd).await?;
+        let val: i64 = self.query_async(cmd).await?;
 
         Ok(val)
     }
@@ -123,7 +123,7 @@ impl CacheExecutor for RedisChx {
         key: &str,
         path: Option<&str>,
         value: &T,
-        ttl_seconds: Option<u64>,
+        ttl_seconds: Option<i64>,
     ) -> CacheResult<()>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
@@ -135,11 +135,11 @@ impl CacheExecutor for RedisChx {
     }
 
     /// Deletes a key from Redis.
-    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<u64>
+    async fn json_del<T>(&self, key: &str, path: Option<&str>) -> CacheResult<i64>
     where
         T: DeserializeOwned + Serialize + Send + Sync,
     {
-        let count: u64 = self.del(key).await?;
+        let count: i64 = self.del(key).await?;
 
         Ok(count)
     }

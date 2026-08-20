@@ -252,12 +252,6 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
             ));
         }
 
-        // --- Resolve effective status: explicit param wins, else workspace config default ---
-        let effective_status = match params.status {
-            Some(status) => status,
-            None => self.default_status_for_workspace(ctx, workspace_id).await?,
-        };
-
         // Guard: one membership per account per workspace
         // TODO: future must allow multiple memberships across projects within the workspace
         let membership_filter: MembershipFilter = json!({
@@ -282,7 +276,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelCreateService<D, C> for Membershi
             workspace_id,
             profile_id,
             scope,
-            status: effective_status,
+            status: params.status,
             project_id,
             tags,
             meta,

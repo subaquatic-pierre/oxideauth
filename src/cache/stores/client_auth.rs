@@ -26,7 +26,7 @@ impl<C: CacheExecutor> ClientAuthCacheStore<C> {
     }
 
     /// Writes the entity with the given TTL (seconds).
-    pub async fn write(&self, entity: &ClientAuthCache, ttl: Option<u64>) -> CacheResult<()> {
+    pub async fn write(&self, entity: &ClientAuthCache, ttl: Option<i64>) -> CacheResult<()> {
         self.chx
             .json_set(entity.key().as_ref(), None, entity, ttl)
             .await?;
@@ -41,9 +41,12 @@ impl<C: CacheExecutor> ClientAuthCacheStore<C> {
     }
 
     /// Deletes the cached entity. Used on invalidation.
-    pub async fn invalidate(&self, credential_id: Uuid) -> CacheResult<u64> {
+    pub async fn invalidate(&self, credential_id: Uuid) -> CacheResult<i64> {
         let key = ClientAuthCache::new_key(credential_id);
-        let res = self.chx.json_del::<ClientAuthCache>(key.as_ref(), None).await?;
+        let res = self
+            .chx
+            .json_del::<ClientAuthCache>(key.as_ref(), None)
+            .await?;
 
         Ok(res)
     }

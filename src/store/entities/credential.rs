@@ -17,7 +17,7 @@ use crate::store::error::{StoreError, StoreResult};
 use crate::store::traits::meta::HasId;
 use crate::store::utils::{gen_rand_str, json_to_sea_value, time_to_sea_value};
 
-pub const DEFAULT_JWT_MAX_AGE: u64 = 604800;
+pub const DEFAULT_JWT_MAX_AGE: i64 = 604800;
 
 #[derive(Iden, Copy, Clone)]
 pub enum CredentialIden {
@@ -214,7 +214,7 @@ impl TryFrom<JsonValue> for CredentialFilter {
 
 #[derive(Debug, Fields, Serialize, Deserialize, Clone)]
 pub struct CredentialConfig {
-    jwt_max_age: u64,
+    jwt_max_age: i64,
 }
 
 impl Default for CredentialConfig {

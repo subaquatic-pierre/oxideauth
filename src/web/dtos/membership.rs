@@ -100,7 +100,7 @@ impl IntoParams<MembershipCreateParams> for MembershipCreateReq {
             workspace_id: self.workspace_id,
             profile_id: self.profile_id,
             scope: self.scope,
-            status: self.status,
+            status: self.status.unwrap_or_default(),
             project_id: self.project_id,
             role_ids: self.role_ids,
             policy_ids: self.policy_ids,
@@ -237,7 +237,7 @@ mod tests {
         assert_eq!(params.account_id, account_id);
         assert_eq!(params.workspace_id, Some(ws_id));
         assert_eq!(params.scope.to_string(), "project");
-        assert_eq!(params.status, Some(MembershipStatus::Active));
+        assert_eq!(params.status, MembershipStatus::Active);
         assert_eq!(params.project_id, Some(project_id));
         assert_eq!(params.role_ids, vec![role_id]);
         assert_eq!(params.policy_ids, vec![policy_id]);

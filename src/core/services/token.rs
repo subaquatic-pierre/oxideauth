@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::debug;
 
 use axum::http::{HeaderMap, header::AUTHORIZATION};
@@ -21,13 +21,13 @@ pub struct TokenServiceConfig {
     jwt_secret: String,
     pub encoding_key: EncodingKey,
     pub decoding_key: DecodingKey,
-    access_token_max_age: u64,
-    refresh_token_max_age: u64,
+    access_token_max_age: i64,
+    refresh_token_max_age: i64,
     algo: Validation,
 }
 
 impl TokenServiceConfig {
-    pub fn new(jwt_secret: String, access_token_max_age: u64, refresh_token_max_age: u64) -> Self {
+    pub fn new(jwt_secret: String, access_token_max_age: i64, refresh_token_max_age: i64) -> Self {
         let jwt_secret_bytes = jwt_secret.as_bytes();
         let encoding_key = EncodingKey::from_secret(&jwt_secret_bytes);
         let decoding_key = DecodingKey::from_secret(&jwt_secret_bytes);
@@ -44,11 +44,11 @@ impl TokenServiceConfig {
         }
     }
 
-    pub fn access_token_max_age(&self) -> u64 {
+    pub fn access_token_max_age(&self) -> i64 {
         self.access_token_max_age
     }
 
-    pub fn refresh_token_max_age(&self) -> u64 {
+    pub fn refresh_token_max_age(&self) -> i64 {
         self.refresh_token_max_age
     }
 }
@@ -91,14 +91,14 @@ impl<D: DbExecutor, C: CacheExecutor> TokenService<D, C> {
 
     pub fn gen_access_token_exp_time(&self) -> usize {
         let now = now_utc();
-        let expire_duration = Duration::from_secs(self.config.access_token_max_age);
+        let expire_duration = Duration::from_secs(self.config.access_token_max_age as u64);
         let future_time = now + expire_duration;
         future_time.unix_timestamp_nanos() as usize
     }
 
     pub fn gen_refresh_token_exp_time(&self) -> usize {
         let now = now_utc();
-        let expire_duration = Duration::from_secs(self.config.refresh_token_max_age);
+        let expire_duration = Duration::from_secs(self.config.refresh_token_max_age as u64);
         let future_time = now + expire_duration;
         future_time.unix_timestamp_nanos() as usize
     }
@@ -133,10 +133,7 @@ mod tests {
     use crate::{
         cache::{manager::CacheManager, mock::MockChx},
         config::Config,
-        core::{
-            models::token::TokenType,
-            services::registry::ServiceRegistry,
-        },
+        core::{models::token::TokenType, services::registry::ServiceRegistry},
         store::{dbx::MockDbx, manager::StoreManager},
         utils::time::now_utc,
     };
@@ -260,7 +257,10 @@ mod tests {
             refresh >= access,
             "refresh lifetime should be >= access lifetime"
         );
-        assert_eq!(svc.config.access_token_max_age(), config.access_token_max_age);
+        assert_eq!(
+            svc.config.access_token_max_age(),
+            config.access_token_max_age
+        );
         assert_eq!(
             svc.config.refresh_token_max_age(),
             config.refresh_token_max_age

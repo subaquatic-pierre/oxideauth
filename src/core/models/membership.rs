@@ -125,7 +125,7 @@ pub struct MembershipCreateParams {
     pub workspace_id: Option<Uuid>,
     pub profile_id: Uuid,
     pub scope: MembershipScope,
-    pub status: Option<MembershipStatus>,
+    pub status: MembershipStatus,
     pub project_id: Option<Uuid>,
     pub role_ids: Vec<Uuid>,
     pub policy_ids: Vec<Uuid>,
@@ -284,7 +284,7 @@ mod tests {
             workspace_id: Some(workspace_id),
             profile_id: Uuid::new_v4(),
             scope: MembershipScope::Project,
-            status: Some(MembershipStatus::Invited),
+            status: MembershipStatus::Invited,
             project_id: Some(project_id),
             role_ids: vec![Uuid::new_v4()],
             policy_ids: vec![Uuid::new_v4()],
@@ -297,7 +297,7 @@ mod tests {
         assert_eq!(params.account_id, account_id);
         assert_eq!(params.workspace_id, Some(workspace_id));
         assert_eq!(params.scope, MembershipScope::Project);
-        assert_eq!(params.status, Some(MembershipStatus::Invited));
+        assert_eq!(params.status, MembershipStatus::Invited);
         assert_eq!(params.project_id, Some(project_id));
         assert_eq!(params.tags, vec!["t".to_string()]);
         assert_eq!(params.meta.schema_version, "2");

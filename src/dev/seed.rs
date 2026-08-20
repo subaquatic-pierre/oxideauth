@@ -153,7 +153,7 @@ async fn create_membership<D: DbExecutor, C: CacheExecutor>(
                 workspace_id: Some(ws_id),
                 profile_id: profile.id,
                 scope: MembershipScope::Workspace,
-                status: Some(MembershipStatus::Active),
+                status: MembershipStatus::Active,
                 project_id: None,
                 role_ids: vec![role_id],
                 policy_ids: vec![],

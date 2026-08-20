@@ -23,6 +23,7 @@ use crate::{
     },
 };
 use crate::{
+    core::email::normalize_email,
     core::{
         ctx::CoreCtx,
         error::{CoreError, CoreResult},
@@ -35,7 +36,7 @@ use crate::{
             list::ListResponse,
         },
         services::{
-            account::AccountService, validator::AuthValidator, permission::CANONICAL_PERMISSIONS,
+            account::AccountService, permission::CANONICAL_PERMISSIONS, validator::AuthValidator,
             workspace::WorkspaceService,
         },
         traits::{
@@ -46,12 +47,8 @@ use crate::{
             },
         },
     },
-    core::email::normalize_email,
     store::contains::FilterByContains,
-    utils::{
-        crypt::verify_password,
-        time::now_utc,
-    },
+    utils::{crypt::verify_password, time::now_utc},
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -90,7 +87,11 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
     /// On success the resolved [`ClientAuthCache`] is written to the cache with
     /// a TTL derived from the credential's `expires_at` (if any), so subsequent
     /// authentication requests can be served from cache without a DB hit.
-    pub async fn authenticate(&self, credential_id: Uuid, secret: &str) -> CoreResult<ClientAuthCache> {
+    pub async fn authenticate(
+        &self,
+        credential_id: Uuid,
+        secret: &str,
+    ) -> CoreResult<ClientAuthCache> {
         // 1. Fetch the credential row by id using an unscoped store context —
         //    client credentials are identified globally by their id, not by a
         //    caller-supplied workspace scope.
@@ -124,8 +125,8 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
 
         // 5. Resolve the membership -> roles -> permissions graph.
         let mem_id: Uuid = cred.membership_id.into();
-        let auth = AuthCache::build_from_db(self.sm.clone(), mem_id, cred.account_id.into(), None)
-            .await?;
+        let auth =
+            AuthCache::build_from_db(self.sm.clone(), mem_id, cred.account_id.into(), None).await?;
 
         // 6. Build the client auth cache entry.
         let entry = ClientAuthCache {
@@ -142,11 +143,7 @@ impl<D: DbExecutor, C: CacheExecutor> CredentialService<D, C> {
         // 7. Cache with a TTL derived from the credential expiry (if any).
         let ttl = cred.expires_at.map(|e| {
             let s = (e - now_utc()).whole_seconds();
-            if s > 0 {
-                s as u64
-            } else {
-                0
-            }
+            if s > 0 { s } else { 0 }
         });
         self.cm.client_auth.write(&entry, ttl).await?;
 
@@ -335,7 +332,10 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for Credentia
         // updateable below.
         let existing = store.get(&store_ctx, &params.id.into()).await?;
         if existing.kind == CredentialKind::OAuth {
-            if params.kind.as_ref().is_some_and(|kind| kind != &existing.kind)
+            if params
+                .kind
+                .as_ref()
+                .is_some_and(|kind| kind != &existing.kind)
                 || params
                     .provider
                     .as_ref()

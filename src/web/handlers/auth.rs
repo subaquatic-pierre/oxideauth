@@ -78,7 +78,9 @@ pub async fn refresh(
     let Json(body) = body?;
     let svc = app.svc_reg.auth.clone();
     let params: RefreshParams = body.into();
-    let tp = svc.refresh_token(params).await?;
+    let mut ctx = app.system_context()?;
+
+    let tp = svc.refresh_token(&mut ctx, params).await?;
     WebResponse::json(AuthRefreshRes {
         access_token: tp.access_token,
         refresh_token: tp.refresh_token,
