@@ -92,7 +92,7 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
         }
     }
 
-    async fn get_account_by_id_or_email(
+    pub async fn get_by_id_or_email(
         &self,
         ctx: &mut CoreCtx,
         id_or_email: &str,
@@ -127,7 +127,7 @@ impl<D: DbExecutor, C: CacheExecutor> AccountService<D, C> {
     /// `Ok(None)` if it does not exist), otherwise `params.email` is used for
     /// an email lookup.
     // TODO: fix this method api, method name should match params
-    pub async fn get_by_email(
+    async fn get_by_email(
         &self,
         ctx: &CoreCtx,
         params: &AccountDescribeParams,
@@ -310,7 +310,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDescribeService<D, C> for Account
                     "Email or ID required to describe account".to_string(),
                 ))?;
 
-        let acc = self.get_account_by_id_or_email(ctx, &identifier).await?;
+        let acc = self.get_by_id_or_email(ctx, &identifier).await?;
 
         // Prevent cross-workspace account enumeration — a non-system caller
         // may only describe an account that holds a membership in their scoped
@@ -387,7 +387,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelUpdateService<D, C> for AccountSe
         // TODO: make email immutable
         let identifier = params.id_or_email()?;
 
-        let current = self.get_account_by_id_or_email(ctx, &identifier).await?;
+        let current = self.get_by_id_or_email(ctx, &identifier).await?;
         let id = current.id;
 
         // Subset rule: a non-system caller may only update an account
@@ -430,7 +430,7 @@ impl<D: DbExecutor, C: CacheExecutor> CoreModelDeleteService<D, C> for AccountSe
             .await?;
 
         let identifier = params.id_or_email()?;
-        let acc = self.get_account_by_id_or_email(ctx, &identifier).await?;
+        let acc = self.get_by_id_or_email(ctx, &identifier).await?;
 
         // Subset rule: a non-system caller may only delete an account
         // exclusively administered in their scoped workspace.

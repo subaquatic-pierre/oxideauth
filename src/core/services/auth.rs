@@ -146,7 +146,7 @@ struct AuthSvcCreateAccParams {
     pub mem_status: MembershipStatus,
 }
 
-struct AuthSvcCreateAccRet {
+struct AccMemCred {
     account: Account,
     membership: Membership,
     credential: Credential,
@@ -282,7 +282,7 @@ where
         &self,
         ctx: &mut CoreCtx,
         params: AuthSvcCreateAccParams,
-    ) -> CoreResult<AuthSvcCreateAccRet> {
+    ) -> CoreResult<AccMemCred> {
         let ws_id = ctx.scoped_ws_id();
 
         let viewer_role = self
@@ -406,7 +406,7 @@ where
             }
         };
 
-        Ok(AuthSvcCreateAccRet {
+        Ok(AccMemCred {
             account,
             membership,
             credential,
@@ -452,15 +452,9 @@ where
         // --- Check email uniqueness ---
         if self
             .acc_svc
-            .get_by_email(
-                ctx,
-                &AccountDescribeParams {
-                    id: None,
-                    email: Some(email.clone()),
-                },
-            )
-            .await?
-            .is_some()
+            .get_by_id_or_email(ctx, &email.clone())
+            .await
+            .is_ok()
         {
             return Err(CoreError::AlreadyExists(format!(
                 "account with email '{}' already exists",
@@ -468,24 +462,10 @@ where
             )));
         }
 
-        // create account
-
-        // --- Look up the default "Workspace Viewer" role ---
-        let viewer_role = self
-            .role_svc
-            .get_by_name(
-                ctx,
-                &RoleDescribeIdentifier {
-                    id: None,
-                    name: Some(SYSTEM_CONST.workspace_viewer_role.to_string()),
-                },
-            )
-            .await?;
-
         // --- Hash password ---
         let secret = hash_password(&password)?;
 
-        // --- Create account (via store — AccountService::create is too heavy with validation) ---
+        // --- Create account ---
         let default_avatar = format!("https://www.gravatar.com/avatar/{}?d=identicon", "default");
         let params = AuthSvcCreateAccParams {
             email: email.clone(),
@@ -502,103 +482,11 @@ where
             secret: Some(secret),
         };
 
-        let AuthSvcCreateAccRet {
+        let AccMemCred {
             account,
             membership,
             credential,
         } = self.create_account(ctx, params).await?;
-
-        // let account_row = self.acc_svc.create(ctx, account_create_params).await?;
-        // let acc_ver = account_row.version;
-        // let account: Account = account_row.into();
-
-        // // Profile identity is established explicitly before the membership.
-        // let profile = match self
-        //     .profile_svc
-        //     .create(
-        //         ctx,
-        //         ProfileCreateParams {
-        //             account_id: account.id,
-        //             workspace_id: Some(ws_id),
-        //             email: account.email.clone(),
-        //             name: account.name.clone(),
-        //             description: None,
-        //             display_name: None,
-        //             job_title: None,
-        //             timezone: None,
-        //             avatar_url: account.avatar_url.clone(),
-        //             tags: vec![],
-        //             meta: Default::default(),
-        //         },
-        //     )
-        //     .await
-        // {
-        //     Ok(profile) => profile,
-        //     Err(err) => {
-        //         self.cleanup_failed_onboarding(ctx, account.id).await;
-        //         return Err(err);
-        //     }
-        // };
-
-        // // --- Create membership with Viewer role (via service) ---
-        // let membership = match self
-        //     .membership_svc
-        //     .create(
-        //         ctx,
-        //         MembershipCreateParams {
-        //             account_id: account.id,
-        //             workspace_id: Some(ws_id),
-        //             profile_id: profile.id,
-        //             scope: MembershipScope::Workspace,
-        //             status: Some(MembershipStatus::Active),
-        //             project_id: None,
-        //             role_ids: vec![viewer_role.id.into()],
-        //             policy_ids: vec![],
-        //             tags: vec![],
-        //             meta: MembershipMeta {
-        //                 schema_version: "1".to_string(),
-        //             },
-        //         },
-        //     )
-        //     .await
-        // {
-        //     Ok(membership) => membership,
-        //     Err(err) => {
-        //         self.cleanup_failed_onboarding(ctx, account.id).await;
-        //         return Err(err);
-        //     }
-        // };
-
-        // // --- Create credential anchored to the membership (via service) ---
-        // if let Err(err) = self
-        //     .credential_svc
-        //     .create(
-        //         ctx,
-        //         CredentialCreateParams {
-        //             account_id: account.id,
-        //             workspace_id: Some(ws_id),
-        //             membership_id: membership.id,
-        //             kind: CredentialKind::Password,
-        //             provider: CredentialProvider::Local,
-        //             status: CredentialStatus::Active,
-        //             secret: Some(secret),
-        //             expires_at: None,
-        //             email: Some(email.clone()),
-        //             // TODO: get default credential from workspace config
-        //             config: CredentialConfig::default(),
-        //             provider_id: None,
-        //             last_used_at: None,
-        //             tags: vec![],
-        //             meta: CredentialMeta {
-        //                 schema_version: "1".to_string(),
-        //             },
-        //         },
-        //     )
-        //     .await
-        // {
-        //     self.cleanup_failed_onboarding(ctx, account.id).await;
-        //     return Err(err);
-        // }
 
         // --- Issue token pair with real workspace + membership IDs ---
         let sid = Uuid::new_v4();
@@ -642,6 +530,58 @@ where
         Ok(())
     }
 
+    fn validate_membership(membership: &Membership) -> CoreResult<()> {
+        // check if membership active
+        if (membership.status != MembershipStatus::Active) {
+            info!(
+                id = %membership.id,
+                reason = "membership is not active status",
+                "AUTH_LOGIN_FAILED"
+            );
+            return Err(CoreError::Auth("invalid credentials".to_string()));
+        }
+
+        Ok(())
+    }
+
+    async fn get_oauth_cred(
+        &self,
+        ctx: &mut CoreCtx,
+        provider: OAuthProvider,
+        provider_id: &str,
+    ) -> CoreResult<Option<Credential>> {
+        // 4. Look up an active Google credential by provider identity.
+        let credential_filter: CredentialFilter = json!({
+            "workspace_id": &ctx.scoped_ws_id(),
+            "kind": CredentialKind::OAuth.to_string(),
+            "provider": provider,
+            "provider_id": provider_id,
+            "status": CredentialStatus::Active.to_string(),
+        })
+        .try_into()?;
+        let list_params = CredentialListParams {
+            workspace_id: Some(ctx.scoped_ws_id()),
+            filter: Some(RequestFilterParams {
+                fields: Some(credential_filter),
+                tags: None,
+            }),
+            options: None,
+        };
+
+        let creds = self.credential_svc.list(ctx, list_params).await?;
+
+        // only one credential should match the filter
+        if creds.metadata.total > 1 {
+            return Err(CoreError::Auth(
+                "ambiguous google identity credential".to_string(),
+            ));
+        }
+
+        let credential = creds.data.into_iter().next();
+
+        Ok(credential)
+    }
+
     /// Logs an account in via email/password and returns the account along
     /// with a token pair (access + refresh).
     ///
@@ -672,19 +612,9 @@ where
         ctx.escalate_perms(&[CANONICAL_PERMISSIONS.account.describe])?;
 
         // --- Find account by email ---
-        let account_row = match self
-            .acc_svc
-            .get_by_email(
-                ctx,
-                &AccountDescribeParams {
-                    id: None,
-                    email: Some(email.clone()),
-                },
-            )
-            .await?
-        {
-            Some(row) => row,
-            None => {
+        let account_row = match self.acc_svc.get_by_id_or_email(ctx, &email).await {
+            Ok(row) => row,
+            Err(e) => {
                 info!(
                     email = %email,
                     reason = "account not found",
@@ -768,15 +698,7 @@ where
                 }
             })?;
 
-        // check if membership active
-        if (membership.status != MembershipStatus::Active) {
-            info!(
-                email = %email,
-                reason = "membership is not active status",
-                "AUTH_LOGIN_FAILED"
-            );
-            return Err(CoreError::Auth("invalid credentials".to_string()));
-        }
+        Self::validate_membership(&membership)?;
 
         let ttl = ctx.ws_cache.config.jwt_max_age;
         let mem_id = membership.id;
@@ -1381,17 +1303,7 @@ where
         let ws_cache = self
             .fetch_ws_cache(ctx, Some(oauth_entity.workspace_id), None)
             .await?;
-        let ws_id = ws_cache.id;
-        ctx.escalate_perms(&[
-            CANONICAL_PERMISSIONS.account.describe,
-            CANONICAL_PERMISSIONS.account.create,
-            CANONICAL_PERMISSIONS.credential.create,
-            CANONICAL_PERMISSIONS.credential.describe,
-            CANONICAL_PERMISSIONS.membership.create,
-            CANONICAL_PERMISSIONS.membership.describe,
-            CANONICAL_PERMISSIONS.profile.create,
-        ])?;
-        ctx.set_scoped_ws(ws_cache);
+        ctx.set_scoped_ws(ws_cache.clone());
 
         // 2. Exchange the authorization code for tokens.
         let token_response = request_google_token(&code, &self.config).await?;
@@ -1407,152 +1319,64 @@ where
         let store = self.acc_svc.store();
         let normalized_email = normalize_email(&google_user.email);
 
-        // 4. Look up an active Google credential by provider identity.
-        let store_ctx = ctx.unscoped_store_ctx();
-        let credential_filter: CredentialFilter = json!({
-            "workspace_id": ws_id.to_string(),
-            "kind": CredentialKind::OAuth.to_string(),
-            "provider": CredentialProvider::Google.to_string(),
-            "provider_id": google_user.id.clone(),
-            "status": CredentialStatus::Active.to_string(),
-        })
-        .try_into()?;
-        let list_params = CredentialListParams {
-            workspace_id: Some(ws_id),
-            filter: Some(RequestFilterParams {
-                fields: Some(credential_filter),
-                tags: None,
-            }),
-            options: None,
-        };
-
-        let creds = self.credential_svc.list(ctx, list_params).await?;
-
-        // only one credential should match the filter
-        if creds.metadata.total > 1 {
-            return Err(CoreError::Auth(
-                "ambiguous google identity credential".to_string(),
-            ));
-        }
-
-        // get or create credential
-        let credential = creds.data.into_iter().next();
-
-        // if let Some(cred) = credential {
-
-        //     // account with email already exists link
-        // } else if let Some(account) = self
-        //     .acc_svc
-        //     .get_by_email(
-        //         ctx,
-        //         &AccountDescribeParams {
-        //             email: Some(google_user.email),
-        //             id: None,
-        //         },
-        //     )
-        //     .await?
-        // {
-        // }
-
-        // if credential exists, ensure account and membership is valid, generate auth tokens and return
-
-        // no credential found, check if email already exists for google_user.email, if account exists ensure validate account
-
-        // if membership ensure valid membership, generate auth token and return
-
-        // if no membership create membership and credential, return token
-
-        let account_create_params = AuthSvcCreateAccParams {
-            email: normalized_email.clone(),
-            name: google_user.name,
-            description: None,
-            avatar_url: google_user.picture.clone(),
-            acc_kind: AccountKind::User,
-            verified: google_user.verified_email,
-            cred_kind: CredentialKind::OAuth,
-            provider: CredentialProvider::Google,
-            secret: None,
-            provider_id: Some(google_user.id),
-            // TODO: get membership status from existing account or workspace.config
-            mem_status: MembershipStatus::Active,
-        };
-
-        let (account, token_ws_id, token_mem_id) = if let Some(credential) = credential {
-            // get account for credential
-            let account: Account = self
-                .acc_svc
-                .describe(
-                    ctx,
-                    AccountDescribeParams {
-                        email: None,
-                        id: Some(credential.account_id),
-                    },
-                )
-                .await?
-                .into();
-
-            // ensure account valid
-            if !account.enabled {
-                return Err(CoreError::Auth("account disabled".to_string()));
-            }
-
-            // get membership for credential
-            let membership = self
-                .membership_svc
-                .describe(
-                    ctx,
-                    MembershipDescribeParams {
-                        id: credential.membership_id.into(),
-                        workspace_id: Some(ws_id),
-                    },
-                )
-                .await?;
-
-            // ensure credential matches membership and is valid
-            if membership.account_id != credential.account_id
-                || membership.workspace_id != ws_id
-                || membership.status != MembershipStatus::Active
-            {
-                return Err(CoreError::Auth(
-                    "google identity is not eligible for authentication".to_string(),
-                ));
-            }
-            (account, ws_id, membership.id)
-        } else if store
-            .get_by_email(&store_ctx, &normalized_email)
-            .await?
-            .is_some()
-        {
-            // 5b. The email belongs to an existing account but no Google
-            //     credential is linked to it — refuse to authenticate.
-            return Err(CoreError::Auth(
-                "google identity is not linked to an account".to_string(),
-            ));
-        } else {
-            // (account, ws_id, membership.id)
-            todo!()
-        };
-
-        // 6. Issue a token pair (access + refresh) for the session.
-        let account_row = self
-            .acc_svc
-            .store()
-            .get(&ctx.unscoped_store_ctx(), &account.id.into())
+        let credential = self
+            .get_oauth_cred(ctx, OAuthProvider::Google, &google_user.id)
             .await?;
-        let acc_ver = account_row.version;
 
-        // NOTE: ctx is not auth scoped
+        let AccMemCred {
+            account,
+            membership,
+            credential,
+        } = match credential {
+            Some(cred) => {
+                // email account matches google email account
+                todo!()
+            }
+            None => {
+                let acc_mem_cred = match self
+                    .acc_svc
+                    .get_by_id_or_email(ctx, &google_user.email)
+                    .await
+                {
+                    Ok(acc) => {
+                        Self::validate_account(&acc)?;
+
+                        // Self::validate_membership(&acc)?;
+                        todo!();
+                    }
+                    // no matching account found, create all
+                    Err(CoreError::NotFound(e)) => {
+                        let params = AuthSvcCreateAccParams {
+                            email: normalized_email.clone(),
+                            name: google_user.name,
+                            description: None,
+                            avatar_url: google_user.picture.clone(),
+                            acc_kind: AccountKind::User,
+                            verified: google_user.verified_email,
+                            cred_kind: CredentialKind::OAuth,
+                            provider: CredentialProvider::Google,
+                            secret: None,
+                            provider_id: Some(google_user.id),
+                            mem_status: ws_cache.config.default_membership_status,
+                        };
+
+                        self.create_account(ctx, params).await?
+                    }
+                    Err(e) => return Err(e),
+                };
+                acc_mem_cred
+            } // account with email already exists link
+        };
 
         let sid = Uuid::new_v4();
         let tp = self.issue_token_pair(
             account.id,
-            token_ws_id,
-            token_mem_id,
-            0,
-            acc_ver,
+            ws_cache.id,
+            membership.id,
+            membership.version,
+            account.version,
             sid,
-            // TODO: change this to workspace config
-            self.config.access_token_max_age,
+            ws_cache.config.jwt_max_age,
         )?;
 
         info!(
